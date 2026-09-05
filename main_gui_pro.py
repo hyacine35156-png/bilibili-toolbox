@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v4.7.1"
+APP_VERSION = "v4.7.2"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -1204,17 +1204,17 @@ class RushRewardFrame(tk.Frame):
         self.task_combo.pack(side=tk.LEFT, padx=(8, 0))
         self.on_version_change()  # 初始化期数、类型下拉框选项和任务列表
 
-        # 第二行：账户选择
+        # 第二行：账户选择（下拉框）
         row2 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         row2.pack(fill=tk.X, pady=3)
         tk.Label(row2, text="抢码账户", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
 
-        self.rush_account_list = tk.Listbox(row2, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                                             selectbackground=COLORS["accent"], selectforeground="#000000",
-                                             font=("微软雅黑", 10), bd=0, highlightthickness=0,
-                                             height=3, exportselection=False, selectmode=tk.EXTENDED)
-        self.rush_account_list.pack(side=tk.LEFT, padx=(15, 0), fill=tk.X, expand=True)
+        self.rush_account_var = tk.StringVar()
+        self.rush_account_combo = ttk.Combobox(row2, textvariable=self.rush_account_var,
+                                                 values=[], state="readonly",
+                                                 font=("微软雅黑", 10), width=25)
+        self.rush_account_combo.pack(side=tk.LEFT, padx=(15, 0))
 
         # 第三行：状态显示
         row3 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
@@ -1344,18 +1344,15 @@ class RushRewardFrame(tk.Frame):
         # 表头
         header_frame = tk.Frame(list_frame, bg=COLORS["bg_input"])
         header_frame.pack(fill=tk.X)
-        tk.Label(header_frame, text="任务名称", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 11, "bold"), width=38, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0), pady=6)
-        tk.Label(header_frame, text="领取时间", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 11, "bold"), width=14, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
-        tk.Label(header_frame, text="时长/间隔", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 11, "bold"), width=18, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
-        tk.Label(header_frame, text="账户", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 11, "bold"), width=18, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
-        tk.Label(header_frame, text="状态", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 11, "bold"), width=10, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
-        tk.Label(header_frame, text="操作", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 11, "bold"), width=22, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
+        # 用固定像素宽度的Frame容器，确保表头和数据行严格对齐
+        col_widths = [340, 110, 170, 150, 80, 200]
+        col_names = ["任务名称", "领取时间", "时长/间隔", "账户", "状态", "操作"]
+        for i, (name, w) in enumerate(zip(col_names, col_widths)):
+            col_frame = tk.Frame(header_frame, bg=COLORS["bg_input"], width=w, height=32)
+            col_frame.pack(side=tk.LEFT, padx=(8 if i == 0 else 4, 0))
+            col_frame.pack_propagate(False)
+            tk.Label(col_frame, text=name, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                     font=("微软雅黑", 11, "bold"), anchor=tk.W).pack(side=tk.LEFT, padx=4, pady=6)
 
         # 任务列表容器（可滚动）
         self.schedule_list_frame = tk.Frame(list_frame, bg=COLORS["bg_card"])
@@ -1377,23 +1374,23 @@ class RushRewardFrame(tk.Frame):
         self.rush_log_text.pack(fill=tk.BOTH, expand=True)
 
     def refresh_account_list(self):
-        self.rush_account_list.delete(0, tk.END)
-        default_index = -1
-        for i, acc in enumerate(self.account_mgr.accounts):
-            display = f"  {acc['name']}"
-            self.rush_account_list.insert(tk.END, display)
-            if acc["name"] == "灵砂是无敌的":
-                default_index = i
-        # 默认选中"灵砂是无敌的"账户
-        if default_index >= 0:
-            self.rush_account_list.selection_set(default_index)
-            self.rush_account_list.see(default_index)
+        account_names = [acc["name"] for acc in self.account_mgr.accounts]
+        self.rush_account_combo["values"] = account_names
+        # 默认选中"灵砂是无敌的"账户，否则选第一个
+        default_name = "灵砂是无敌的"
+        if default_name in account_names:
+            self.rush_account_var.set(default_name)
+        elif account_names:
+            self.rush_account_var.set(account_names[0])
 
     def get_selected_accounts(self):
-        selection = self.rush_account_list.curselection()
-        if not selection:
+        selected_name = self.rush_account_var.get()
+        if not selected_name:
             return []
-        return [self.account_mgr.accounts[i] for i in selection]
+        for acc in self.account_mgr.accounts:
+            if acc["name"] == selected_name:
+                return [acc]
+        return []
 
     # ========== 定时任务相关方法 ==========
     def refresh_scheduled_task_list(self):
@@ -1415,15 +1412,24 @@ class RushRewardFrame(tk.Frame):
             if idx % 2 == 0:
                 row_frame.configure(bg=COLORS["bg_input"])
 
+            # 用固定像素宽度的Frame容器，确保和表头严格对齐
+            col_widths = [340, 110, 170, 150, 80, 200]
+
             # 任务名称
-            name_text = task.get("task_name", "未知任务")[:36]
-            tk.Label(row_frame, text=name_text, bg=row_frame["bg"], fg=COLORS["text_primary"],
-                     font=("微软雅黑", 10), width=38, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0), pady=6)
+            name_text = task.get("task_name", "未知任务")[:30]
+            col1 = tk.Frame(row_frame, bg=row_frame["bg"], width=col_widths[0], height=36)
+            col1.pack(side=tk.LEFT, padx=(8, 0))
+            col1.pack_propagate(False)
+            tk.Label(col1, text=name_text, bg=row_frame["bg"], fg=COLORS["text_primary"],
+                     font=("微软雅黑", 10), anchor=tk.W).pack(side=tk.LEFT, padx=4, pady=8)
 
             # 领取时间
             time_text = f"{task.get('schedule_hour', '00')}:{task.get('schedule_minute', '00')}:{task.get('schedule_second', '00')}"
-            tk.Label(row_frame, text=time_text, bg=row_frame["bg"], fg=COLORS["accent"],
-                     font=("微软雅黑", 10, "bold"), width=14, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
+            col2 = tk.Frame(row_frame, bg=row_frame["bg"], width=col_widths[1], height=36)
+            col2.pack(side=tk.LEFT, padx=(4, 0))
+            col2.pack_propagate(False)
+            tk.Label(col2, text=time_text, bg=row_frame["bg"], fg=COLORS["accent"],
+                     font=("微软雅黑", 10, "bold"), anchor=tk.W).pack(side=tk.LEFT, padx=4, pady=8)
 
             # 时长/间隔
             interval_mode = task.get("interval_mode", "fixed")
@@ -1432,14 +1438,20 @@ class RushRewardFrame(tk.Frame):
             else:
                 interval_text = f"{task.get('min_interval', '600')}~{task.get('max_interval', '800')}ms"
             dur_text = f"{task.get('duration', '20')}s/{interval_text}"
-            tk.Label(row_frame, text=dur_text, bg=row_frame["bg"], fg=COLORS["text_secondary"],
-                     font=("微软雅黑", 10), width=18, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
+            col3 = tk.Frame(row_frame, bg=row_frame["bg"], width=col_widths[2], height=36)
+            col3.pack(side=tk.LEFT, padx=(4, 0))
+            col3.pack_propagate(False)
+            tk.Label(col3, text=dur_text, bg=row_frame["bg"], fg=COLORS["text_secondary"],
+                     font=("微软雅黑", 10), anchor=tk.W).pack(side=tk.LEFT, padx=4, pady=8)
 
             # 账户
             accounts = task.get("account_names", [])
-            acc_text = ",".join(accounts)[:12] if accounts else "未设置"
-            tk.Label(row_frame, text=acc_text, bg=row_frame["bg"], fg=COLORS["text_secondary"],
-                     font=("微软雅黑", 10), width=18, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
+            acc_text = ",".join(accounts)[:10] if accounts else "未设置"
+            col4 = tk.Frame(row_frame, bg=row_frame["bg"], width=col_widths[3], height=36)
+            col4.pack(side=tk.LEFT, padx=(4, 0))
+            col4.pack_propagate(False)
+            tk.Label(col4, text=acc_text, bg=row_frame["bg"], fg=COLORS["text_secondary"],
+                     font=("微软雅黑", 10), anchor=tk.W).pack(side=tk.LEFT, padx=4, pady=8)
 
             # 状态
             status = task.get("status", "等待中")
@@ -1450,12 +1462,18 @@ class RushRewardFrame(tk.Frame):
                 status_color = COLORS["accent"]
             elif status == "失败":
                 status_color = COLORS["danger"]
-            tk.Label(row_frame, text=status, bg=row_frame["bg"], fg=status_color,
-                     font=("微软雅黑", 10, "bold"), width=10, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
+            col5 = tk.Frame(row_frame, bg=row_frame["bg"], width=col_widths[4], height=36)
+            col5.pack(side=tk.LEFT, padx=(4, 0))
+            col5.pack_propagate(False)
+            tk.Label(col5, text=status, bg=row_frame["bg"], fg=status_color,
+                     font=("微软雅黑", 10, "bold"), anchor=tk.W).pack(side=tk.LEFT, padx=4, pady=8)
 
             # 操作按钮
-            btn_frame = tk.Frame(row_frame, bg=row_frame["bg"])
-            btn_frame.pack(side=tk.LEFT, padx=(12, 0))
+            col6 = tk.Frame(row_frame, bg=row_frame["bg"], width=col_widths[5], height=36)
+            col6.pack(side=tk.LEFT, padx=(4, 0))
+            col6.pack_propagate(False)
+            btn_frame = tk.Frame(col6, bg=row_frame["bg"])
+            btn_frame.pack(side=tk.LEFT, padx=4, pady=2)
 
             task_id = task.get("id")
             if status in ["等待中", "已完成", "已领取", "失败"]:
