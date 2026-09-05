@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v4.7.5"
+APP_VERSION = "v4.7.6"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -1338,13 +1338,15 @@ class RushRewardFrame(tk.Frame):
 
         # 表头
         header_frame = tk.Frame(list_frame, bg=COLORS["bg_input"])
-        header_frame.pack(fill=tk.X)
+        header_frame.pack(fill=tk.X, pady=(0, 8))
         # 用固定像素宽度的Frame容器，确保表头和数据行严格对齐
         col_widths = [340, 110, 170, 150, 80, 200]
         col_names = ["任务名称", "领取时间", "时长/间隔", "账户", "状态", "操作"]
+        # 每列左边距：首列25，时长/间隔列后加大到35
+        col_paddings = [25, 18, 18, 35, 18, 18]
         for i, (name, w) in enumerate(zip(col_names, col_widths)):
             col_frame = tk.Frame(header_frame, bg=COLORS["bg_input"], width=w, height=32)
-            col_frame.pack(side=tk.LEFT, padx=(25 if i == 0 else 18, 0))
+            col_frame.pack(side=tk.LEFT, padx=(col_paddings[i], 0))
             col_frame.pack_propagate(False)
             tk.Label(col_frame, text=name, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
                      font=("微软雅黑", 11, "bold"), anchor=tk.W).pack(side=tk.LEFT, padx=8, pady=6)
@@ -1443,7 +1445,7 @@ class RushRewardFrame(tk.Frame):
             accounts = task.get("account_names", [])
             acc_text = ",".join(accounts)[:10] if accounts else "未设置"
             col4 = tk.Frame(row_frame, bg=row_frame["bg"], width=col_widths[3], height=44)
-            col4.pack(side=tk.LEFT, padx=(18, 0))
+            col4.pack(side=tk.LEFT, padx=(35, 0))
             col4.pack_propagate(False)
             tk.Label(col4, text=acc_text, bg=row_frame["bg"], fg=COLORS["text_secondary"],
                      font=("微软雅黑", 10), anchor=tk.W).pack(side=tk.LEFT, padx=8, pady=12)
@@ -1742,7 +1744,7 @@ class RushRewardFrame(tk.Frame):
                     initial_stock = max(day_s, total_s)
                     if initial_stock > max_stock_seen:
                         max_stock_seen = initial_stock
-                    self.log(f"  初始库存: 今日剩余={day_s}, 剩余总量={total_s}%")
+                    self.log(f"  初始库存: 今日剩余={day_s}%, 剩余总量={total_s}%")
             except Exception:
                 pass
 
@@ -2121,7 +2123,7 @@ class RushRewardFrame(tk.Frame):
                     # 输出库存调试信息到日志
                     for log_line in debug_log:
                         self.log(f"[库存调试] {log_line}")
-                    self.log(f"[库存调试] 解析结果: 今日剩余={day_stock}, 活动剩余={total_stock}, 来源={stock_source}")
+                    self.log(f"[库存调试] 解析结果: 今日剩余={day_stock}%, 活动剩余={total_stock}%, 来源={stock_source}")
                     self.log(f"[库存调试] 描述解析: 总库存={award_total_stock}, 每日限量={award_daily_limit}")
                     if stock_raw:
                         self.log(f"[库存调试] 库存原始数据: {json.dumps(stock_raw, ensure_ascii=False)[:300]}")
@@ -2148,7 +2150,7 @@ class RushRewardFrame(tk.Frame):
                     stock_parts_final.append(f"剩余总量{total_stock}%")
                     if award_daily_limit > 0:
                         stock_parts_final.append(f"每日限量{award_daily_limit}")
-                    stock_parts_final.append(f"今日剩余{day_stock}")
+                    stock_parts_final.append(f"今日剩余{day_stock}%")
                     stock_text_final = " / ".join(stock_parts_final)
 
                     if day_stock > 0:
@@ -2336,7 +2338,7 @@ class RushRewardFrame(tk.Frame):
                 initial_stock = max(day_s, total_s)
                 if initial_stock > max_stock_seen:
                     max_stock_seen = initial_stock
-                self.log(f"  初始库存: 今日剩余={day_s}, 剩余总量={total_s}%")
+                self.log(f"  初始库存: 今日剩余={day_s}%, 剩余总量={total_s}%")
         except Exception:
             pass
 
@@ -2590,7 +2592,7 @@ class RushRewardFrame(tk.Frame):
                 initial_stock = max(day_s, total_s)
                 if initial_stock > max_stock_seen:
                     max_stock_seen = initial_stock
-                self.log(f"  初始库存: 今日剩余={day_s}, 剩余总量={total_s}%")
+                self.log(f"  初始库存: 今日剩余={day_s}%, 剩余总量={total_s}%")
         except Exception:
             pass
 
@@ -2778,7 +2780,7 @@ class RushRewardFrame(tk.Frame):
                 stock_parts.append(f"剩总量{total_stock}%")
                 if award_daily_limit > 0:
                     stock_parts.append(f"日限{award_daily_limit}")
-                stock_parts.append(f"今日{day_stock}")
+                stock_parts.append(f"今日{day_stock}%")
                 stock_text = "/".join(stock_parts)
 
                 try:
