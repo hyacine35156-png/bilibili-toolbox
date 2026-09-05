@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.2.2"
+APP_VERSION = "v5.2.3"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -3154,14 +3154,15 @@ class WatchLiveFrame(tk.Frame):
         combo = ttk.Combobox(bar, width=20, values=["无"], state="readonly")
         combo.pack(side=tk.LEFT)
         combo.set("无")
-        del_btn = tk.Button(bar, text="✕", bg=COLORS["danger"], fg="#ffffff", font=("微软雅黑", 8),
-                            bd=0, padx=4, pady=1, cursor="hand2", command=lambda b=bar: self._remove_watch_room_bar(b))
-        del_btn.pack(side=tk.LEFT, padx=(4, 0))
+        # 第一个栏不显示删除按钮，后面添加的栏才显示
+        is_first = len(self.watch_room_bars) == 0
+        del_btn = None
+        if not is_first:
+            del_btn = tk.Button(bar, text="✕", bg=COLORS["danger"], fg="#ffffff", font=("微软雅黑", 8),
+                                bd=0, padx=4, pady=1, cursor="hand2", command=lambda b=bar: self._remove_watch_room_bar(b))
+            del_btn.pack(side=tk.LEFT, padx=(4, 0))
         self.watch_room_bars.append((bar, combo, del_btn))
         self._refresh_room_combo_values()
-        # 如果只有一个栏，禁用删除按钮
-        if len(self.watch_room_bars) <= 1:
-            self.watch_room_bars[0][2].config(state=tk.DISABLED)
 
     def _remove_watch_room_bar(self, bar):
         """删除一个直播间选择栏"""
@@ -3172,11 +3173,9 @@ class WatchLiveFrame(tk.Frame):
                 b.destroy()
                 self.watch_room_bars.pop(i)
                 break
-        # 如果只剩一个栏，禁用删除按钮
-        if len(self.watch_room_bars) <= 1:
-            self.watch_room_bars[0][2].config(state=tk.DISABLED)
-        else:
-            for b, c, d in self.watch_room_bars:
+        # 第一个栏没有删除按钮，后面的栏保持正常状态
+        for idx, (b, c, d) in enumerate(self.watch_room_bars):
+            if d is not None and idx > 0:
                 d.config(state=tk.NORMAL)
 
     def _get_watch_room_ids(self):
@@ -6054,7 +6053,7 @@ class DanmakuApp:
         self.manager_room_listbox.bind("<<ListboxSelect>>", self._on_manager_room_select)
 
         # 右侧：添加/编辑表单
-        room_right = tk.Frame(room_inner, bg=COLORS["bg_card"], width=280)
+        room_right = tk.Frame(room_inner, bg=COLORS["bg_card"], width=340)
         room_right.pack(side=tk.LEFT, fill=tk.Y)
         room_right.pack_propagate(False)
 
@@ -6074,11 +6073,11 @@ class DanmakuApp:
         self.room_remark_entry.pack(fill=tk.X, pady=(2, 10))
 
         DarkButton(room_right, "+ 添加直播间", command=self._manager_add_room,
-                   width=260, height=34).pack(pady=(0, 5))
+                   width=320, height=34).pack(pady=(0, 5))
         DarkButton(room_right, "删除直播间", command=self._manager_delete_room,
-                   width=260, height=34, bg_color=COLORS["danger"], text_color="#ffffff").pack(pady=(0, 5))
+                   width=320, height=34, bg_color=COLORS["danger"], text_color="#ffffff").pack(pady=(0, 5))
         DarkButton(room_right, "从账户导入", command=self._manager_import_rooms_from_accounts,
-                   width=260, height=34, bg_color="#2980b9", text_color="#ffffff").pack()
+                   width=320, height=34, bg_color="#2980b9", text_color="#ffffff").pack()
 
         self._refresh_manager_room_list()
 
@@ -6389,6 +6388,9 @@ bili_jct: {jct_preview}
         self.root.wait_window(dialog)
         self.refresh_account_list()
         self.refresh_account_manager_list()
+        # 刷新看播页面账户列表
+        if hasattr(self, 'watch_page'):
+            self.watch_page.refresh_account_list()
 
     def delete_account(self):
         acc = self.get_current_account()
@@ -6401,6 +6403,9 @@ bili_jct: {jct_preview}
             # 刷新弹幕账户多选复选框
             if hasattr(self, '_refresh_danmaku_account_checkboxes'):
                 self._refresh_danmaku_account_checkboxes()
+            # 刷新看播页面账户列表
+            if hasattr(self, 'watch_page'):
+                self.watch_page.refresh_account_list()
             self.log(f"已删除账户: {acc['name']}")
 
     def verify_current_account(self):
