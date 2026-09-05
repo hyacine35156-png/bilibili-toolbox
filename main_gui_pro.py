@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v4.6.8"
+APP_VERSION = "v4.6.9"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -1141,9 +1141,9 @@ class RushRewardFrame(tk.Frame):
         header.pack(fill=tk.X)
         header.pack_propagate(False)
         tk.Label(header, text="⚡ 自动抢码工具", bg=COLORS["bg_card"],
-                 fg=COLORS["accent"], font=("微软雅黑", 13, "bold")).pack(side=tk.LEFT, padx=20)
+                 fg=COLORS["accent"], font=("微软雅黑", 15, "bold")).pack(side=tk.LEFT, padx=20)
         self.rush_status = tk.Label(header, text="● 未运行", bg=COLORS["bg_card"],
-                                     fg=COLORS["text_muted"], font=("微软雅黑", 9))
+                                     fg=COLORS["text_muted"], font=("微软雅黑", 11))
         self.rush_status.pack(side=tk.RIGHT, padx=20)
 
         # 主内容区
@@ -5159,41 +5159,41 @@ class DanmakuApp:
         title_frame.pack(side=tk.LEFT, padx=20)
 
         tk.Label(title_frame, text="● B站工具箱", bg=COLORS["bg_card"],
-                 fg=COLORS["accent"], font=("微软雅黑", 14, "bold")).pack(side=tk.LEFT)
+                 fg=COLORS["accent"], font=("微软雅黑", 16, "bold")).pack(side=tk.LEFT)
         tk.Label(title_frame, text="  弹幕+抢码+定时关机", bg=COLORS["bg_card"],
-                 fg=COLORS["text_muted"], font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(8, 0))
+                 fg=COLORS["text_muted"], font=("微软雅黑", 11)).pack(side=tk.LEFT, padx=(8, 0))
 
         self.header_status = tk.Label(header, text="● 未运行", bg=COLORS["bg_card"],
-                                       fg=COLORS["text_muted"], font=("微软雅黑", 9))
+                                       fg=COLORS["text_muted"], font=("微软雅黑", 11))
         self.header_status.pack(side=tk.RIGHT, padx=20)
 
         # 标签切换栏
-        tab_bar = tk.Frame(self.root, bg=COLORS["bg_card"], height=44)
+        tab_bar = tk.Frame(self.root, bg=COLORS["bg_card"], height=52)
         tab_bar.pack(fill=tk.X)
         tab_bar.pack_propagate(False)
 
         self.tab_rush = tk.Label(tab_bar, text="⚡ 抢码工具", bg=COLORS["accent"], fg="#000000",
-                                  font=("微软雅黑", 10, "bold"), padx=20, pady=8, cursor="hand2")
+                                  font=("微软雅黑", 12, "bold"), padx=24, pady=10, cursor="hand2")
         self.tab_rush.pack(side=tk.LEFT, padx=(15, 5), pady=6)
         self.tab_rush.bind("<Button-1>", lambda e: self.switch_tab("rush"))
 
         self.tab_danmaku = tk.Label(tab_bar, text="💬 弹幕工具", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                     font=("微软雅黑", 10), padx=20, pady=8, cursor="hand2")
+                                     font=("微软雅黑", 12), padx=24, pady=10, cursor="hand2")
         self.tab_danmaku.pack(side=tk.LEFT, padx=(0, 5), pady=6)
         self.tab_danmaku.bind("<Button-1>", lambda e: self.switch_tab("danmaku"))
 
         self.tab_shutdown = tk.Label(tab_bar, text="⏻ 定时关机", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                      font=("微软雅黑", 10), padx=20, pady=8, cursor="hand2")
+                                      font=("微软雅黑", 12), padx=24, pady=10, cursor="hand2")
         self.tab_shutdown.pack(side=tk.LEFT, padx=(0, 5), pady=6)
         self.tab_shutdown.bind("<Button-1>", lambda e: self.switch_tab("shutdown"))
 
         self.tab_watch = tk.Label(tab_bar, text="📺 看播任务", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                   font=("微软雅黑", 10), padx=20, pady=8, cursor="hand2")
+                                   font=("微软雅黑", 12), padx=24, pady=10, cursor="hand2")
         self.tab_watch.pack(side=tk.LEFT, padx=(0, 5), pady=6)
         self.tab_watch.bind("<Button-1>", lambda e: self.switch_tab("watch"))
 
         self.tab_schedule = tk.Label(tab_bar, text="📅 日程任务", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                      font=("微软雅黑", 10), padx=20, pady=8, cursor="hand2")
+                                      font=("微软雅黑", 12), padx=24, pady=10, cursor="hand2")
         self.tab_schedule.pack(side=tk.LEFT, padx=(0, 15), pady=6)
         self.tab_schedule.bind("<Button-1>", lambda e: self.switch_tab("schedule"))
 
