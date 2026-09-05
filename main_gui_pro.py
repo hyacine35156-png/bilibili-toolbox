@@ -1340,7 +1340,7 @@ class RushRewardFrame(tk.Frame):
         header_frame = tk.Frame(list_frame, bg=COLORS["bg_input"])
         header_frame.pack(fill=tk.X, pady=(0, 8))
         # 用固定像素宽度的Frame容器，确保表头和数据行严格对齐
-        col_widths = [340, 110, 170, 150, 80, 200]
+        col_widths = [300, 100, 150, 130, 70, 140]
         col_names = ["任务名称", "领取时间", "时长/间隔", "账户", "状态", "操作"]
         # 每列左边距：首列25，时长/间隔列后加大到35
         col_paddings = [25, 18, 18, 35, 18, 18]
@@ -1410,7 +1410,7 @@ class RushRewardFrame(tk.Frame):
                 row_frame.configure(bg=COLORS["bg_input"])
 
             # 用固定像素宽度的Frame容器，确保和表头严格对齐
-            col_widths = [340, 110, 170, 150, 80, 200]
+            col_widths = [300, 100, 150, 130, 70, 140]
 
             # 任务名称
             name_text = task.get("task_name", "未知任务")[:30]
