@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.2.5"
+APP_VERSION = "v5.2.6"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -2994,7 +2994,7 @@ class WatchLiveFrame(tk.Frame):
             room_selections = []
             for bar, combo, del_btn in self.watch_room_bars:
                 selected = combo.get().strip()
-                if selected and selected != "无":
+                if selected:
                     room_selections.append(selected)
             self.watch_config["room_selections"] = room_selections
             self.watch_config["room_bar_count"] = len(self.watch_room_bars)
@@ -3021,10 +3021,10 @@ class WatchLiveFrame(tk.Frame):
             # 恢复直播间选择
             room_selections = self.watch_config.get("room_selections", [])
             for i, (bar, combo, del_btn) in enumerate(self.watch_room_bars):
-                if i < len(room_selections):
+                if i < len(room_selections) and room_selections[i]:
                     combo.set(room_selections[i])
                 else:
-                    combo.set("无")
+                    combo.set("")
             self.duration_var.set(self.watch_config.get("daily_minutes", 30))
             self.interval_var.set(self.watch_config.get("heartbeat_interval", 60))
             selected_names = self.watch_config.get("selected_accounts", [])
@@ -3131,20 +3131,20 @@ class WatchLiveFrame(tk.Frame):
 
     def _refresh_room_combo_values(self):
         """刷新所有直播间栏的下拉框选项"""
-        values = ["无"] + [room["name"] for room in self.room_mgr.rooms]
+        values = [room["name"] for room in self.room_mgr.rooms]
         for bar, combo, del_btn in getattr(self, 'watch_room_bars', []):
             current = combo.get()
             combo["values"] = values
             if current not in values:
-                combo.set("无")
+                combo.set("")
 
     def _add_watch_room_bar(self):
         """添加一个直播间选择栏"""
         bar = tk.Frame(self.watch_room_container, bg=COLORS["bg_card"])
         bar.pack(side=tk.LEFT, padx=(0, 8))
-        combo = ttk.Combobox(bar, width=20, values=["无"], state="readonly")
+        combo = ttk.Combobox(bar, width=20, values=[], state="readonly")
         combo.pack(side=tk.LEFT)
-        combo.set("无")
+        combo.set("")
         # 第一个栏不显示删除按钮，后面添加的栏才显示
         is_first = len(self.watch_room_bars) == 0
         del_btn = None
@@ -3174,7 +3174,7 @@ class WatchLiveFrame(tk.Frame):
         room_ids = []
         for bar, combo, del_btn in self.watch_room_bars:
             selected = combo.get().strip()
-            if selected and selected != "无":
+            if selected:
                 for room in self.room_mgr.rooms:
                     if room["name"] == selected:
                         room_ids.append(room["id"])
