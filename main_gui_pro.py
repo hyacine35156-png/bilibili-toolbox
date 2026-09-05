@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v4.6.6"
+APP_VERSION = "v4.6.7"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -1164,48 +1164,48 @@ class RushRewardFrame(tk.Frame):
         row1 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         row1.pack(fill=tk.X, pady=3)
         tk.Label(row1, text="版本", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
         self.version_var = tk.StringVar(value="鸣潮3.6")
         self.version_combo = ttk.Combobox(row1, textvariable=self.version_var,
                                            values=["鸣潮3.6", "原神7.0", "崩坏星穹铁道4.5"], state="readonly",
-                                           width=14, font=("微软雅黑", 9))
+                                           width=14, font=("微软雅黑", 11))
         self.version_combo.pack(side=tk.LEFT, padx=(8, 15))
         self.version_combo.bind("<<ComboboxSelected>>", lambda e: self.on_version_change())
 
         tk.Label(row1, text="期数", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
         self.period_var = tk.StringVar(value="上半")
         self.period_combo = ttk.Combobox(row1, textvariable=self.period_var,
                                           values=["上半", "下半", "全版本", "限时任务1", "限时任务2", "限时直播", "新人限定"], state="readonly",
-                                          width=10, font=("微软雅黑", 9))
+                                          width=10, font=("微软雅黑", 11))
         self.period_combo.pack(side=tk.LEFT, padx=(8, 15))
         self.period_combo.bind("<<ComboboxSelected>>", lambda e: self.on_period_change())
 
         tk.Label(row1, text="类型", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
         self.task_type_var = tk.StringVar(value="投稿")
         self.type_combo = ttk.Combobox(row1, textvariable=self.task_type_var,
                                         values=["投稿", "直播", "直播里程碑", "看播里程碑", "新人开播"], state="readonly",
-                                        width=12, font=("微软雅黑", 9))
+                                        width=12, font=("微软雅黑", 11))
         self.type_combo.pack(side=tk.LEFT, padx=(8, 15))
         self.type_combo.bind("<<ComboboxSelected>>", lambda e: self.update_task_list())
 
         tk.Label(row1, text="查询间隔", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
         self.interval_entry = DarkEntry(row1, width=6)
         self.interval_entry.insert(0, "3")
         self.interval_entry.pack(side=tk.LEFT, padx=(8, 4))
         tk.Label(row1, text="秒", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
 
         # 第二行：具体任务选择
         row1b = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         row1b.pack(fill=tk.X, pady=3)
         tk.Label(row1b, text="任务", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
         self.task_var = tk.StringVar()
         self.task_combo = ttk.Combobox(row1b, textvariable=self.task_var, values=[],
-                                        state="readonly", width=45, font=("微软雅黑", 9))
+                                        state="readonly", width=45, font=("微软雅黑", 11))
         self.task_combo.pack(side=tk.LEFT, padx=(8, 0))
         self.on_version_change()  # 初始化期数、类型下拉框选项和任务列表
 
@@ -1213,7 +1213,7 @@ class RushRewardFrame(tk.Frame):
         row2 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         row2.pack(fill=tk.X, pady=3)
         tk.Label(row2, text="抢码账户", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
         self.rush_account_mode = tk.StringVar(value="single")
         ttk.Radiobutton(row2, text="单账户", variable=self.rush_account_mode, value="single",
                         style="Dark.TRadiobutton").pack(side=tk.LEFT, padx=(8, 8))
@@ -1222,7 +1222,7 @@ class RushRewardFrame(tk.Frame):
 
         self.rush_account_list = tk.Listbox(row2, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
                                              selectbackground=COLORS["accent"], selectforeground="#000000",
-                                             font=("微软雅黑", 8), bd=0, highlightthickness=0,
+                                             font=("微软雅黑", 10), bd=0, highlightthickness=0,
                                              height=3, exportselection=False, selectmode=tk.EXTENDED)
         self.rush_account_list.pack(side=tk.LEFT, padx=(15, 0), fill=tk.X, expand=True)
 
@@ -1230,28 +1230,28 @@ class RushRewardFrame(tk.Frame):
         row3 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         row3.pack(fill=tk.X, pady=(8, 0))
         self.stock_label = tk.Label(row3, text="库存状态：等待查询", bg=COLORS["bg_card"],
-                                     fg=COLORS["text_muted"], font=("微软雅黑", 9))
+                                     fg=COLORS["text_muted"], font=("微软雅黑", 11))
         self.stock_label.pack(side=tk.LEFT)
         self.qualify_label = tk.Label(row3, text="领取资格：等待查询", bg=COLORS["bg_card"],
-                                       fg=COLORS["text_muted"], font=("微软雅黑", 9))
+                                       fg=COLORS["text_muted"], font=("微软雅黑", 11))
         self.qualify_label.pack(side=tk.LEFT, padx=(20, 0))
         self.task_finish_label = tk.Label(row3, text="任务完成：等待查询", bg=COLORS["bg_card"],
-                                           fg=COLORS["text_muted"], font=("微软雅黑", 9))
+                                           fg=COLORS["text_muted"], font=("微软雅黑", 11))
         self.task_finish_label.pack(side=tk.LEFT, padx=(20, 0))
 
         # 第四行：领取设置（时长、间隔）
         row4 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         row4.pack(fill=tk.X, pady=(8, 0))
         tk.Label(row4, text="领取时长", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
         self.duration_entry = DarkEntry(row4, width=6)
         self.duration_entry.insert(0, "20")
         self.duration_entry.pack(side=tk.LEFT, padx=(8, 4))
         tk.Label(row4, text="秒", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
 
         tk.Label(row4, text="间隔模式", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(20, 0))
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT, padx=(20, 0))
         self.interval_mode = tk.StringVar(value="random")
         ttk.Radiobutton(row4, text="固定", variable=self.interval_mode, value="fixed",
                         style="Dark.TRadiobutton", command=self.toggle_interval_mode).pack(side=tk.LEFT, padx=(8, 4))
@@ -1269,9 +1269,9 @@ class RushRewardFrame(tk.Frame):
         self.max_interval_entry = DarkEntry(row4, width=6)
         self.max_interval_entry.insert(0, "800")
         self.tilde_label = tk.Label(row4, text="~", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                                     font=("微软雅黑", 9))
+                                     font=("微软雅黑", 11))
         self.ms_label = tk.Label(row4, text="毫秒", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                                  font=("微软雅黑", 9))
+                                  font=("微软雅黑", 11))
 
         # 初始化为随机模式
         self.toggle_interval_mode()
@@ -1280,34 +1280,34 @@ class RushRewardFrame(tk.Frame):
         row5 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         row5.pack(fill=tk.X, pady=(6, 0))
         tk.Label(row5, text="定时时间", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
         # 时：00-23
         hour_values = [f"{h:02d}" for h in range(24)]
         self.schedule_hour_var = tk.StringVar(value="00")
         self.schedule_hour_combo = ttk.Combobox(row5, textvariable=self.schedule_hour_var,
                                                    values=hour_values, state="readonly", width=4,
-                                                   font=("微软雅黑", 9))
+                                                   font=("微软雅黑", 11))
         self.schedule_hour_combo.pack(side=tk.LEFT, padx=(8, 2))
         tk.Label(row5, text="时", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
         # 分：00-59
         minute_values = [f"{m:02d}" for m in range(60)]
         self.schedule_minute_var = tk.StringVar(value="59")
         self.schedule_minute_combo = ttk.Combobox(row5, textvariable=self.schedule_minute_var,
                                                      values=minute_values, state="readonly", width=4,
-                                                     font=("微软雅黑", 9))
+                                                     font=("微软雅黑", 11))
         self.schedule_minute_combo.pack(side=tk.LEFT, padx=(8, 2))
         tk.Label(row5, text="分", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
         # 秒：00-59
         second_values = [f"{s:02d}" for s in range(60)]
         self.schedule_second_var = tk.StringVar(value="54")
         self.schedule_second_combo = ttk.Combobox(row5, textvariable=self.schedule_second_var,
                                                      values=second_values, state="readonly", width=4,
-                                                     font=("微软雅黑", 9))
+                                                     font=("微软雅黑", 11))
         self.schedule_second_combo.pack(side=tk.LEFT, padx=(8, 2))
         tk.Label(row5, text="秒", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
 
         # 按钮行
         btn_row = tk.Frame(settings_inner, bg=COLORS["bg_card"])
