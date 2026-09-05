@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.2.1"
+APP_VERSION = "v5.2.2"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -5741,7 +5741,7 @@ class DanmakuApp:
         self.danmaku_page.pack_forget()
 
         # 抢码工具页面
-        self.rush_page = RushRewardFrame(self.tab_container, self.account_mgr)
+        self.rush_page = RushRewardFrame(self.tab_container, self.account_mgr, self.room_mgr)
         self.rush_page.pack(fill=tk.BOTH, expand=True)
 
         # 定时关机页面
