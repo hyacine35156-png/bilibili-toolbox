@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v4.9.7"
+APP_VERSION = "v4.9.8"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -3094,7 +3094,7 @@ class WatchLiveFrame(tk.Frame):
     def get_battery_balance(self, account):
         """查询账户电池余额（gold字段，后两位为小数，100=1电池）"""
         try:
-            sessdata = account.get("sessdata", "")
+            sessdata = account.get("SESSDATA", "")
             bili_jct = account.get("bili_jct", "")
             cookies = {"SESSDATA": sessdata, "bili_jct": bili_jct}
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -4171,7 +4171,7 @@ class WatchLiveFrame(tk.Frame):
         if self.gift_id_cache:
             return self.gift_id_cache
         try:
-            sessdata = account.get("sessdata", "")
+            sessdata = account.get("SESSDATA", "")
             bili_jct = account.get("bili_jct", "")
             cookies = {"SESSDATA": sessdata, "bili_jct": bili_jct}
             # 获取礼物列表
