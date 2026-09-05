@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v4.6.7"
+APP_VERSION = "v4.6.8"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -1341,11 +1341,11 @@ class RushRewardFrame(tk.Frame):
         tk.Label(schedule_header, text="⏰ 定时任务列表（多线程独立运行）", bg=COLORS["bg_card"], fg=COLORS["accent"],
                  font=("微软雅黑", 11, "bold")).pack(side=tk.LEFT)
         DarkButton(schedule_header, "+ 添加当前设置", command=self.add_scheduled_task,
-                   width=150, height=34, bg_color=COLORS["accent"], text_color="#000000").pack(side=tk.RIGHT, padx=(4, 0))
+                   width=200, height=38, bg_color=COLORS["accent"], text_color="#000000").pack(side=tk.RIGHT, padx=(4, 0))
         DarkButton(schedule_header, "▶ 全部开始", command=self.start_all_scheduled_tasks,
-                   width=120, height=34, bg_color=COLORS["success"], text_color="#ffffff").pack(side=tk.RIGHT, padx=(4, 0))
+                   width=140, height=38, bg_color=COLORS["success"], text_color="#ffffff").pack(side=tk.RIGHT, padx=(4, 0))
         DarkButton(schedule_header, "■ 全部停止", command=self.stop_all_scheduled_tasks,
-                   width=120, height=34, bg_color=COLORS["danger"], text_color="#ffffff").pack(side=tk.RIGHT)
+                   width=140, height=38, bg_color=COLORS["danger"], text_color="#ffffff").pack(side=tk.RIGHT)
 
         # 定时任务列表
         list_frame = tk.Frame(schedule_card, bg=COLORS["bg_card"])
