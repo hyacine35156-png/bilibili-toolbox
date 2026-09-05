@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v4.9.2"
+APP_VERSION = "v4.9.3"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -2870,6 +2870,7 @@ class WatchLiveFrame(tk.Frame):
         self.gift_stop = {}
         self.gift_config = self.load_gift_config()
         self.gift_id_cache = None  # 缓存牛蛙牛蛙的gift_id
+        self.gift_account_vars = {}  # 送礼单独账户选择
         self.build_ui()
         self.refresh_account_list()
         self.apply_watch_config()
@@ -2963,7 +2964,7 @@ class WatchLiveFrame(tk.Frame):
             self.gift_config["interval"] = self.gift_interval_var.get()
             self.gift_config["max_count"] = self.gift_count_var.get()
             selected = []
-            for name, var in self.account_vars.items():
+            for name, var in self.gift_account_vars.items():
                 if var.get():
                     selected.append(name)
             self.gift_config["selected_accounts"] = selected
@@ -2982,7 +2983,7 @@ class WatchLiveFrame(tk.Frame):
             self.gift_interval_var.set(cfg.get("interval", 10))
             self.gift_count_var.set(cfg.get("max_count", 0))
             selected = cfg.get("selected_accounts", [])
-            for name, var in self.account_vars.items():
+            for name, var in self.gift_account_vars.items():
                 var.set(name in selected)
         except Exception:
             pass
@@ -3190,6 +3191,13 @@ class WatchLiveFrame(tk.Frame):
         gift_inner = tk.Frame(gift_card, bg=COLORS["bg_card"])
         gift_inner.pack(fill=tk.X, padx=15, pady=(0, 12))
 
+        # 送礼账户选择（单独区域）
+        gift_acc_row = tk.Frame(gift_inner, bg=COLORS["bg_card"])
+        gift_acc_row.pack(fill=tk.X, pady=3)
+        tk.Label(gift_acc_row, text="送礼账户:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        self.gift_acc_container = tk.Frame(gift_acc_row, bg=COLORS["bg_card"])
+        self.gift_acc_container.pack(side=tk.LEFT, padx=(8, 0))
+
         gift_row1 = tk.Frame(gift_inner, bg=COLORS["bg_card"])
         gift_row1.pack(fill=tk.X, pady=3)
         tk.Label(gift_row1, text="直播间(选用户/手动输入):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
@@ -3267,6 +3275,26 @@ class WatchLiveFrame(tk.Frame):
             cb.pack(fill=tk.X, anchor="w")
             self.account_checkbuttons.append(cb)
         self.refresh_status_tree()
+        # 同时刷新送礼账户复选框
+        self._refresh_gift_account_checkboxes()
+
+    def _refresh_gift_account_checkboxes(self):
+        """刷新送礼账户复选框列表"""
+        if not hasattr(self, 'gift_acc_container'):
+            return
+        for widget in self.gift_acc_container.winfo_children():
+            widget.destroy()
+        self.gift_account_vars = {}
+        for acc in self.account_mgr.accounts:
+            name = acc.get("name", "未知")
+            var = tk.BooleanVar(value=False)
+            self.gift_account_vars[name] = var
+            cb = tk.Checkbutton(self.gift_acc_container, text=name, variable=var,
+                                bg=COLORS["bg_card"], fg=COLORS["text_primary"],
+                                selectcolor=COLORS["bg_input"], activebackground=COLORS["bg_card"],
+                                activeforeground=COLORS["text_primary"], font=("微软雅黑", 10),
+                                command=self.save_gift_config)
+            cb.pack(side=tk.LEFT, padx=(0, 12))
 
     def _select_all_accounts(self):
         for var in self.account_vars.values():
@@ -4174,9 +4202,9 @@ class WatchLiveFrame(tk.Frame):
         if not room_id.isdigit():
             self.log("✗ 直播间号必须是数字")
             return
-        selected_accounts = [acc for acc in self.account_mgr.accounts if self.account_vars.get(acc.get("name", ""), tk.BooleanVar()).get()]
+        selected_accounts = [acc for acc in self.account_mgr.accounts if self.gift_account_vars.get(acc.get("name", ""), tk.BooleanVar()).get()]
         if not selected_accounts:
-            self.log("✗ 请先选择送礼账户")
+            self.log("✗ 请先勾选送礼账户")
             return
         gift_num = self.gift_num_var.get()
         interval = self.gift_interval_var.get()
