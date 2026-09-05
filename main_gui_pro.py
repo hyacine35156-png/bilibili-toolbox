@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.2.0"
+APP_VERSION = "v5.2.1"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -965,9 +965,10 @@ class AddAccountDialog(tk.Toplevel):
 
 # ========== 抢码工具窗口 ==========
 class RushRewardFrame(tk.Frame):
-    def __init__(self, parent, account_mgr):
+    def __init__(self, parent, account_mgr, room_mgr):
         super().__init__(parent, bg=COLORS["bg_dark"])
         self.account_mgr = account_mgr
+        self.room_mgr = room_mgr
         self.running = False
         self.rush_thread = None
         self._initializing = True  # 初始化标志，期间禁止save_rush_config覆盖加载的配置
@@ -2945,9 +2946,10 @@ class WatchLiveFrame(tk.Frame):
     ROOM_ENTRY_API = "https://api.live.bilibili.com/room/v1/Room/room_entry_action"
     HEARTBEAT_API = "https://api.live.bilibili.com/User/userOnlineHeart"
 
-    def __init__(self, parent, account_mgr):
+    def __init__(self, parent, account_mgr, room_mgr):
         super().__init__(parent, bg=COLORS["bg_dark"])
         self.account_mgr = account_mgr
+        self.room_mgr = room_mgr
         self.running = False
         self.watch_thread = None
         self.stop_flag = {"stop": False}
@@ -5749,7 +5751,7 @@ class DanmakuApp:
         self.build_shutdown_page()
 
         # 看播任务页面
-        self.watch_page = WatchLiveFrame(self.tab_container, self.account_mgr)
+        self.watch_page = WatchLiveFrame(self.tab_container, self.account_mgr, self.room_mgr)
         self.watch_page.pack(fill=tk.BOTH, expand=True)
         self.watch_page.pack_forget()
 
