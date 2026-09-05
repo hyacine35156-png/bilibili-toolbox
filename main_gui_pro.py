@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v4.9.5"
+APP_VERSION = "v4.9.6"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -1741,7 +1741,7 @@ class RushRewardFrame(tk.Frame):
                 info, _ = get_mission_info(task["task_id"], cookies)
                 if info:
                     day_s, total_s, _, _, _, _, _ = parse_stock_info(info)
-                    initial_stock = max(day_s, total_s)
+                    initial_stock = day_s
                     if initial_stock > max_stock_seen:
                         max_stock_seen = initial_stock
                     self.log(f"  初始库存: 今日剩余={day_s}%, 剩余总量={total_s}%")
@@ -1762,7 +1762,7 @@ class RushRewardFrame(tk.Frame):
                         info, _ = get_mission_info(task["task_id"], cookies)
                         if info:
                             day_s, total_s, _, _, _, _, _ = parse_stock_info(info)
-                            current_stock = max(day_s, total_s)
+                            current_stock = day_s
                             if current_stock > max_stock_seen:
                                 max_stock_seen = current_stock
                     except Exception:
@@ -2335,7 +2335,7 @@ class RushRewardFrame(tk.Frame):
         try:
             if task_info:
                 day_s, total_s, _, _, _, _, _ = parse_stock_info(task_info)
-                initial_stock = max(day_s, total_s)
+                initial_stock = day_s
                 if initial_stock > max_stock_seen:
                     max_stock_seen = initial_stock
                 self.log(f"  初始库存: 今日剩余={day_s}%, 剩余总量={total_s}%")
@@ -2356,7 +2356,7 @@ class RushRewardFrame(tk.Frame):
                     info, _ = get_mission_info(task["task_id"], cookies)
                     if info:
                         day_s, total_s, _, _, _, _, _ = parse_stock_info(info)
-                        current_stock = max(day_s, total_s)
+                        current_stock = day_s
                         if current_stock > max_stock_seen:
                             max_stock_seen = current_stock
                 except Exception:
@@ -2589,7 +2589,7 @@ class RushRewardFrame(tk.Frame):
         try:
             if task_info:
                 day_s, total_s, _, _, _, _, _ = parse_stock_info(task_info)
-                initial_stock = max(day_s, total_s)
+                initial_stock = day_s
                 if initial_stock > max_stock_seen:
                     max_stock_seen = initial_stock
                 self.log(f"  初始库存: 今日剩余={day_s}%, 剩余总量={total_s}%")
@@ -2610,7 +2610,7 @@ class RushRewardFrame(tk.Frame):
                     info, _ = get_mission_info(task["task_id"], cookies)
                     if info:
                         day_s, total_s, _, _, _, _, _ = parse_stock_info(info)
-                        current_stock = max(day_s, total_s)
+                        current_stock = day_s
                         if current_stock > max_stock_seen:
                             max_stock_seen = current_stock
                 except Exception:
