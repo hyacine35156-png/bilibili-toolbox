@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v4.9.1"
+APP_VERSION = "v4.9.2"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -3082,6 +3082,22 @@ class WatchLiveFrame(tk.Frame):
             pass
         return None
 
+    def get_battery_balance(self, account):
+        """查询账户电池余额"""
+        try:
+            sessdata = account.get("sessdata", "")
+            cookies = {"SESSDATA": sessdata}
+            url = "https://api.live.bilibili.com/xlive/revenue/v1/wallet/myWallet?need_bp=1&need_metal=1"
+            resp = requests.get(url, cookies=cookies, timeout=10)
+            data = resp.json()
+            if data.get("code") == 0:
+                wallet = data.get("data", {})
+                battery = wallet.get("bp", wallet.get("battery", 0))
+                return battery
+            return None
+        except Exception:
+            return None
+
     def _on_account_check(self):
         """复选框点击时保存配置"""
         self.save_watch_config()
@@ -3192,7 +3208,7 @@ class WatchLiveFrame(tk.Frame):
         self.gift_interval_var = tk.IntVar(value=10)
         self.gift_interval_entry = tk.Entry(gift_row2, width=8, textvariable=self.gift_interval_var, bg=COLORS["bg_input"], fg=COLORS["text_primary"], font=("微软雅黑", 10), bd=0, insertbackground=COLORS["accent"])
         self.gift_interval_entry.pack(side=tk.LEFT, padx=(8, 20))
-        tk.Label(gift_row2, text="送礼次数(0=无限):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        tk.Label(gift_row2, text="送礼次数:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
         self.gift_count_var = tk.IntVar(value=0)
         self.gift_count_entry = tk.Entry(gift_row2, width=8, textvariable=self.gift_count_var, bg=COLORS["bg_input"], fg=COLORS["text_primary"], font=("微软雅黑", 10), bd=0, insertbackground=COLORS["accent"])
         self.gift_count_entry.pack(side=tk.LEFT, padx=(8, 20))
@@ -4165,12 +4181,31 @@ class WatchLiveFrame(tk.Frame):
         gift_num = self.gift_num_var.get()
         interval = self.gift_interval_var.get()
         max_count = self.gift_count_var.get()
+        # 检查次数
+        if max_count <= 0:
+            self.log("✗ 送礼次数必须大于0，请先设置送礼次数")
+            return
         self.save_gift_config()
+        # 检查每个账户的电池余额
+        valid_accounts = []
+        for acc in selected_accounts:
+            name = acc.get("name", "未知")
+            battery = self.get_battery_balance(acc)
+            if battery is not None and battery <= 0:
+                self.log(f"  ⚠ [{name}] 电池余额为0，跳过该账户")
+                continue
+            if battery is not None:
+                self.log(f"  [{name}] 电池余额: {battery}")
+            valid_accounts.append(acc)
+        if not valid_accounts:
+            self.log("✗ 没有可用的账户（所有选中账户电池余额均为0）")
+            return
         self.gift_running = True
         self.gift_start_btn.config(state=tk.DISABLED)
         self.gift_stop_btn.config(state=tk.NORMAL)
-        self.log(f"▶ 开始送礼: 直播间{room_id}, 牛蛙牛蛙x{gift_num}, 间隔{interval}秒, 次数{'无限' if max_count == 0 else max_count}")
-        self.log(f"  共 {len(selected_accounts)} 个账户参与送礼")
+        self.log(f"▶ 开始送礼: 直播间{room_id}, 牛蛙牛蛙x{gift_num}, 间隔{interval}秒, 次数{max_count}")
+        self.log(f"  共 {len(valid_accounts)} 个账户参与送礼")
+        selected_accounts = valid_accounts
         # 为每个账户启动独立线程
         for acc in selected_accounts:
             name = acc.get("name", "未知")
@@ -4188,7 +4223,7 @@ class WatchLiveFrame(tk.Frame):
             # 先查询gift_id
             gift_id = self.get_gift_id(account)
             while not self.gift_stop.get(name, True) and self.gift_running:
-                if max_count > 0 and count >= max_count:
+                if count >= max_count:
                     self.log(f"  [{name}] ✓ 已达到最大送礼次数 ({max_count}次)")
                     break
                 success, msg = self.send_gift(account, room_id, gift_id, gift_num)
