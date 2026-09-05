@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.2.3"
+APP_VERSION = "v5.2.4"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -6015,7 +6015,9 @@ class DanmakuApp:
 
         # 右侧：账户详细信息
         right_card = tk.Frame(main, bg=COLORS["bg_card"], bd=0, highlightthickness=1, highlightbackground=COLORS["border"])
-        right_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0))
+        right_card.pack(side=tk.LEFT, fill=tk.Y, padx=(8, 8))
+        right_card.pack_propagate(False)
+        right_card.configure(width=400)
 
         tk.Label(right_card, text="账户详细信息", bg=COLORS["bg_card"], fg=COLORS["accent"],
                  font=("微软雅黑", 12, "bold")).pack(anchor=tk.W, padx=15, pady=(12, 8))
@@ -6033,7 +6035,7 @@ class DanmakuApp:
 
         # ===== 直播间管理子区域 =====
         room_card = tk.Frame(main, bg=COLORS["bg_card"], bd=0, highlightthickness=1, highlightbackground=COLORS["border"])
-        room_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0))
+        room_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 0))
 
         tk.Label(room_card, text="直播间管理", bg=COLORS["bg_card"], fg=COLORS["accent"],
                  font=("微软雅黑", 12, "bold")).pack(anchor=tk.W, padx=15, pady=(12, 8))
