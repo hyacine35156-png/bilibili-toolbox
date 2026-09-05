@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.0.9"
+APP_VERSION = "v5.1.0"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -3028,8 +3028,9 @@ class WatchLiveFrame(tk.Frame):
 
     def bind_auto_save(self):
         try:
-            self.room_combo.bind("<KeyRelease>", lambda e: self.save_watch_config())
+            self.room_combo.bind("<FocusOut>", lambda e: self.save_watch_config())
             self.room_combo.bind("<<ComboboxSelected>>", self._on_room_selected)
+            self.room_combo.bind("<KeyRelease>", lambda e: self._update_watch_del_btn_state())
             self.duration_combo.bind("<<ComboboxSelected>>", lambda e: self.save_watch_config())
             self.interval_combo.bind("<<ComboboxSelected>>", lambda e: self.save_watch_config())
             # 送礼下拉框绑定
@@ -3074,7 +3075,35 @@ class WatchLiveFrame(tk.Frame):
         elif selected == "--- 历史记录 ---":
             # 选了分隔符，清空
             self.room_combo.set("")
+        self._update_watch_del_btn_state()
         self.save_watch_config()
+
+
+    def _update_watch_del_btn_state(self):
+        """根据下拉框选中内容更新删除按钮状态：仅纯数字历史记录可删"""
+        try:
+            selected = self.room_combo.get().strip()
+            if selected and selected.isdigit() and selected in self.watch_config.get("room_history", []):
+                self.watch_room_del_btn.config(state=tk.NORMAL)
+            else:
+                self.watch_room_del_btn.config(state=tk.DISABLED)
+        except Exception:
+            self.watch_room_del_btn.config(state=tk.DISABLED)
+
+    def _delete_watch_room_history(self):
+        """删除当前选中的看播直播间历史记录"""
+        selected = self.room_combo.get().strip()
+        if not selected or not selected.isdigit():
+            return
+        if "room_history" not in self.watch_config:
+            self.watch_config["room_history"] = []
+        if selected in self.watch_config["room_history"]:
+            self.watch_config["room_history"].remove(selected)
+            self.save_watch_config()
+            self._refresh_room_combo_values()
+            self.room_combo.set("")
+            self._update_watch_del_btn_state()
+            self.log(f"已删除看播直播间历史记录: {selected}")
 
     def get_user_room_id(self, mid):
         """根据用户mid获取直播间号"""
@@ -3156,7 +3185,10 @@ class WatchLiveFrame(tk.Frame):
         row1.pack(fill=tk.X, pady=3)
         tk.Label(row1, text="直播间(选用户/手动输入):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
         self.room_combo = ttk.Combobox(row1, width=28, values=[])
-        self.room_combo.pack(side=tk.LEFT, padx=(8, 20))
+        self.room_combo.pack(side=tk.LEFT, padx=(8, 4))
+        self.watch_room_del_btn = tk.Button(row1, text="✕", bg=COLORS["danger"], fg="#ffffff", font=("微软雅黑", 9, "bold"),
+                                             bd=0, padx=8, pady=2, cursor="hand2", state=tk.DISABLED, command=self._delete_watch_room_history)
+        self.watch_room_del_btn.pack(side=tk.LEFT, padx=(0, 20))
         tk.Label(row1, text="每日时长(分):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
         self.duration_var = tk.IntVar(value=30)
         self.duration_combo = ttk.Combobox(row1, textvariable=self.duration_var, width=8, values=[10, 15, 20, 30, 45, 60, 90, 120], state="readonly")
@@ -5697,7 +5729,7 @@ class DanmakuApp:
         self.room_combo = ttk.Combobox(row1, width=24, values=[])
         self.room_combo.pack(side=tk.LEFT, padx=(8, 4))
         self.room_del_btn = tk.Button(row1, text="✕", bg=COLORS["danger"], fg="#ffffff", font=("微软雅黑", 9, "bold"),
-                                       bd=0, padx=8, pady=2, cursor="hand2", command=self._delete_danmaku_room_history)
+                                       bd=0, padx=8, pady=2, cursor="hand2", state=tk.DISABLED, command=self._delete_danmaku_room_history)
         self.room_del_btn.pack(side=tk.LEFT, padx=(0, 20))
 
         tk.Label(row1, text="发送间隔", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
@@ -6126,7 +6158,19 @@ bili_jct: {jct_preview}
         elif selected == "--- 历史记录 ---":
             # 选了分隔符，清空
             self.room_combo.set("")
+        self._update_danmaku_del_btn_state()
         self.save_config()
+
+    def _update_danmaku_del_btn_state(self):
+        """根据下拉框选中内容更新删除按钮状态：仅纯数字历史记录可删"""
+        try:
+            selected = self.room_combo.get().strip()
+            if selected and selected.isdigit() and selected in self.config.get("room_history", []):
+                self.room_del_btn.config(state=tk.NORMAL)
+            else:
+                self.room_del_btn.config(state=tk.DISABLED)
+        except Exception:
+            self.room_del_btn.config(state=tk.DISABLED)
 
     def _get_user_room_id(self, mid):
         """根据用户mid获取直播间号"""
@@ -6155,6 +6199,7 @@ bili_jct: {jct_preview}
             self.save_config()
             self._refresh_danmaku_room_combo_values()
             self.room_combo.set("")
+            self._update_danmaku_del_btn_state()
             self.log(f"已删除直播间历史记录: {selected}")
         else:
             messagebox.showinfo("提示", f"直播间号 {selected} 不在历史记录中")
@@ -6833,6 +6878,7 @@ bili_jct: {jct_preview}
         # 绑定自动保存
         self.room_combo.bind("<FocusOut>", lambda e: self.save_config())
         self.room_combo.bind("<<ComboboxSelected>>", self._on_danmaku_room_selected)
+        self.room_combo.bind("<KeyRelease>", lambda e: self._update_danmaku_del_btn_state())
         self.interval_min.bind("<FocusOut>", lambda e: self.save_config())
         self.interval_max.bind("<FocusOut>", lambda e: self.save_config())
         self.max_send_entry.bind("<FocusOut>", lambda e: self.save_config())
