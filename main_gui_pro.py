@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v4.7.0"
+APP_VERSION = "v4.7.1"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -954,7 +954,6 @@ class RushRewardFrame(tk.Frame):
             "task_type": "投稿",
             "interval": "3",
             "task_name": "",
-            "rush_account_mode": "single",
             "selected_accounts": [],
             "duration": "20",
             "interval_mode": "random",
@@ -988,7 +987,6 @@ class RushRewardFrame(tk.Frame):
             self.rush_config["task_type"] = self.task_type_var.get()
             self.rush_config["interval"] = self.interval_entry.get().strip()
             self.rush_config["task_name"] = self.task_var.get()
-            self.rush_config["rush_account_mode"] = self.rush_account_mode.get()
             # 保存选中的账户
             selected = []
             for i in self.rush_account_list.curselection():
@@ -1061,8 +1059,6 @@ class RushRewardFrame(tk.Frame):
                 self.after(300, lambda: self.task_var.set(saved_task_name))
 
             # 9. 恢复账户模式
-            if self.rush_config.get("rush_account_mode"):
-                self.rush_account_mode.set(self.rush_config["rush_account_mode"])
 
             # 10. 恢复领取时长
             if self.rush_config.get("duration"):
@@ -1132,7 +1128,6 @@ class RushRewardFrame(tk.Frame):
         self.schedule_hour_combo.bind("<<ComboboxSelected>>", lambda e: self.save_rush_config())
         self.schedule_minute_combo.bind("<<ComboboxSelected>>", lambda e: self.save_rush_config())
         self.schedule_second_combo.bind("<<ComboboxSelected>>", lambda e: self.save_rush_config())
-        self.rush_account_mode.trace_add("write", lambda *a: self.save_rush_config())
         self.rush_account_list.bind("<<ListboxSelect>>", lambda e: self.save_rush_config())
 
     def build_ui(self):
@@ -1214,11 +1209,6 @@ class RushRewardFrame(tk.Frame):
         row2.pack(fill=tk.X, pady=3)
         tk.Label(row2, text="抢码账户", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
-        self.rush_account_mode = tk.StringVar(value="single")
-        ttk.Radiobutton(row2, text="单账户", variable=self.rush_account_mode, value="single",
-                        style="Dark.TRadiobutton").pack(side=tk.LEFT, padx=(8, 8))
-        ttk.Radiobutton(row2, text="多账户轮流", variable=self.rush_account_mode, value="rotate",
-                        style="Dark.TRadiobutton").pack(side=tk.LEFT)
 
         self.rush_account_list = tk.Listbox(row2, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
                                              selectbackground=COLORS["accent"], selectforeground="#000000",
@@ -1355,11 +1345,11 @@ class RushRewardFrame(tk.Frame):
         header_frame = tk.Frame(list_frame, bg=COLORS["bg_input"])
         header_frame.pack(fill=tk.X)
         tk.Label(header_frame, text="任务名称", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 11, "bold"), width=36, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0), pady=6)
+                 font=("微软雅黑", 11, "bold"), width=38, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0), pady=6)
         tk.Label(header_frame, text="领取时间", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 11, "bold"), width=12, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
+                 font=("微软雅黑", 11, "bold"), width=14, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
         tk.Label(header_frame, text="时长/间隔", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 11, "bold"), width=16, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
+                 font=("微软雅黑", 11, "bold"), width=18, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
         tk.Label(header_frame, text="账户", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
                  font=("微软雅黑", 11, "bold"), width=18, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
         tk.Label(header_frame, text="状态", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
@@ -2668,18 +2658,11 @@ class RushRewardFrame(tk.Frame):
             messagebox.showwarning("提示", "请先选择任务")
             return
 
-        mode = self.rush_account_mode.get()
-        if mode == "single":
-            accounts = self.get_selected_accounts()
-            if not accounts:
-                messagebox.showwarning("提示", "请先选择一个账户")
-                return
-            rush_accounts = [accounts[0]]
-        else:
-            rush_accounts = self.account_mgr.accounts
-            if len(rush_accounts) < 1:
-                messagebox.showwarning("提示", "没有可用账户")
-                return
+        accounts = self.get_selected_accounts()
+        if not accounts:
+            messagebox.showwarning("提示", "请先选择一个账户")
+            return
+        rush_accounts = [accounts[0]]
 
         try:
             interval = float(self.interval_entry.get())
@@ -2715,11 +2698,11 @@ class RushRewardFrame(tk.Frame):
         self.log("=" * 40)
         self.log(f"开始监控 | [{task['period']}][{task['type']}] {task['name']}")
         self.log(f"奖励: {task['award']} | task_id: {task['task_id']}")
-        self.log(f"账户: {acc_names} ({mode}) | 间隔: {interval}秒")
+        self.log(f"账户: {acc_names} | 间隔: {interval}秒")
         self.log("-" * 40)
 
         self.rush_thread = threading.Thread(
-            target=self.rush_loop, args=(task, valid_accounts, interval, mode), daemon=True
+            target=self.rush_loop, args=(task, valid_accounts, interval), daemon=True
         )
         self.rush_thread.start()
 
@@ -2736,19 +2719,15 @@ class RushRewardFrame(tk.Frame):
         self.log("-" * 40)
         self.log("已停止")
 
-    def rush_loop(self, task, accounts, interval, mode):
+    def rush_loop(self, task, accounts, interval):
         """自动抢码循环"""
         acc_index = 0
         query_count = 0
         success = False
 
         while self.running and not success:
-            # 选择账户
-            if mode == "single":
-                account = accounts[0]
-            else:
-                account = accounts[acc_index % len(accounts)]
-                acc_index += 1
+            # 选择账户（单账户模式）
+            account = accounts[0]
 
             cookies = cookies_from_account(account)
             csrf = account["bili_jct"]
