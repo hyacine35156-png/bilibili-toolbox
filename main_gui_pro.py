@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.0.2"
+APP_VERSION = "v5.0.3"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -3137,27 +3137,6 @@ class WatchLiveFrame(tk.Frame):
         # 右侧
         right = tk.Frame(main, bg=COLORS["bg_dark"])
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(6, 0))
-
-        # ===== 底部容器：日志 + 控制栏（先pack到BOTTOM，确保固定在窗口最底部）=====
-        bottom_container = tk.Frame(right, bg=COLORS["bg_dark"])
-        bottom_container.pack(fill=tk.X, side=tk.BOTTOM, pady=(6, 0))
-
-        # 日志卡片（固定高度160px）
-        log_card = tk.Frame(bottom_container, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
-        log_card.pack(fill=tk.X, pady=(0, 6))
-        log_card.pack_propagate(False)
-        log_card.configure(height=160)
-
-        tk.Label(log_card, text="运行日志", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=15, pady=(8, 4))
-
-        log_frame = tk.Frame(log_card, bg=COLORS["bg_card"])
-        log_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 10))
-
-        self.log_text = tk.Text(log_frame, bg="#0d1117", fg=COLORS["text_secondary"],
-                                 insertbackground=COLORS["accent"], font=("Consolas", 9),
-                                 bd=0, highlightthickness=0, wrap=tk.WORD, state=tk.DISABLED)
-        self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # 设置卡片
         settings_card = tk.Frame(right, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
