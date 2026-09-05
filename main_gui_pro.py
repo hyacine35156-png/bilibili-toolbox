@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.0.3"
+APP_VERSION = "v5.0.4"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -1410,10 +1410,17 @@ class RushRewardFrame(tk.Frame):
                 row_frame.configure(bg=COLORS["bg_input"])
 
             # 用固定像素宽度的Frame容器，确保和表头严格对齐
-            col_widths = [340, 110, 260, 150, 80, 200]
+            col_widths = [420, 110, 260, 150, 80, 200]
 
-            # 任务名称
-            name_text = task.get("task_name", "未知任务")[:30]
+            # 任务名称（加版本信息括号）
+            task_name = task.get("task_name", "未知任务")
+            version = task.get("version", "")
+            period = task.get("period", "")
+            if version or period:
+                version_info = f"{version}{period}" if version and period else (version or period)
+                name_text = f"{task_name}（{version_info}）"[:40]
+            else:
+                name_text = task_name[:30]
             col1 = tk.Frame(row_frame, bg=row_frame["bg"], width=col_widths[0], height=44)
             col1.pack(side=tk.LEFT, padx=(25, 0))
             col1.pack_propagate(False)
