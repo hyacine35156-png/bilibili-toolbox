@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v4.8.1"
+APP_VERSION = "v4.9.0"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -2864,9 +2864,16 @@ class WatchLiveFrame(tk.Frame):
         self.x25kn_stop = {}  # X25Kn停止标志 {账户名: bool}
         self.x25kn_state = {}  # X25Kn协议状态 {账户名: dict}
         self.watch_config = self.load_watch_config()
+        # 送礼功能变量
+        self.gift_running = False
+        self.gift_threads = {}
+        self.gift_stop = {}
+        self.gift_config = self.load_gift_config()
+        self.gift_id_cache = None  # 缓存牛蛙牛蛙的gift_id
         self.build_ui()
         self.refresh_account_list()
         self.apply_watch_config()
+        self.apply_gift_config()
         self.bind_auto_save()
         self.log("看播任务工具已启动，勾选账户和直播间后点击「开始看播」")
 
@@ -2919,6 +2926,56 @@ class WatchLiveFrame(tk.Frame):
             else:
                 for name, var in self.account_vars.items():
                     var.set(name in selected_names)
+        except Exception:
+            pass
+
+    def load_gift_config(self):
+        default = {
+            "room_id": "",
+            "gift_name": "牛蛙牛蛙",
+            "gift_num": 1,
+            "interval": 10,
+            "max_count": 0,
+            "selected_accounts": []
+        }
+        config_file = BASE_DIR / "gift_config.json"
+        if config_file.exists():
+            try:
+                with open(config_file, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    default.update(cfg)
+            except Exception:
+                pass
+        return default
+
+    def save_gift_config(self):
+        try:
+            self.gift_config["room_id"] = self.gift_room_entry.get().strip()
+            self.gift_config["gift_num"] = self.gift_num_var.get()
+            self.gift_config["interval"] = self.gift_interval_var.get()
+            self.gift_config["max_count"] = self.gift_count_var.get()
+            selected = []
+            for name, var in self.account_vars.items():
+                if var.get():
+                    selected.append(name)
+            self.gift_config["selected_accounts"] = selected
+            config_file = BASE_DIR / "gift_config.json"
+            with open(config_file, "w", encoding="utf-8") as f:
+                json.dump(self.gift_config, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def apply_gift_config(self):
+        try:
+            cfg = self.gift_config
+            self.gift_room_entry.delete(0, tk.END)
+            self.gift_room_entry.insert(0, cfg.get("room_id", ""))
+            self.gift_num_var.set(cfg.get("gift_num", 1))
+            self.gift_interval_var.set(cfg.get("interval", 10))
+            self.gift_count_var.set(cfg.get("max_count", 0))
+            selected = cfg.get("selected_accounts", [])
+            for name, var in self.account_vars.items():
+                var.set(name in selected)
         except Exception:
             pass
 
@@ -3066,6 +3123,41 @@ class WatchLiveFrame(tk.Frame):
         self.stop_btn = DarkButton(row2, "■ 停止看播", command=self.stop_watch, width=160, height=40, bg_color=COLORS["danger"], text_color="#ffffff")
         self.stop_btn.pack(side=tk.LEFT)
         self.stop_btn.config(state=tk.DISABLED)
+
+        # 送礼设置卡片
+        gift_card = tk.Frame(right, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
+        gift_card.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(gift_card, text="送礼设置（牛蛙牛蛙）", bg=COLORS["bg_card"], fg=COLORS["accent"], font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 8))
+        gift_inner = tk.Frame(gift_card, bg=COLORS["bg_card"])
+        gift_inner.pack(fill=tk.X, padx=15, pady=(0, 12))
+
+        gift_row1 = tk.Frame(gift_inner, bg=COLORS["bg_card"])
+        gift_row1.pack(fill=tk.X, pady=3)
+        tk.Label(gift_row1, text="直播间号:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        self.gift_room_entry = tk.Entry(gift_row1, width=20, bg=COLORS["bg_input"], fg=COLORS["text_primary"], font=("微软雅黑", 10), bd=0, insertbackground=COLORS["accent"])
+        self.gift_room_entry.pack(side=tk.LEFT, padx=(8, 20))
+        tk.Label(gift_row1, text="礼物:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        tk.Label(gift_row1, text="牛蛙牛蛙", bg=COLORS["bg_input"], fg=COLORS["accent"], font=("微软雅黑", 10, "bold"), padx=10, pady=2).pack(side=tk.LEFT, padx=(8, 20))
+        tk.Label(gift_row1, text="数量:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        self.gift_num_var = tk.IntVar(value=1)
+        self.gift_num_combo = ttk.Combobox(gift_row1, textvariable=self.gift_num_var, width=6, values=[1, 10], state="readonly")
+        self.gift_num_combo.pack(side=tk.LEFT, padx=(8, 0))
+
+        gift_row2 = tk.Frame(gift_inner, bg=COLORS["bg_card"])
+        gift_row2.pack(fill=tk.X, pady=3)
+        tk.Label(gift_row2, text="送礼间隔(秒):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        self.gift_interval_var = tk.IntVar(value=10)
+        self.gift_interval_entry = tk.Entry(gift_row2, width=8, textvariable=self.gift_interval_var, bg=COLORS["bg_input"], fg=COLORS["text_primary"], font=("微软雅黑", 10), bd=0, insertbackground=COLORS["accent"])
+        self.gift_interval_entry.pack(side=tk.LEFT, padx=(8, 20))
+        tk.Label(gift_row2, text="送礼次数(0=无限):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        self.gift_count_var = tk.IntVar(value=0)
+        self.gift_count_entry = tk.Entry(gift_row2, width=8, textvariable=self.gift_count_var, bg=COLORS["bg_input"], fg=COLORS["text_primary"], font=("微软雅黑", 10), bd=0, insertbackground=COLORS["accent"])
+        self.gift_count_entry.pack(side=tk.LEFT, padx=(8, 20))
+        self.gift_start_btn = DarkButton(gift_row2, "▶ 开始送礼", command=self.start_gift, width=140, height=36, bg_color=COLORS["success"], text_color="#ffffff")
+        self.gift_start_btn.pack(side=tk.LEFT, padx=(0, 8))
+        self.gift_stop_btn = DarkButton(gift_row2, "■ 停止送礼", command=self.stop_gift, width=140, height=36, bg_color=COLORS["danger"], text_color="#ffffff")
+        self.gift_stop_btn.pack(side=tk.LEFT)
+        self.gift_stop_btn.config(state=tk.DISABLED)
 
         # 状态卡片
         status_card = tk.Frame(right, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
@@ -3928,6 +4020,169 @@ class WatchLiveFrame(tk.Frame):
         self.select_all_btn.config(state=tk.NORMAL)
         self.deselect_all_btn.config(state=tk.NORMAL)
         self.interval_combo.config(state="readonly")
+
+    # ========== 送礼功能 ==========
+    def get_gift_id(self, account):
+        """查询牛蛙牛蛙的gift_id"""
+        if self.gift_id_cache:
+            return self.gift_id_cache
+        try:
+            sessdata = account.get("sessdata", "")
+            bili_jct = account.get("bili_jct", "")
+            cookies = {"SESSDATA": sessdata, "bili_jct": bili_jct}
+            # 获取礼物列表
+            url = "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/giftConfig?platform=pc"
+            resp = requests.get(url, cookies=cookies, timeout=10)
+            data = resp.json()
+            if data.get("code") == 0:
+                gift_list = data.get("data", {}).get("list", [])
+                for gift in gift_list:
+                    if "牛蛙" in gift.get("name", "") or "牛哇" in gift.get("name", ""):
+                        self.gift_id_cache = gift["id"]
+                        self.log(f"  找到礼物: {gift['name']} (id={gift['id']}, 价格={gift.get('price', 0)})")
+                        return gift["id"]
+            self.log("  ⚠ 未找到牛蛙牛蛙礼物，使用默认id=30029")
+            self.gift_id_cache = 30029
+            return 30029
+        except Exception as e:
+            self.log(f"  ⚠ 查询礼物ID失败: {e}，使用默认id=30029")
+            self.gift_id_cache = 30029
+            return 30029
+
+    def get_room_info(self, room_id, account):
+        """获取直播间信息（ruid等）"""
+        try:
+            sessdata = account.get("sessdata", "")
+            cookies = {"SESSDATA": sessdata}
+            url = f"https://api.live.bilibili.com/room/v1/Room/get_info?room_id={room_id}"
+            resp = requests.get(url, cookies=cookies, timeout=10)
+            data = resp.json()
+            if data.get("code") == 0:
+                return data.get("data", {})
+            return {}
+        except Exception:
+            return {}
+
+    def send_gift(self, account, room_id, gift_id, gift_num):
+        """发送礼物"""
+        try:
+            sessdata = account.get("sessdata", "")
+            bili_jct = account.get("bili_jct", "")
+            uid = account.get("uid", "")
+            cookies = {"SESSDATA": sessdata, "bili_jct": bili_jct}
+            # 获取直播间ruid
+            room_info = self.get_room_info(room_id, account)
+            ruid = room_info.get("uid", "")
+            # 送礼接口
+            url = "https://api.live.bilibili.com/gift/v2/live/bag_send"
+            data = {
+                "uid": uid,
+                "gift_id": gift_id,
+                "ruid": ruid,
+                "gift_num": gift_num,
+                "bag_id": 0,
+                "platform": "pc",
+                "biz_code": "live",
+                "biz_id": room_id,
+                "rnd": int(time.time()),
+                "storm_beat_id": "0",
+                "metadata": "",
+                "price": "0",
+                "csrf_token": bili_jct,
+                "csrf": bili_jct,
+            }
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": f"https://live.bilibili.com/{room_id}",
+            }
+            resp = requests.post(url, data=data, cookies=cookies, headers=headers, timeout=10)
+            result = resp.json()
+            code = result.get("code", -1)
+            msg = result.get("message", "")
+            if code == 0:
+                return True, "送礼成功"
+            else:
+                return False, f"[{code}] {msg}"
+        except Exception as e:
+            return False, f"网络异常: {e}"
+
+    def start_gift(self):
+        """开始送礼"""
+        room_id = self.gift_room_entry.get().strip()
+        if not room_id:
+            self.log("✗ 请先输入送礼直播间号")
+            return
+        if not room_id.isdigit():
+            self.log("✗ 直播间号必须是数字")
+            return
+        selected_accounts = [acc for acc in self.account_mgr.accounts if self.account_vars.get(acc.get("name", ""), tk.BooleanVar()).get()]
+        if not selected_accounts:
+            self.log("✗ 请先选择送礼账户")
+            return
+        gift_num = self.gift_num_var.get()
+        interval = self.gift_interval_var.get()
+        max_count = self.gift_count_var.get()
+        self.save_gift_config()
+        self.gift_running = True
+        self.gift_start_btn.config(state=tk.DISABLED)
+        self.gift_stop_btn.config(state=tk.NORMAL)
+        self.log(f"▶ 开始送礼: 直播间{room_id}, 牛蛙牛蛙x{gift_num}, 间隔{interval}秒, 次数{'无限' if max_count == 0 else max_count}")
+        self.log(f"  共 {len(selected_accounts)} 个账户参与送礼")
+        # 为每个账户启动独立线程
+        for acc in selected_accounts:
+            name = acc.get("name", "未知")
+            self.gift_stop[name] = False
+            t = threading.Thread(target=self._gift_worker, args=(acc, room_id, gift_num, interval, max_count), daemon=True)
+            self.gift_threads[name] = t
+            t.start()
+            time.sleep(0.5)  # 错开启动
+
+    def _gift_worker(self, account, room_id, gift_num, interval, max_count):
+        """送礼工作线程"""
+        name = account.get("name", "未知")
+        count = 0
+        try:
+            # 先查询gift_id
+            gift_id = self.get_gift_id(account)
+            while not self.gift_stop.get(name, True) and self.gift_running:
+                if max_count > 0 and count >= max_count:
+                    self.log(f"  [{name}] ✓ 已达到最大送礼次数 ({max_count}次)")
+                    break
+                success, msg = self.send_gift(account, room_id, gift_id, gift_num)
+                count += 1
+                if success:
+                    self.log(f"  [{name}] 第{count}次: ✓ {msg} (牛蛙牛蛙x{gift_num})")
+                else:
+                    self.log(f"  [{name}] 第{count}次: ✗ {msg}")
+                # 等待间隔
+                for _ in range(int(interval * 10)):
+                    if self.gift_stop.get(name, True) or not self.gift_running:
+                        break
+                    time.sleep(0.1)
+        except Exception as e:
+            self.log(f"  [{name}] 送礼线程异常: {e}")
+        finally:
+            self.log(f"  [{name}] 送礼结束，共尝试 {count} 次")
+            self.gift_threads.pop(name, None)
+            # 检查是否所有线程都结束了
+            if not self.gift_threads:
+                self.after(100, self._on_gift_finished)
+
+    def _on_gift_finished(self):
+        """送礼全部结束"""
+        self.gift_running = False
+        self.gift_start_btn.config(state=tk.NORMAL)
+        self.gift_stop_btn.config(state=tk.DISABLED)
+        self.log("✓ 所有账户送礼已结束")
+
+    def stop_gift(self):
+        """停止送礼"""
+        self.gift_running = False
+        for name in self.gift_stop:
+            self.gift_stop[name] = True
+        self.log("⏹ 正在停止所有送礼线程...")
+        self.gift_start_btn.config(state=tk.NORMAL)
+        self.gift_stop_btn.config(state=tk.DISABLED)
         self.account_listbox.config(state=tk.NORMAL)
         self.refresh_status_tree()
         self.log("看播任务结束")
