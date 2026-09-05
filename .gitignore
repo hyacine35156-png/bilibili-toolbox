@@ -56,25 +56,71 @@ backups/
 *_backup.py
 *_backup.*
 
+# Node.js
+node_modules/
+package-lock.json
+
+# 备份目录
+backup/
+backup_*/
+backups/
+
+# 截图
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+
+# 大文件
+*.exe
+*.wasm
+*.wat
+ffmpeg.exe
+
+# 数据文件（根据需要决定是否版本控制）
+# data/
+*.json
+!package.json
+!requirements.txt
+
+# 临时和测试文件
+uploaded_file
+test_*
+debug_*
+analyze_*
+patch_*
+rollback_*
+move_*
+remove_*
+fix_*
+update_*
+add_*
+change_*
+check_*
+extract_*
+find_*
+generate_*
+modify_*
+probe_*
+verify_*
+deep_probe.py
+calc_sign*.js
+convert_wat.js
+find_unreachable.js
+test_min.js
+test_wasmer.js
+sign_input.json
+test_data.json
+task_verification_results.json
+all_tasks.json
+config.json
+danmaku_list.txt
+spyder.wat
+spyder.wasm
+spyder_new.wasm
+git_installer.exe
+*.spec
+
 # 截图和测试文件
 screenshot_*.png
-test_*.py
-debug_*.py
-analyze_*.py
-patch_*.py
-rollback_*.py
-move_*.py
-remove_*.py
-fix_*.py
-update_*.py
-add_*.py
-change_*.py
-check_*.py
-extract_*.py
-find_*.py
-generate_*.py
-modify_*.py
-probe_*.py
-verify_*.py
-*.spec
-git_installer.exe
