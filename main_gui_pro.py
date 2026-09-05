@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.1.0"
+APP_VERSION = "v5.1.1"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -259,6 +259,7 @@ HEADERS = {
 class AccountManager:
     def __init__(self):
         self.accounts = []
+        self._deleting = False  # 删除标志，防止删除时自动保存
         self.load()
 
     def load(self):
@@ -295,8 +296,10 @@ class AccountManager:
         return True, f"账户「{name}」添加成功（登录用户: {msg}）\n已保存到: {ACCOUNTS_FILE}"
 
     def delete_account(self, name):
+        self._deleting = True
         self.accounts = [a for a in self.accounts if a["name"] != name]
         self.save()
+        self._deleting = False
 
     def get_account(self, name):
         for acc in self.accounts:
@@ -3057,7 +3060,8 @@ class WatchLiveFrame(tk.Frame):
     def _on_room_selected(self, event=None):
         """选择直播间下拉框时：如果选的是用户名，自动获取直播间号"""
         selected = self.room_combo.get().strip()
-        if selected.startswith("【") and "】直播间" in selected:
+        is_user_room = selected.startswith("【") and "】直播间" in selected
+        if is_user_room:
             # 提取用户名
             name = selected[1:selected.index("】")]
             # 找到对应用户
@@ -3071,10 +3075,12 @@ class WatchLiveFrame(tk.Frame):
                             self.log(f"已获取「{name}」的直播间号: {room_id}")
                         else:
                             self.log(f"获取「{name}」直播间号失败，请手动输入")
+                            self.room_combo.set("")
                     break
         elif selected == "--- 历史记录 ---":
             # 选了分隔符，清空
             self.room_combo.set("")
+        # 无论什么情况，都更新删除按钮状态（用户直播间自动获取的也禁用）
         self._update_watch_del_btn_state()
         self.save_watch_config()
 
@@ -3186,8 +3192,8 @@ class WatchLiveFrame(tk.Frame):
         tk.Label(row1, text="直播间(选用户/手动输入):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
         self.room_combo = ttk.Combobox(row1, width=28, values=[])
         self.room_combo.pack(side=tk.LEFT, padx=(8, 4))
-        self.watch_room_del_btn = tk.Button(row1, text="✕", bg=COLORS["danger"], fg="#ffffff", font=("微软雅黑", 9, "bold"),
-                                             bd=0, padx=8, pady=2, cursor="hand2", state=tk.DISABLED, command=self._delete_watch_room_history)
+        self.watch_room_del_btn = tk.Button(row1, text="✕", bg=COLORS["danger"], fg="#ffffff", font=("微软雅黑", 8),
+                                             bd=0, padx=4, pady=1, cursor="hand2", state=tk.DISABLED, command=self._delete_watch_room_history)
         self.watch_room_del_btn.pack(side=tk.LEFT, padx=(0, 20))
         tk.Label(row1, text="每日时长(分):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
         self.duration_var = tk.IntVar(value=30)
@@ -5728,8 +5734,8 @@ class DanmakuApp:
                  font=("微软雅黑", 10)).pack(side=tk.LEFT)
         self.room_combo = ttk.Combobox(row1, width=24, values=[])
         self.room_combo.pack(side=tk.LEFT, padx=(8, 4))
-        self.room_del_btn = tk.Button(row1, text="✕", bg=COLORS["danger"], fg="#ffffff", font=("微软雅黑", 9, "bold"),
-                                       bd=0, padx=8, pady=2, cursor="hand2", state=tk.DISABLED, command=self._delete_danmaku_room_history)
+        self.room_del_btn = tk.Button(row1, text="✕", bg=COLORS["danger"], fg="#ffffff", font=("微软雅黑", 8),
+                                       bd=0, padx=4, pady=1, cursor="hand2", state=tk.DISABLED, command=self._delete_danmaku_room_history)
         self.room_del_btn.pack(side=tk.LEFT, padx=(0, 20))
 
         tk.Label(row1, text="发送间隔", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
@@ -6073,6 +6079,14 @@ bili_jct: {jct_preview}
             self.account_mgr.delete_account(acc["name"])
             self.refresh_account_manager_list()
             self._manager_show_info(None)
+            # 刷新弹幕账户多选复选框
+            if hasattr(self, '_refresh_danmaku_account_checkboxes'):
+                self._refresh_danmaku_account_checkboxes()
+            # 刷新所有直播间下拉框选项（用户列表变了）
+            if hasattr(self, '_refresh_danmaku_room_combo_values'):
+                self._refresh_danmaku_room_combo_values()
+            if hasattr(self, 'watch_frame') and hasattr(self.watch_frame, '_refresh_room_combo_values'):
+                self.watch_frame._refresh_room_combo_values()
             self.log(f"已删除账户: {acc['name']}")
 
     def _manager_verify_account(self):
@@ -6243,6 +6257,12 @@ bili_jct: {jct_preview}
         if custom_askyesno(self.app.root, "确认", f"确定删除账户「{acc['name']}」吗？"):
             self.account_mgr.delete_account(acc["name"])
             self.refresh_account_list()
+            # 刷新弹幕账户多选复选框
+            if hasattr(self, '_refresh_danmaku_account_checkboxes'):
+                self._refresh_danmaku_account_checkboxes()
+            # 刷新直播间下拉框选项（用户列表变了）
+            if hasattr(self, '_refresh_danmaku_room_combo_values'):
+                self._refresh_danmaku_room_combo_values()
             self.log(f"已删除账户: {acc['name']}")
 
     def verify_current_account(self):
