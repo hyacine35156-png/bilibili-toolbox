@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.0.1"
+APP_VERSION = "v5.0.2"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -4144,7 +4144,7 @@ class WatchLiveFrame(tk.Frame):
 
     # ========== 送礼功能 ==========
     def get_gift_id(self, account):
-        """查询牛哇牛哇的gift_id"""
+        """查询牛哇牛哇的gift_id（优先选bag_gift=0可直接用电池送的）"""
         if self.gift_id_cache:
             return self.gift_id_cache
         try:
@@ -4158,19 +4158,28 @@ class WatchLiveFrame(tk.Frame):
             data = resp.json()
             if data.get("code") == 0:
                 gift_list = data.get("data", {}).get("list", [])
+                # 优先找bag_gift=0（可直接用电池送）的牛哇牛哇
+                for gift in gift_list:
+                    name = gift.get("name", "")
+                    bag_gift = gift.get("bag_gift", 0)
+                    if ("牛哇" in name or "牛蛙" in name) and bag_gift == 0:
+                        self.gift_id_cache = gift["id"]
+                        self.log(f"  找到礼物: {name} (id={gift['id']}, 价格={gift.get('price', 0)}, 可直接电池送)")
+                        return gift["id"]
+                # 找不到bag_gift=0的，找任意牛哇牛哇
                 for gift in gift_list:
                     name = gift.get("name", "")
                     if "牛哇" in name or "牛蛙" in name:
                         self.gift_id_cache = gift["id"]
                         self.log(f"  找到礼物: {name} (id={gift['id']}, 价格={gift.get('price', 0)})")
                         return gift["id"]
-            self.log("  ⚠ 未找到牛哇牛哇礼物，使用默认id=31225")
-            self.gift_id_cache = 31225
-            return 31225
+            self.log("  ⚠ 未找到牛哇牛哇礼物，使用默认id=31039")
+            self.gift_id_cache = 31039
+            return 31039
         except Exception as e:
-            self.log(f"  ⚠ 查询礼物ID失败: {e}，使用默认id=31225")
-            self.gift_id_cache = 31225
-            return 31225
+            self.log(f"  ⚠ 查询礼物ID失败: {e}，使用默认id=31039")
+            self.gift_id_cache = 31039
+            return 31039
 
     def get_room_info(self, room_id, account):
         """获取直播间信息（ruid等）"""
@@ -4188,45 +4197,62 @@ class WatchLiveFrame(tk.Frame):
             return {}
 
     def send_gift(self, account, room_id, gift_id, gift_num):
-        """发送礼物"""
+        """发送礼物（直接用电池购买送出）"""
         try:
+            name = account.get("name", "未知")
             sessdata = account.get("SESSDATA", "")
             bili_jct = account.get("bili_jct", "")
             uid = account.get("uid", "") or account.get("DedeUserID", "")
             cookies = {"SESSDATA": sessdata, "bili_jct": bili_jct}
+            # 先检查电池余额
+            battery = self.get_battery_balance(account)
+            if battery is not None and battery <= 0:
+                return False, "电池余额为0，无法送礼"
             # 获取直播间ruid
             room_info = self.get_room_info(room_id, account)
             ruid = room_info.get("uid", "")
-            # 送礼接口
-            url = "https://api.live.bilibili.com/gift/v2/live/bag_send"
+            # 送礼接口（直接用电池送，不是背包送礼）
+            url = "https://api.live.bilibili.com/gift/v2/live/send"
             data = {
                 "uid": uid,
                 "gift_id": gift_id,
                 "ruid": ruid,
                 "gift_num": gift_num,
-                "bag_id": 0,
                 "platform": "pc",
                 "biz_code": "live",
                 "biz_id": room_id,
                 "rnd": int(time.time()),
                 "storm_beat_id": "0",
                 "metadata": "",
-                "price": "0",
+                "price": "100",
+                "coin_type": "gold",
                 "csrf_token": bili_jct,
                 "csrf": bili_jct,
             }
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "Referer": f"https://live.bilibili.com/{room_id}",
+                "Origin": "https://live.bilibili.com",
             }
             resp = requests.post(url, data=data, cookies=cookies, headers=headers, timeout=10)
             result = resp.json()
             code = result.get("code", -1)
-            msg = result.get("message", "")
+            msg = result.get("message", "") or result.get("msg", "")
+            # 错误码中文说明
+            error_map = {
+                200007: "该房间不支持投喂该礼物",
+                200010: "该礼物仅限从包裹中送出",
+                200013: "余额不足（电池不够）",
+                200014: "参数错误",
+                200036: "该道具不能在这个房间投喂",
+                75255: "库存已经使用完",
+                -401: "请先登录（cookies失效）",
+            }
             if code == 0:
                 return True, "送礼成功"
             else:
-                return False, f"[{code}] {msg}"
+                detail = error_map.get(code, msg)
+                return False, f"[{code}] {detail}"
         except Exception as e:
             return False, f"网络异常: {e}"
 
