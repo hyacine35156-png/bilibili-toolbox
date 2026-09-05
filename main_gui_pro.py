@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.1.1"
+APP_VERSION = "v5.2.0"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -315,6 +315,91 @@ class AccountManager:
         if acc.get("DedeUserID"):
             parts.append(f"DedeUserID={acc['DedeUserID']}")
         return "; ".join(parts)
+
+
+class RoomManager:
+    """直播间管理器"""
+    def __init__(self):
+        self.rooms = []
+        self.load()
+
+    def load(self):
+        config_file = BASE_DIR / "rooms_config.json"
+        if config_file.exists():
+            try:
+                with open(config_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.rooms = data.get("rooms", [])
+            except Exception:
+                self.rooms = []
+
+    def save(self):
+        config_file = BASE_DIR / "rooms_config.json"
+        with open(config_file, "w", encoding="utf-8") as f:
+            json.dump({"rooms": self.rooms}, f, ensure_ascii=False, indent=2)
+
+    def add_room(self, room_id, name, remark=""):
+        room_id = str(room_id).strip()
+        if not room_id or not room_id.isdigit():
+            return False, "直播间号必须是数字"
+        for room in self.rooms:
+            if room["id"] == room_id:
+                return False, "直播间号已存在"
+        self.rooms.append({"id": room_id, "name": name, "remark": remark})
+        self.save()
+        return True, "添加成功"
+
+    def delete_room(self, room_id):
+        self.rooms = [r for r in self.rooms if r["id"] != str(room_id)]
+        self.save()
+
+    def update_room(self, room_id, name=None, remark=None):
+        for room in self.rooms:
+            if room["id"] == str(room_id):
+                if name is not None:
+                    room["name"] = name
+                if remark is not None:
+                    room["remark"] = remark
+                self.save()
+                return True
+        return False
+
+    def get_room(self, room_id):
+        for room in self.rooms:
+            if room["id"] == str(room_id):
+                return room
+        return None
+
+    def get_room_names(self):
+        """获取所有直播间的显示名称列表"""
+        return [f"{r['name']}（{r['id']}）" for r in self.rooms]
+
+    def import_from_accounts(self, account_mgr, log_func=None):
+        """从账户导入直播间（自动获取所有账户的直播间号）"""
+        added = 0
+        for acc in account_mgr.accounts:
+            name = acc.get("name", "未知")
+            mid = acc.get("DedeUserID", "")
+            if not mid:
+                continue
+            try:
+                url = f"https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld?mid={mid}"
+                resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+                data = resp.json()
+                if data.get("code") == 0 and data.get("data"):
+                    room_id = data["data"].get("roomid")
+                    if room_id and data["data"].get("roomStatus") == 1:
+                        room_name = f"{name}的房间"
+                        if not self.get_room(room_id):
+                            self.add_room(room_id, room_name, "从账户导入")
+                            added += 1
+                            if log_func:
+                                log_func(f"已导入「{name}」的直播间: {room_id}")
+            except Exception:
+                pass
+        if log_func:
+            log_func(f"从账户导入完成，共新增 {added} 个直播间")
+        return added
 
 
 def verify_login(cookie_str):
@@ -2903,14 +2988,14 @@ class WatchLiveFrame(tk.Frame):
 
     def save_watch_config(self):
         try:
-            current_room = self.room_combo.get().strip()
-            # 如果是纯数字直播间号，保存到历史记录
-            if current_room and current_room.isdigit() and current_room not in self.watch_config.get("room_history", []):
-                history = self.watch_config.get("room_history", [])
-                history.insert(0, current_room)
-                self.watch_config["room_history"] = history[:20]  # 最多保存20条
-                self._refresh_room_combo_values()
-            self.watch_config["room_id"] = current_room
+            # 保存所有直播间栏的选择
+            room_selections = []
+            for bar, combo, del_btn in self.watch_room_bars:
+                selected = combo.get().strip()
+                if selected and selected != "无":
+                    room_selections.append(selected)
+            self.watch_config["room_selections"] = room_selections
+            self.watch_config["room_bar_count"] = len(self.watch_room_bars)
             self.watch_config["daily_minutes"] = self.duration_var.get()
             self.watch_config["heartbeat_interval"] = self.interval_var.get()
             selected = []
@@ -2927,7 +3012,17 @@ class WatchLiveFrame(tk.Frame):
     def apply_watch_config(self):
         try:
             self._refresh_room_combo_values()
-            self.room_combo.set(self.watch_config.get("room_id", ""))
+            # 恢复直播间栏数量
+            bar_count = self.watch_config.get("room_bar_count", 1)
+            while len(self.watch_room_bars) < bar_count:
+                self._add_watch_room_bar()
+            # 恢复直播间选择
+            room_selections = self.watch_config.get("room_selections", [])
+            for i, (bar, combo, del_btn) in enumerate(self.watch_room_bars):
+                if i < len(room_selections):
+                    combo.set(room_selections[i])
+                else:
+                    combo.set("无")
             self.duration_var.set(self.watch_config.get("daily_minutes", 30))
             self.interval_var.set(self.watch_config.get("heartbeat_interval", 60))
             selected_names = self.watch_config.get("selected_accounts", [])
@@ -3031,9 +3126,7 @@ class WatchLiveFrame(tk.Frame):
 
     def bind_auto_save(self):
         try:
-            self.room_combo.bind("<FocusOut>", lambda e: self.save_watch_config())
-            self.room_combo.bind("<<ComboboxSelected>>", self._on_room_selected)
-            self.room_combo.bind("<KeyRelease>", lambda e: self._update_watch_del_btn_state())
+            # 直播间多栏选择的保存绑定在_add_watch_room_bar中
             self.duration_combo.bind("<<ComboboxSelected>>", lambda e: self.save_watch_config())
             self.interval_combo.bind("<<ComboboxSelected>>", lambda e: self.save_watch_config())
             # 送礼下拉框绑定
@@ -3044,72 +3137,57 @@ class WatchLiveFrame(tk.Frame):
             pass
 
     def _refresh_room_combo_values(self):
-        """刷新直播间下拉框选项：用户直播间 + 历史记录"""
-        values = []
-        # 添加所有用户的直播间选项
-        for acc in self.account_mgr.accounts:
-            name = acc.get("name", "未知")
-            mid = acc.get("DedeUserID", "")
-            values.append(f"【{name}】直播间")
-        # 添加历史记录分隔
-        if self.watch_config.get("room_history"):
-            values.append("--- 历史记录 ---")
-            values.extend(self.watch_config["room_history"])
-        self.room_combo["values"] = values
+        """刷新所有直播间栏的下拉框选项"""
+        values = ["无"] + [room["name"] for room in self.room_mgr.rooms]
+        for bar, combo, del_btn in getattr(self, 'watch_room_bars', []):
+            current = combo.get()
+            combo["values"] = values
+            if current not in values:
+                combo.set("无")
 
-    def _on_room_selected(self, event=None):
-        """选择直播间下拉框时：如果选的是用户名，自动获取直播间号"""
-        selected = self.room_combo.get().strip()
-        is_user_room = selected.startswith("【") and "】直播间" in selected
-        if is_user_room:
-            # 提取用户名
-            name = selected[1:selected.index("】")]
-            # 找到对应用户
-            for acc in self.account_mgr.accounts:
-                if acc.get("name") == name:
-                    mid = acc.get("DedeUserID", "")
-                    if mid:
-                        room_id = self.get_user_room_id(mid)
-                        if room_id:
-                            self.room_combo.set(str(room_id))
-                            self.log(f"已获取「{name}」的直播间号: {room_id}")
-                        else:
-                            self.log(f"获取「{name}」直播间号失败，请手动输入")
-                            self.room_combo.set("")
-                    break
-        elif selected == "--- 历史记录 ---":
-            # 选了分隔符，清空
-            self.room_combo.set("")
-        # 无论什么情况，都更新删除按钮状态（用户直播间自动获取的也禁用）
-        self._update_watch_del_btn_state()
-        self.save_watch_config()
+    def _add_watch_room_bar(self):
+        """添加一个直播间选择栏"""
+        bar = tk.Frame(self.watch_room_container, bg=COLORS["bg_card"])
+        bar.pack(side=tk.LEFT, padx=(0, 8))
+        combo = ttk.Combobox(bar, width=20, values=["无"], state="readonly")
+        combo.pack(side=tk.LEFT)
+        combo.set("无")
+        del_btn = tk.Button(bar, text="✕", bg=COLORS["danger"], fg="#ffffff", font=("微软雅黑", 8),
+                            bd=0, padx=4, pady=1, cursor="hand2", command=lambda b=bar: self._remove_watch_room_bar(b))
+        del_btn.pack(side=tk.LEFT, padx=(4, 0))
+        self.watch_room_bars.append((bar, combo, del_btn))
+        self._refresh_room_combo_values()
+        # 如果只有一个栏，禁用删除按钮
+        if len(self.watch_room_bars) <= 1:
+            self.watch_room_bars[0][2].config(state=tk.DISABLED)
 
-
-    def _update_watch_del_btn_state(self):
-        """根据下拉框选中内容更新删除按钮状态：仅纯数字历史记录可删"""
-        try:
-            selected = self.room_combo.get().strip()
-            if selected and selected.isdigit() and selected in self.watch_config.get("room_history", []):
-                self.watch_room_del_btn.config(state=tk.NORMAL)
-            else:
-                self.watch_room_del_btn.config(state=tk.DISABLED)
-        except Exception:
-            self.watch_room_del_btn.config(state=tk.DISABLED)
-
-    def _delete_watch_room_history(self):
-        """删除当前选中的看播直播间历史记录"""
-        selected = self.room_combo.get().strip()
-        if not selected or not selected.isdigit():
+    def _remove_watch_room_bar(self, bar):
+        """删除一个直播间选择栏"""
+        if len(self.watch_room_bars) <= 1:
             return
-        if "room_history" not in self.watch_config:
-            self.watch_config["room_history"] = []
-        if selected in self.watch_config["room_history"]:
-            self.watch_config["room_history"].remove(selected)
-            self.save_watch_config()
-            self._refresh_room_combo_values()
-            self.room_combo.set("")
-            self._update_watch_del_btn_state()
-            self.log(f"已删除看播直播间历史记录: {selected}")
+        for i, (b, c, d) in enumerate(self.watch_room_bars):
+            if b == bar:
+                b.destroy()
+                self.watch_room_bars.pop(i)
+                break
+        # 如果只剩一个栏，禁用删除按钮
+        if len(self.watch_room_bars) <= 1:
+            self.watch_room_bars[0][2].config(state=tk.DISABLED)
+        else:
+            for b, c, d in self.watch_room_bars:
+                d.config(state=tk.NORMAL)
+
+    def _get_watch_room_ids(self):
+        """获取所有选中的直播间号"""
+        room_ids = []
+        for bar, combo, del_btn in self.watch_room_bars:
+            selected = combo.get().strip()
+            if selected and selected != "无":
+                for room in self.room_mgr.rooms:
+                    if room["name"] == selected:
+                        room_ids.append(room["id"])
+                        break
+        return room_ids
 
     def get_user_room_id(self, mid):
         """根据用户mid获取直播间号"""
@@ -3189,12 +3267,16 @@ class WatchLiveFrame(tk.Frame):
 
         row1 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         row1.pack(fill=tk.X, pady=3)
-        tk.Label(row1, text="直播间(选用户/手动输入):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
-        self.room_combo = ttk.Combobox(row1, width=28, values=[])
-        self.room_combo.pack(side=tk.LEFT, padx=(8, 4))
-        self.watch_room_del_btn = tk.Button(row1, text="✕", bg=COLORS["danger"], fg="#ffffff", font=("微软雅黑", 8),
-                                             bd=0, padx=4, pady=1, cursor="hand2", state=tk.DISABLED, command=self._delete_watch_room_history)
-        self.watch_room_del_btn.pack(side=tk.LEFT, padx=(0, 20))
+        tk.Label(row1, text="直播间:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        # 直播间多栏选择容器
+        self.watch_room_bars = []
+        self.watch_room_container = tk.Frame(row1, bg=COLORS["bg_card"])
+        self.watch_room_container.pack(side=tk.LEFT, padx=(8, 0))
+        self._add_watch_room_bar()
+        # 添加直播间栏按钮
+        self.add_room_bar_btn = tk.Button(row1, text="+ 添加", bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 9),
+                                           bd=0, padx=8, pady=2, cursor="hand2", command=self._add_watch_room_bar)
+        self.add_room_bar_btn.pack(side=tk.LEFT, padx=(8, 20))
         tk.Label(row1, text="每日时长(分):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
         self.duration_var = tk.IntVar(value=30)
         self.duration_combo = ttk.Combobox(row1, textvariable=self.duration_var, width=8, values=[10, 15, 20, 30, 45, 60, 90, 120], state="readonly")
@@ -3961,18 +4043,9 @@ class WatchLiveFrame(tk.Frame):
     def start_watch(self):
         if self.running:
             return
-        room_input = self.room_combo.get().strip()
-        if not room_input:
-            messagebox.showwarning("提示", "请选择或输入直播间号")
-            return
-        # 解析多个直播间号（逗号、空格、分号分隔）
-        room_ids = []
-        for r in room_input.replace("，", ",").replace(";", ",").replace(" ", ",").split(","):
-            r = r.strip()
-            if r and r.isdigit():
-                room_ids.append(r)
+        room_ids = self._get_watch_room_ids()
         if not room_ids:
-            messagebox.showwarning("提示", "请输入有效的直播间号（数字），多个用逗号分隔")
+            messagebox.showwarning("提示", "请至少选择一个直播间（可在账户管理页面添加）")
             return
         # 从复选框获取选中账户
         selected_names = [name for name, var in self.account_vars.items() if var.get()]
@@ -3987,7 +4060,10 @@ class WatchLiveFrame(tk.Frame):
         self.stop_flag = {"stop": False}
         self.start_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
-        self.room_combo.config(state=tk.DISABLED)
+        for bar, combo, del_btn in self.watch_room_bars:
+            combo.config(state=tk.DISABLED)
+            del_btn.config(state=tk.DISABLED)
+        self.add_room_bar_btn.config(state=tk.DISABLED)
         self.duration_combo.config(state=tk.DISABLED)
         self.interval_combo.config(state=tk.DISABLED)
         # 禁用所有复选框和按钮
@@ -4012,7 +4088,11 @@ class WatchLiveFrame(tk.Frame):
         self.running = False
         self.start_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
-        self.room_combo.config(state="normal")
+        for bar, combo, del_btn in self.watch_room_bars:
+            combo.config(state="readonly")
+            if len(self.watch_room_bars) > 1:
+                del_btn.config(state=tk.NORMAL)
+        self.add_room_bar_btn.config(state=tk.NORMAL)
         self.duration_combo.config(state="readonly")
         self.interval_combo.config(state="readonly")
         # 启用所有复选框和按钮
@@ -4156,7 +4236,11 @@ class WatchLiveFrame(tk.Frame):
         self.close_all_ws()
         self.start_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
-        self.room_combo.config(state="normal")
+        for bar, combo, del_btn in self.watch_room_bars:
+            combo.config(state="readonly")
+            if len(self.watch_room_bars) > 1:
+                del_btn.config(state=tk.NORMAL)
+        self.add_room_bar_btn.config(state=tk.NORMAL)
         self.duration_combo.config(state="readonly")
         self.interval_combo.config(state="readonly")
         # 启用所有复选框和按钮
@@ -5507,6 +5591,7 @@ class DanmakuApp:
         self.root.configure(bg=COLORS["bg_dark"])
 
         self.account_mgr = AccountManager()
+        self.room_mgr = RoomManager()
         self.danmaku_list = self.load_danmaku()
         self.config = self.load_config()
         self.running = False
@@ -5730,13 +5815,10 @@ class DanmakuApp:
         row1 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         row1.pack(fill=tk.X, pady=3)
 
-        tk.Label(row1, text="直播间(选用户/手动输入):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+        tk.Label(row1, text="直播间:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=("微软雅黑", 10)).pack(side=tk.LEFT)
-        self.room_combo = ttk.Combobox(row1, width=24, values=[])
-        self.room_combo.pack(side=tk.LEFT, padx=(8, 4))
-        self.room_del_btn = tk.Button(row1, text="✕", bg=COLORS["danger"], fg="#ffffff", font=("微软雅黑", 8),
-                                       bd=0, padx=4, pady=1, cursor="hand2", state=tk.DISABLED, command=self._delete_danmaku_room_history)
-        self.room_del_btn.pack(side=tk.LEFT, padx=(0, 20))
+        self.room_combo = ttk.Combobox(row1, width=28, values=[], state="readonly")
+        self.room_combo.pack(side=tk.LEFT, padx=(8, 20))
 
         tk.Label(row1, text="发送间隔", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=("微软雅黑", 9)).pack(side=tk.LEFT)
@@ -5948,6 +6030,121 @@ class DanmakuApp:
         self.manager_info_text.config(state=tk.DISABLED)
         self._manager_show_info(None)
 
+        # ===== 直播间管理子区域 =====
+        room_card = tk.Frame(main, bg=COLORS["bg_card"], bd=0, highlightthickness=1, highlightbackground=COLORS["border"])
+        room_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0))
+
+        tk.Label(room_card, text="直播间管理", bg=COLORS["bg_card"], fg=COLORS["accent"],
+                 font=("微软雅黑", 12, "bold")).pack(anchor=tk.W, padx=15, pady=(12, 8))
+
+        room_inner = tk.Frame(room_card, bg=COLORS["bg_card"])
+        room_inner.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
+
+        # 左侧：直播间列表
+        room_left = tk.Frame(room_inner, bg=COLORS["bg_card"])
+        room_left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+
+        self.manager_room_listbox = tk.Listbox(room_left, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                                                  selectbackground=COLORS["accent"], selectforeground="#000000",
+                                                  font=("微软雅黑", 10), bd=0, highlightthickness=0,
+                                                  activestyle="none", exportselection=False)
+        self.manager_room_listbox.pack(fill=tk.BOTH, expand=True)
+        self.manager_room_listbox.bind("<<ListboxSelect>>", self._on_manager_room_select)
+
+        # 右侧：添加/编辑表单
+        room_right = tk.Frame(room_inner, bg=COLORS["bg_card"], width=280)
+        room_right.pack(side=tk.LEFT, fill=tk.Y)
+        room_right.pack_propagate(False)
+
+        tk.Label(room_right, text="直播间号:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 9)).pack(anchor=tk.W)
+        self.room_id_entry = DarkEntry(room_right, width=28)
+        self.room_id_entry.pack(fill=tk.X, pady=(2, 8))
+
+        tk.Label(room_right, text="显示名称:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 9)).pack(anchor=tk.W)
+        self.room_name_entry = DarkEntry(room_right, width=28)
+        self.room_name_entry.pack(fill=tk.X, pady=(2, 8))
+
+        tk.Label(room_right, text="备注:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 9)).pack(anchor=tk.W)
+        self.room_remark_entry = DarkEntry(room_right, width=28)
+        self.room_remark_entry.pack(fill=tk.X, pady=(2, 10))
+
+        DarkButton(room_right, "+ 添加直播间", command=self._manager_add_room,
+                   width=260, height=34).pack(pady=(0, 5))
+        DarkButton(room_right, "删除直播间", command=self._manager_delete_room,
+                   width=260, height=34, bg_color=COLORS["danger"], text_color="#ffffff").pack(pady=(0, 5))
+        DarkButton(room_right, "从账户导入", command=self._manager_import_rooms_from_accounts,
+                   width=260, height=34, bg_color="#2980b9", text_color="#ffffff").pack()
+
+        self._refresh_manager_room_list()
+
+    def _refresh_manager_room_list(self):
+        """刷新直播间管理列表"""
+        if not hasattr(self, 'manager_room_listbox') or not self.manager_room_listbox.winfo_exists():
+            return
+        self.manager_room_listbox.delete(0, tk.END)
+        for room in self.room_mgr.rooms:
+            display = f"  {room['name']}"
+            if room.get('remark'):
+                display += f"  [{room['remark']}]"
+            self.manager_room_listbox.insert(tk.END, display)
+
+    def _on_manager_room_select(self, event):
+        """选择直播间时填充表单"""
+        selection = self.manager_room_listbox.curselection()
+        if not selection:
+            return
+        room = self.room_mgr.rooms[selection[0]]
+        self.room_id_entry.delete(0, tk.END)
+        self.room_id_entry.insert(0, room["id"])
+        self.room_name_entry.delete(0, tk.END)
+        self.room_name_entry.insert(0, room["name"])
+        self.room_remark_entry.delete(0, tk.END)
+        self.room_remark_entry.insert(0, room.get("remark", ""))
+
+    def _manager_add_room(self):
+        """添加直播间"""
+        room_id = self.room_id_entry.get().strip()
+        name = self.room_name_entry.get().strip()
+        remark = self.room_remark_entry.get().strip()
+        if not room_id or not room_id.isdigit():
+            messagebox.showwarning("提示", "请输入有效的直播间号（数字）")
+            return
+        if not name:
+            name = f"直播间{room_id}"
+        ok, msg = self.room_mgr.add_room(room_id, name, remark)
+        if ok:
+            self._refresh_manager_room_list()
+            self.room_id_entry.delete(0, tk.END)
+            self.room_name_entry.delete(0, tk.END)
+            self.room_remark_entry.delete(0, tk.END)
+            self.log(f"已添加直播间: {name}（{room_id}）")
+        else:
+            messagebox.showwarning("提示", msg)
+
+    def _manager_delete_room(self):
+        """删除直播间"""
+        selection = self.manager_room_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("提示", "请先选择要删除的直播间")
+            return
+        room = self.room_mgr.rooms[selection[0]]
+        if custom_askyesno(self.root, "确认", f"确定删除直播间「{room['name']}」吗？"):
+            self.room_mgr.delete_room(room["id"])
+            self._refresh_manager_room_list()
+            self.room_id_entry.delete(0, tk.END)
+            self.room_name_entry.delete(0, tk.END)
+            self.room_remark_entry.delete(0, tk.END)
+            self.log(f"已删除直播间: {room['name']}（{room['id']}）")
+
+    def _manager_import_rooms_from_accounts(self):
+        """从账户导入直播间"""
+        count = self.room_mgr.import_from_accounts(self.account_mgr, self.log)
+        self._refresh_manager_room_list()
+        messagebox.showinfo("提示", f"从账户导入完成，共新增 {count} 个直播间")
+
     def refresh_account_manager_list(self):
         """刷新账户管理页面的账户列表"""
         if not hasattr(self, 'manager_account_listbox') or not self.manager_account_listbox.winfo_exists():
@@ -6137,86 +6334,28 @@ bili_jct: {jct_preview}
             var.set(False)
 
     def _refresh_danmaku_room_combo_values(self):
-        """刷新弹幕直播间下拉框选项：用户直播间 + 历史记录"""
+        """刷新弹幕直播间下拉框选项：只显示直播间名称，不显示数字ID"""
         if not hasattr(self, 'room_combo'):
             return
-        values = []
-        # 添加所有用户的直播间选项
-        for acc in self.account_mgr.accounts:
-            name = acc.get("name", "未知")
-            values.append(f"【{name}】直播间")
-        # 添加历史记录分隔
-        if self.config.get("room_history"):
-            values.append("--- 历史记录 ---")
-            values.extend(self.config["room_history"])
+        values = [room["name"] for room in self.room_mgr.rooms]
         self.room_combo["values"] = values
-
-    def _on_danmaku_room_selected(self, event=None):
-        """选择弹幕直播间下拉框时：如果选的是用户名，自动获取直播间号"""
-        selected = self.room_combo.get().strip()
-        if selected.startswith("【") and "】直播间" in selected:
-            # 提取用户名
-            name = selected[1:selected.index("】")]
-            # 找到对应用户
-            for acc in self.account_mgr.accounts:
-                if acc.get("name") == name:
-                    mid = acc.get("DedeUserID", acc.get("uid", ""))
-                    if mid:
-                        room_id = self._get_user_room_id(mid)
-                        if room_id:
-                            self.room_combo.set(str(room_id))
-                            self.log(f"已获取「{name}」的直播间号: {room_id}")
-                        else:
-                            self.log(f"获取「{name}」直播间号失败，请手动输入")
-                    break
-        elif selected == "--- 历史记录 ---":
-            # 选了分隔符，清空
+        # 如果当前选中的不在列表中，清空
+        if self.room_combo.get() not in values:
             self.room_combo.set("")
-        self._update_danmaku_del_btn_state()
-        self.save_config()
 
-    def _update_danmaku_del_btn_state(self):
-        """根据下拉框选中内容更新删除按钮状态：仅纯数字历史记录可删"""
-        try:
-            selected = self.room_combo.get().strip()
-            if selected and selected.isdigit() and selected in self.config.get("room_history", []):
-                self.room_del_btn.config(state=tk.NORMAL)
-            else:
-                self.room_del_btn.config(state=tk.DISABLED)
-        except Exception:
-            self.room_del_btn.config(state=tk.DISABLED)
-
-    def _get_user_room_id(self, mid):
-        """根据用户mid获取直播间号"""
-        try:
-            url = f"https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld?mid={mid}"
-            resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-            data = resp.json()
-            if data.get("code") == 0 and data.get("data"):
-                room_id = data["data"].get("roomid")
-                if room_id and data["data"].get("roomStatus") == 1:
-                    return room_id
-        except Exception:
-            pass
+    def _get_danmaku_room_id(self):
+        """根据选中的直播间名称获取直播间号"""
+        selected_name = self.room_combo.get().strip()
+        if not selected_name:
+            return None
+        for room in self.room_mgr.rooms:
+            if room["name"] == selected_name:
+                return room["id"]
         return None
 
-    def _delete_danmaku_room_history(self):
-        """删除当前选中的直播间历史记录"""
-        selected = self.room_combo.get().strip()
-        if not selected or not selected.isdigit():
-            messagebox.showinfo("提示", "请先从下拉框选择要删除的历史直播间号")
-            return
-        if "room_history" not in self.config:
-            self.config["room_history"] = []
-        if selected in self.config["room_history"]:
-            self.config["room_history"].remove(selected)
-            self.save_config()
-            self._refresh_danmaku_room_combo_values()
-            self.room_combo.set("")
-            self._update_danmaku_del_btn_state()
-            self.log(f"已删除直播间历史记录: {selected}")
-        else:
-            messagebox.showinfo("提示", f"直播间号 {selected} 不在历史记录中")
+    def _on_danmaku_room_selected(self, event=None):
+        """选择弹幕直播间下拉框时：保存配置"""
+        self.save_config()
 
     def _get_danmaku_selected_accounts(self):
         """获取弹幕工具页面选中的账户列表"""
@@ -6260,9 +6399,6 @@ bili_jct: {jct_preview}
             # 刷新弹幕账户多选复选框
             if hasattr(self, '_refresh_danmaku_account_checkboxes'):
                 self._refresh_danmaku_account_checkboxes()
-            # 刷新直播间下拉框选项（用户列表变了）
-            if hasattr(self, '_refresh_danmaku_room_combo_values'):
-                self._refresh_danmaku_room_combo_values()
             self.log(f"已删除账户: {acc['name']}")
 
     def verify_current_account(self):
@@ -6834,16 +6970,7 @@ bili_jct: {jct_preview}
 
     def save_config(self):
         try:
-            self.config["room_id"] = self.room_combo.get().strip()
-            # 如果是纯数字直播间号，保存到历史记录
-            room_id = self.room_combo.get().strip()
-            if room_id.isdigit():
-                if "room_history" not in self.config:
-                    self.config["room_history"] = []
-                if room_id not in self.config["room_history"]:
-                    self.config["room_history"].insert(0, room_id)
-                    self.config["room_history"] = self.config["room_history"][:10]  # 最多保留10条
-                    self._refresh_danmaku_room_combo_values()
+            self.config["room_id"] = self.room_combo.get().strip()  # 保存直播间名称
             self.config["interval_min"] = self.interval_min.get().strip()
             self.config["interval_max"] = self.interval_max.get().strip()
             self.config["send_mode"] = self.mode_var.get()
@@ -6866,10 +6993,10 @@ bili_jct: {jct_preview}
             pass
 
     def apply_config(self):
-        if self.config.get("room_id"):
-            self.room_combo.set(self.config["room_id"])
         # 初始化直播间下拉框选项
         self._refresh_danmaku_room_combo_values()
+        if self.config.get("room_id"):
+            self.room_combo.set(self.config["room_id"])
         if self.config.get("interval_min"):
             self.interval_min.delete(0, tk.END)
             self.interval_min.insert(0, self.config["interval_min"])
@@ -6896,9 +7023,7 @@ bili_jct: {jct_preview}
             except Exception:
                 self.root.geometry("1400x1000")
         # 绑定自动保存
-        self.room_combo.bind("<FocusOut>", lambda e: self.save_config())
         self.room_combo.bind("<<ComboboxSelected>>", self._on_danmaku_room_selected)
-        self.room_combo.bind("<KeyRelease>", lambda e: self._update_danmaku_del_btn_state())
         self.interval_min.bind("<FocusOut>", lambda e: self.save_config())
         self.interval_max.bind("<FocusOut>", lambda e: self.save_config())
         self.max_send_entry.bind("<FocusOut>", lambda e: self.save_config())
@@ -7014,9 +7139,9 @@ bili_jct: {jct_preview}
             return
         account_mode = "multi" if len(accounts) > 1 else "single"
 
-        room_id = self.room_combo.get().strip()
-        if not room_id or not room_id.isdigit():
-            messagebox.showwarning("提示", "请选择或输入有效的直播间号（数字）")
+        room_id = self._get_danmaku_room_id()
+        if not room_id:
+            messagebox.showwarning("提示", "请先选择直播间（可在账户管理页面添加）")
             return
         # 从三列中获取所有弹幕
         lines = self.get_all_danmaku()
