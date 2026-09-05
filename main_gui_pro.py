@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.2.4"
+APP_VERSION = "v5.2.5"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -3061,13 +3061,7 @@ class WatchLiveFrame(tk.Frame):
     def save_gift_config(self):
         try:
             current_room = self.gift_room_combo.get().strip()
-            # 如果是纯数字直播间号，保存到历史记录
-            if current_room and current_room.isdigit() and current_room not in self.gift_config.get("room_history", []):
-                history = self.gift_config.get("room_history", [])
-                history.insert(0, current_room)
-                self.gift_config["room_history"] = history[:20]
-                self._refresh_gift_room_combo_values()
-            self.gift_config["room_id"] = current_room
+            self.gift_config["room_name"] = current_room  # 保存直播间名称
             self.gift_config["gift_num"] = self.gift_num_var.get()
             self.gift_config["interval"] = self.gift_interval_var.get()
             self.gift_config["max_count"] = self.gift_count_var.get()
@@ -3084,7 +3078,10 @@ class WatchLiveFrame(tk.Frame):
         try:
             cfg = self.gift_config
             self._refresh_gift_room_combo_values()
-            self.gift_room_combo.set(cfg.get("room_id", ""))
+            # 恢复直播间名称（兼容旧配置的room_id）
+            room_name = cfg.get("room_name", cfg.get("room_id", ""))
+            if room_name:
+                self.gift_room_combo.set(room_name)
             self.gift_num_var.set(cfg.get("gift_num", 1))
             self.gift_interval_var.set(cfg.get("interval", 10))
             self.gift_count_var.set(cfg.get("max_count", 0))
@@ -3096,35 +3093,30 @@ class WatchLiveFrame(tk.Frame):
             pass
 
     def _refresh_gift_room_combo_values(self):
-        """刷新送礼直播间下拉框选项：用户直播间 + 历史记录"""
+        """刷新送礼直播间下拉框选项：只显示直播间管理中的直播间名称"""
+        if not hasattr(self, 'gift_room_combo') or not self.gift_room_combo.winfo_exists():
+            return
         values = []
-        for acc in self.account_mgr.accounts:
-            name = acc.get("name", "未知")
-            values.append(f"【{name}】直播间")
-        if self.gift_config.get("room_history"):
-            values.append("--- 历史记录 ---")
-            values.extend(self.gift_config["room_history"])
+        for room in self.room_mgr.rooms:
+            values.append(room["name"])
         self.gift_room_combo["values"] = values
+        # 如果当前选中的不在列表中，清空
+        if self.gift_room_combo.get() not in values:
+            self.gift_room_combo.set("")
 
     def _on_gift_room_selected(self, event=None):
-        """选择送礼直播间下拉框时：如果选的是用户名，自动获取直播间号"""
-        selected = self.gift_room_combo.get().strip()
-        if selected.startswith("【") and "】直播间" in selected:
-            name = selected[1:selected.index("】")]
-            for acc in self.account_mgr.accounts:
-                if acc.get("name") == name:
-                    mid = acc.get("DedeUserID", "")
-                    if mid:
-                        room_id = self.get_user_room_id(mid)
-                        if room_id:
-                            self.gift_room_combo.set(str(room_id))
-                            self.log(f"已获取「{name}」的直播间号: {room_id}")
-                        else:
-                            self.log(f"获取「{name}」直播间号失败，请手动输入")
-                    break
-        elif selected == "--- 历史记录 ---":
-            self.gift_room_combo.set("")
+        """选择送礼直播间下拉框时：保存配置"""
         self.save_gift_config()
+
+    def _get_gift_room_id(self):
+        """根据选中的直播间名称获取直播间号"""
+        selected_name = self.gift_room_combo.get().strip()
+        if not selected_name:
+            return None
+        for room in self.room_mgr.rooms:
+            if room["name"] == selected_name:
+                return room["id"]
+        return None
 
     def bind_auto_save(self):
         try:
@@ -3132,7 +3124,6 @@ class WatchLiveFrame(tk.Frame):
             self.duration_combo.bind("<<ComboboxSelected>>", lambda e: self.save_watch_config())
             self.interval_combo.bind("<<ComboboxSelected>>", lambda e: self.save_watch_config())
             # 送礼下拉框绑定
-            self.gift_room_combo.bind("<KeyRelease>", lambda e: self.save_gift_config())
             self.gift_room_combo.bind("<<ComboboxSelected>>", self._on_gift_room_selected)
             self.gift_num_combo.bind("<<ComboboxSelected>>", lambda e: self.save_gift_config())
         except Exception:
@@ -3317,8 +3308,8 @@ class WatchLiveFrame(tk.Frame):
 
         gift_row1 = tk.Frame(gift_inner, bg=COLORS["bg_card"])
         gift_row1.pack(fill=tk.X, pady=3)
-        tk.Label(gift_row1, text="直播间(选用户/手动输入):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
-        self.gift_room_combo = ttk.Combobox(gift_row1, width=24, values=[])
+        tk.Label(gift_row1, text="直播间:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        self.gift_room_combo = ttk.Combobox(gift_row1, width=24, values=[], state="readonly")
         self.gift_room_combo.pack(side=tk.LEFT, padx=(8, 20))
         tk.Label(gift_row1, text="礼物:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
         tk.Label(gift_row1, text="牛蛙牛蛙", bg=COLORS["bg_input"], fg=COLORS["accent"], font=("微软雅黑", 10, "bold"), padx=10, pady=2).pack(side=tk.LEFT, padx=(8, 20))
@@ -4371,12 +4362,9 @@ class WatchLiveFrame(tk.Frame):
         if self.gift_running:
             self.log("⚠ 送礼任务已在运行中，请勿重复点击")
             return
-        room_id = self.gift_room_combo.get().strip()
+        room_id = self._get_gift_room_id()
         if not room_id:
-            self.log("✗ 请先选择或输入送礼直播间号")
-            return
-        if not room_id.isdigit():
-            self.log("✗ 直播间号必须是数字")
+            self.log("✗ 请先选择直播间（可在账户管理页面添加直播间）")
             return
         # 获取选中的送礼账户
         selected_name = self.gift_account_combo.get()
