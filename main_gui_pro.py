@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v4.7.6"
+APP_VERSION = "v4.7.8"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -1340,16 +1340,16 @@ class RushRewardFrame(tk.Frame):
         header_frame = tk.Frame(list_frame, bg=COLORS["bg_input"])
         header_frame.pack(fill=tk.X, pady=(0, 8))
         # 用固定像素宽度的Frame容器，确保表头和数据行严格对齐
-        col_widths = [300, 100, 150, 130, 70, 140]
+        col_widths = [340, 110, 170, 150, 80, 200]
         col_names = ["任务名称", "领取时间", "时长/间隔", "账户", "状态", "操作"]
         # 每列左边距：首列25，时长/间隔列后加大到35
         col_paddings = [25, 18, 18, 35, 18, 18]
         for i, (name, w) in enumerate(zip(col_names, col_widths)):
-            col_frame = tk.Frame(header_frame, bg=COLORS["bg_input"], width=w, height=32)
+            col_frame = tk.Frame(header_frame, bg=COLORS["bg_input"], width=w, height=40)
             col_frame.pack(side=tk.LEFT, padx=(col_paddings[i], 0))
             col_frame.pack_propagate(False)
             tk.Label(col_frame, text=name, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                     font=("微软雅黑", 11, "bold"), anchor=tk.W).pack(side=tk.LEFT, padx=8, pady=6)
+                     font=("微软雅黑", 11, "bold"), anchor=tk.W).pack(side=tk.LEFT, padx=8, pady=10)
 
         # 任务列表容器（可滚动）
         self.schedule_list_frame = tk.Frame(list_frame, bg=COLORS["bg_card"])
@@ -1410,7 +1410,7 @@ class RushRewardFrame(tk.Frame):
                 row_frame.configure(bg=COLORS["bg_input"])
 
             # 用固定像素宽度的Frame容器，确保和表头严格对齐
-            col_widths = [300, 100, 150, 130, 70, 140]
+            col_widths = [340, 110, 170, 150, 80, 200]
 
             # 任务名称
             name_text = task.get("task_name", "未知任务")[:30]
