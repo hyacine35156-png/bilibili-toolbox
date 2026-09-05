@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v4.9.9"
+APP_VERSION = "v5.0.0"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -4173,7 +4173,7 @@ class WatchLiveFrame(tk.Frame):
     def get_room_info(self, room_id, account):
         """获取直播间信息（ruid等）"""
         try:
-            sessdata = account.get("sessdata", "")
+            sessdata = account.get("SESSDATA", "")
             cookies = {"SESSDATA": sessdata}
             url = f"https://api.live.bilibili.com/room/v1/Room/get_info?room_id={room_id}"
             resp = requests.get(url, cookies=cookies, timeout=10)
@@ -4187,7 +4187,7 @@ class WatchLiveFrame(tk.Frame):
     def send_gift(self, account, room_id, gift_id, gift_num):
         """发送礼物"""
         try:
-            sessdata = account.get("sessdata", "")
+            sessdata = account.get("SESSDATA", "")
             bili_jct = account.get("bili_jct", "")
             uid = account.get("uid", "")
             cookies = {"SESSDATA": sessdata, "bili_jct": bili_jct}
@@ -4229,6 +4229,10 @@ class WatchLiveFrame(tk.Frame):
 
     def start_gift(self):
         """开始送礼"""
+        # 防重复调用
+        if self.gift_running:
+            self.log("⚠ 送礼任务已在运行中，请勿重复点击")
+            return
         room_id = self.gift_room_combo.get().strip()
         if not room_id:
             self.log("✗ 请先选择或输入送礼直播间号")
