@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.0.8"
+APP_VERSION = "v5.0.9"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -5695,7 +5695,10 @@ class DanmakuApp:
         tk.Label(row1, text="直播间(选用户/手动输入):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=("微软雅黑", 10)).pack(side=tk.LEFT)
         self.room_combo = ttk.Combobox(row1, width=24, values=[])
-        self.room_combo.pack(side=tk.LEFT, padx=(8, 20))
+        self.room_combo.pack(side=tk.LEFT, padx=(8, 4))
+        self.room_del_btn = tk.Button(row1, text="✕", bg=COLORS["danger"], fg="#ffffff", font=("微软雅黑", 9, "bold"),
+                                       bd=0, padx=8, pady=2, cursor="hand2", command=self._delete_danmaku_room_history)
+        self.room_del_btn.pack(side=tk.LEFT, padx=(0, 20))
 
         tk.Label(row1, text="发送间隔", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=("微软雅黑", 9)).pack(side=tk.LEFT)
@@ -6138,6 +6141,23 @@ bili_jct: {jct_preview}
         except Exception:
             pass
         return None
+
+    def _delete_danmaku_room_history(self):
+        """删除当前选中的直播间历史记录"""
+        selected = self.room_combo.get().strip()
+        if not selected or not selected.isdigit():
+            messagebox.showinfo("提示", "请先从下拉框选择要删除的历史直播间号")
+            return
+        if "room_history" not in self.config:
+            self.config["room_history"] = []
+        if selected in self.config["room_history"]:
+            self.config["room_history"].remove(selected)
+            self.save_config()
+            self._refresh_danmaku_room_combo_values()
+            self.room_combo.set("")
+            self.log(f"已删除直播间历史记录: {selected}")
+        else:
+            messagebox.showinfo("提示", f"直播间号 {selected} 不在历史记录中")
 
     def _get_danmaku_selected_accounts(self):
         """获取弹幕工具页面选中的账户列表"""
@@ -6811,7 +6831,7 @@ bili_jct: {jct_preview}
             except Exception:
                 self.root.geometry("1400x1000")
         # 绑定自动保存
-        self.room_combo.bind("<KeyRelease>", lambda e: self.save_config())
+        self.room_combo.bind("<FocusOut>", lambda e: self.save_config())
         self.room_combo.bind("<<ComboboxSelected>>", self._on_danmaku_room_selected)
         self.interval_min.bind("<FocusOut>", lambda e: self.save_config())
         self.interval_max.bind("<FocusOut>", lambda e: self.save_config())
