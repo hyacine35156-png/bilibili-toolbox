@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.0.7"
+APP_VERSION = "v5.0.8"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -5692,10 +5692,10 @@ class DanmakuApp:
         row1 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         row1.pack(fill=tk.X, pady=3)
 
-        tk.Label(row1, text="直播间号", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
-        self.room_entry = DarkEntry(row1, width=14)
-        self.room_entry.pack(side=tk.LEFT, padx=(8, 20))
+        tk.Label(row1, text="直播间(选用户/手动输入):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        self.room_combo = ttk.Combobox(row1, width=24, values=[])
+        self.room_combo.pack(side=tk.LEFT, padx=(8, 20))
 
         tk.Label(row1, text="发送间隔", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=("微软雅黑", 9)).pack(side=tk.LEFT)
@@ -6086,6 +6086,58 @@ bili_jct: {jct_preview}
         """弹幕账户取消全选"""
         for var in self.danmaku_account_vars.values():
             var.set(False)
+
+    def _refresh_danmaku_room_combo_values(self):
+        """刷新弹幕直播间下拉框选项：用户直播间 + 历史记录"""
+        if not hasattr(self, 'room_combo'):
+            return
+        values = []
+        # 添加所有用户的直播间选项
+        for acc in self.account_mgr.accounts:
+            name = acc.get("name", "未知")
+            values.append(f"【{name}】直播间")
+        # 添加历史记录分隔
+        if self.config.get("room_history"):
+            values.append("--- 历史记录 ---")
+            values.extend(self.config["room_history"])
+        self.room_combo["values"] = values
+
+    def _on_danmaku_room_selected(self, event=None):
+        """选择弹幕直播间下拉框时：如果选的是用户名，自动获取直播间号"""
+        selected = self.room_combo.get().strip()
+        if selected.startswith("【") and "】直播间" in selected:
+            # 提取用户名
+            name = selected[1:selected.index("】")]
+            # 找到对应用户
+            for acc in self.account_mgr.accounts:
+                if acc.get("name") == name:
+                    mid = acc.get("DedeUserID", acc.get("uid", ""))
+                    if mid:
+                        room_id = self._get_user_room_id(mid)
+                        if room_id:
+                            self.room_combo.set(str(room_id))
+                            self.log(f"已获取「{name}」的直播间号: {room_id}")
+                        else:
+                            self.log(f"获取「{name}」直播间号失败，请手动输入")
+                    break
+        elif selected == "--- 历史记录 ---":
+            # 选了分隔符，清空
+            self.room_combo.set("")
+        self.save_config()
+
+    def _get_user_room_id(self, mid):
+        """根据用户mid获取直播间号"""
+        try:
+            url = f"https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld?mid={mid}"
+            resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+            data = resp.json()
+            if data.get("code") == 0 and data.get("data"):
+                room_id = data["data"].get("roomid")
+                if room_id and data["data"].get("roomStatus") == 1:
+                    return room_id
+        except Exception:
+            pass
+        return None
 
     def _get_danmaku_selected_accounts(self):
         """获取弹幕工具页面选中的账户列表"""
@@ -6697,7 +6749,16 @@ bili_jct: {jct_preview}
 
     def save_config(self):
         try:
-            self.config["room_id"] = self.room_entry.get().strip()
+            self.config["room_id"] = self.room_combo.get().strip()
+            # 如果是纯数字直播间号，保存到历史记录
+            room_id = self.room_combo.get().strip()
+            if room_id.isdigit():
+                if "room_history" not in self.config:
+                    self.config["room_history"] = []
+                if room_id not in self.config["room_history"]:
+                    self.config["room_history"].insert(0, room_id)
+                    self.config["room_history"] = self.config["room_history"][:10]  # 最多保留10条
+                    self._refresh_danmaku_room_combo_values()
             self.config["interval_min"] = self.interval_min.get().strip()
             self.config["interval_max"] = self.interval_max.get().strip()
             self.config["send_mode"] = self.mode_var.get()
@@ -6721,7 +6782,9 @@ bili_jct: {jct_preview}
 
     def apply_config(self):
         if self.config.get("room_id"):
-            self.room_entry.insert(0, self.config["room_id"])
+            self.room_combo.set(self.config["room_id"])
+        # 初始化直播间下拉框选项
+        self._refresh_danmaku_room_combo_values()
         if self.config.get("interval_min"):
             self.interval_min.delete(0, tk.END)
             self.interval_min.insert(0, self.config["interval_min"])
@@ -6748,7 +6811,8 @@ bili_jct: {jct_preview}
             except Exception:
                 self.root.geometry("1400x1000")
         # 绑定自动保存
-        self.room_entry.bind("<FocusOut>", lambda e: self.save_config())
+        self.room_combo.bind("<KeyRelease>", lambda e: self.save_config())
+        self.room_combo.bind("<<ComboboxSelected>>", self._on_danmaku_room_selected)
         self.interval_min.bind("<FocusOut>", lambda e: self.save_config())
         self.interval_max.bind("<FocusOut>", lambda e: self.save_config())
         self.max_send_entry.bind("<FocusOut>", lambda e: self.save_config())
@@ -6864,9 +6928,9 @@ bili_jct: {jct_preview}
             return
         account_mode = "multi" if len(accounts) > 1 else "single"
 
-        room_id = self.room_entry.get().strip()
+        room_id = self.room_combo.get().strip()
         if not room_id or not room_id.isdigit():
-            messagebox.showwarning("提示", "请输入有效的直播间号（数字）")
+            messagebox.showwarning("提示", "请选择或输入有效的直播间号（数字）")
             return
         # 从三列中获取所有弹幕
         lines = self.get_all_danmaku()
