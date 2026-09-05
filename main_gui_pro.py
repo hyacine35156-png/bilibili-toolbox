@@ -89,7 +89,92 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.2.6"
+APP_VERSION = "v5.2.7"
+
+TASK_GUIDE_TEXT = """【重点】导入账户机制
+─────────────────────────────
+1. 点击「+ 添加账户」按钮
+2. 输入账户昵称（自定义，用于区分账户）
+3. 输入SESSDATA（从浏览器Cookie中获取）
+4. 输入bili_jct（CSRF Token，从Cookie中获取）
+5. 输入DedeUserID（用户UID，可选，从Cookie中获取）
+6. 点击确定，系统自动验证登录有效性
+7. 验证成功后账户自动保存，所有功能模块共享
+
+获取Cookie方法：
+- 浏览器登录B站后，按F12打开开发者工具
+- 切换到Application/存储标签
+- 找到Cookies -> https://www.bilibili.com
+- 复制SESSDATA、bili_jct、DedeUserID的值
+
+注意事项：
+- SESSDATA是账户身份凭证，请勿泄露给他人
+- 账户数据保存在data/accounts.json文件中
+- 「验证登录」可检查当前账户是否有效
+- 「刷新信息」可更新账户的最新昵称
+
+【抢码工具】
+─────────────────────────────
+1. 选择抢码任务（每日任务/累计任务等）
+2. 选择参与抢码的账户（可多选）
+3. 设置领取时间（精确到秒）
+4. 点击「开始监控」，到点自动领取
+5. 支持「开始领取」按配置自动执行
+6. 库存为0时自动停止，避免无效请求
+
+【弹幕工具】
+─────────────────────────────
+1. 选择发送弹幕的账户（可多选）
+2. 选择直播间（在账户管理页面添加）
+3. 输入弹幕内容（支持多条，随机/顺序发送）
+4. 设置发送间隔（秒）
+5. 点击「开始发送」，自动循环发送
+6. 点击「停止发送」终止
+
+【看播任务】
+─────────────────────────────
+1. 选择看播账户（可多选，默认全选）
+2. 选择直播间（支持多栏，每栏选一个）
+3. 点击「+ 添加」增加直播间栏
+4. 设置每日时长（分钟）和心跳间隔（秒）
+5. 点击「开始看播」，模拟真实观看
+6. 建立弹幕连接+视频流下载，计入在线观众
+
+【送礼功能】
+─────────────────────────────
+1. 选择送礼账户（单选，下拉选择）
+2. 选择直播间（在账户管理页面添加）
+3. 选择礼物（固定：牛蛙牛蛙，1电池）
+4. 设置数量（1个或10个）
+5. 设置送礼间隔（秒）和次数（0=不限制）
+6. 点击「查询电池」查看账户电池余额
+7. 电池为0的账户自动禁用送礼
+
+【日程任务】
+─────────────────────────────
+1. 支持抢码/看播/弹幕/送礼/关机任务
+2. 设置任务名称（自动编号，如看播1）
+3. 设置执行时间（时:分:秒，下拉选择）
+4. 任务自动保存，重启不丢失
+5. 支持方案保存/加载，一键切换配置
+6. 支持多选批量删除、全部启用/取消
+7. 「一键执行」按时间顺序执行所有日程
+
+【定时关机】
+─────────────────────────────
+1. 支持定时关机（指定时间）和延时关机
+2. 设置关机时间后自动倒计时
+3. 关机前有确认提示，可取消
+4. 可加入日程任务，自动执行关机
+
+【直播间管理】
+─────────────────────────────
+1. 在账户管理页面右侧统一管理
+2. 「+ 添加直播间」手动添加（直播间号+名称+备注）
+3. 「从账户导入」自动获取所有账户的直播间
+4. 「删除直播间」移除选中的直播间
+5. 所有功能模块共享直播间列表
+6. 选择直播间时只显示名称，不显示数字ID"""
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -5710,8 +5795,14 @@ class DanmakuApp:
 
         self.tab_account = tk.Label(tab_bar, text="👤 账户管理", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
                                      font=("微软雅黑", 12), padx=24, pady=10, cursor="hand2")
-        self.tab_account.pack(side=tk.LEFT, padx=(0, 15), pady=6)
+        self.tab_account.pack(side=tk.LEFT, padx=(0, 5), pady=6)
         self.tab_account.bind("<Button-1>", lambda e: self.switch_tab("account"))
+
+        # 任务说明标签
+        self.tab_guide = tk.Label(tab_bar, text="📖 任务说明", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
+                                  font=("微软雅黑", 12), padx=24, pady=10, cursor="hand2")
+        self.tab_guide.pack(side=tk.LEFT, padx=(0, 15), pady=6)
+        self.tab_guide.bind("<Button-1>", lambda e: self.switch_tab("guide"))
 
         # 底部控制栏（必须先pack，固定在底部，否则会被主内容区挤出窗口）
         footer = tk.Frame(self.root, bg=COLORS["bg_card"], height=56)
@@ -5751,6 +5842,12 @@ class DanmakuApp:
         self.account_page = tk.Frame(self.tab_container, bg=COLORS["bg_dark"])
         self.account_page.pack(fill=tk.BOTH, expand=True)
         self.account_page.pack_forget()
+
+        # 任务说明页面
+        self.guide_page = tk.Frame(self.tab_container, bg=COLORS["bg_dark"])
+        self.guide_page.pack(fill=tk.BOTH, expand=True)
+        self.guide_page.pack_forget()
+        self._build_guide_page()
         self.build_account_page()
         # 初始化弹幕工具页面的账户多选
         self._refresh_danmaku_account_checkboxes()
@@ -6070,6 +6167,34 @@ class DanmakuApp:
                    width=320, height=34, bg_color="#2980b9", text_color="#ffffff").pack()
 
         self._refresh_manager_room_list()
+
+    def _build_guide_page(self):
+        """构建任务说明页面"""
+        main = tk.Frame(self.guide_page, bg=COLORS["bg_dark"])
+        main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+
+        # 标题
+        tk.Label(main, text="📖 任务说明", bg=COLORS["bg_dark"], fg=COLORS["accent"],
+                 font=("微软雅黑", 16, "bold")).pack(anchor=tk.W, padx=8, pady=(0, 10))
+
+        # 内容卡片
+        card = tk.Frame(main, bg=COLORS["bg_card"], bd=0, highlightthickness=1, highlightbackground=COLORS["border"])
+        card.pack(fill=tk.BOTH, expand=True)
+
+        # 滚动条
+        scroll = tk.Scrollbar(card)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # 文本区域
+        text = tk.Text(card, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                        font=("微软雅黑", 10), bd=0, highlightthickness=0, wrap=tk.WORD,
+                        padx=20, pady=20, yscrollcommand=scroll.set)
+        text.pack(fill=tk.BOTH, expand=True)
+        scroll.config(command=text.yview)
+
+        # 插入任务说明内容
+        text.insert(tk.END, TASK_GUIDE_TEXT)
+        text.config(state=tk.DISABLED)
 
     def _refresh_manager_room_list(self):
         """刷新直播间管理列表"""
@@ -6424,6 +6549,7 @@ bili_jct: {jct_preview}
         self.watch_page.pack_forget()
         self.schedule_page.pack_forget()
         self.account_page.pack_forget()
+        self.guide_page.pack_forget()
 
         # 重置所有标签样式
         self.tab_rush.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
@@ -6432,6 +6558,7 @@ bili_jct: {jct_preview}
         self.tab_watch.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
         self.tab_schedule.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
         self.tab_account.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
+        self.tab_guide.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 12))
 
         if tab_name == "danmaku":
             self.danmaku_page.pack(fill=tk.BOTH, expand=True)
@@ -6462,6 +6589,9 @@ bili_jct: {jct_preview}
         elif tab_name == "account":
             self.account_page.pack(fill=tk.BOTH, expand=True)
             self.tab_account.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 10, "bold"))
+        elif tab_name == "guide":
+            self.guide_page.pack(fill=tk.BOTH, expand=True)
+            self.tab_guide.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 12, "bold"))
             self.current_tab = "account"
             # 切换到账户管理页面时刷新列表
             self.refresh_account_manager_list()
