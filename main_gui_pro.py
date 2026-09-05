@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v4.6.5"
+APP_VERSION = "v4.6.6"
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
@@ -1355,17 +1355,17 @@ class RushRewardFrame(tk.Frame):
         header_frame = tk.Frame(list_frame, bg=COLORS["bg_input"])
         header_frame.pack(fill=tk.X)
         tk.Label(header_frame, text="任务名称", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 9, "bold"), width=28, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0), pady=4)
+                 font=("微软雅黑", 11, "bold"), width=28, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0), pady=4)
         tk.Label(header_frame, text="领取时间", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 9, "bold"), width=10, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
+                 font=("微软雅黑", 11, "bold"), width=10, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
         tk.Label(header_frame, text="时长/间隔", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 9, "bold"), width=12, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
+                 font=("微软雅黑", 11, "bold"), width=12, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
         tk.Label(header_frame, text="账户", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 9, "bold"), width=18, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
+                 font=("微软雅黑", 11, "bold"), width=18, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
         tk.Label(header_frame, text="状态", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 9, "bold"), width=8, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
+                 font=("微软雅黑", 11, "bold"), width=8, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
         tk.Label(header_frame, text="操作", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 9, "bold"), width=20, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
+                 font=("微软雅黑", 11, "bold"), width=20, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
 
         # 任务列表容器（可滚动）
         self.schedule_list_frame = tk.Frame(list_frame, bg=COLORS["bg_card"])
@@ -1414,7 +1414,7 @@ class RushRewardFrame(tk.Frame):
 
         if not self.scheduled_tasks:
             tk.Label(self.schedule_list_frame, text="暂无定时任务，设置好参数后点击「+ 添加当前设置」",
-                     bg=COLORS["bg_card"], fg=COLORS["text_muted"], font=("微软雅黑", 9)).pack(pady=10)
+                     bg=COLORS["bg_card"], fg=COLORS["text_muted"], font=("微软雅黑", 10)).pack(pady=10)
             return
 
         for idx, task in enumerate(self.scheduled_tasks):
@@ -1428,12 +1428,12 @@ class RushRewardFrame(tk.Frame):
             # 任务名称
             name_text = task.get("task_name", "未知任务")[:28]
             tk.Label(row_frame, text=name_text, bg=row_frame["bg"], fg=COLORS["text_primary"],
-                     font=("微软雅黑", 8), width=30, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0), pady=3)
+                     font=("微软雅黑", 10), width=30, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0), pady=4)
 
             # 领取时间
             time_text = f"{task.get('schedule_hour', '00')}:{task.get('schedule_minute', '00')}:{task.get('schedule_second', '00')}"
             tk.Label(row_frame, text=time_text, bg=row_frame["bg"], fg=COLORS["accent"],
-                     font=("微软雅黑", 8, "bold"), width=12, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
+                     font=("微软雅黑", 10, "bold"), width=12, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
 
             # 时长/间隔
             interval_mode = task.get("interval_mode", "fixed")
@@ -1443,13 +1443,13 @@ class RushRewardFrame(tk.Frame):
                 interval_text = f"{task.get('min_interval', '600')}~{task.get('max_interval', '800')}ms"
             dur_text = f"{task.get('duration', '20')}s/{interval_text}"
             tk.Label(row_frame, text=dur_text, bg=row_frame["bg"], fg=COLORS["text_secondary"],
-                     font=("微软雅黑", 8), width=16, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
+                     font=("微软雅黑", 10), width=16, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
 
             # 账户
             accounts = task.get("account_names", [])
             acc_text = ",".join(accounts)[:12] if accounts else "未设置"
             tk.Label(row_frame, text=acc_text, bg=row_frame["bg"], fg=COLORS["text_secondary"],
-                     font=("微软雅黑", 8), width=15, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
+                     font=("微软雅黑", 10), width=15, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
 
             # 状态
             status = task.get("status", "等待中")
@@ -1461,7 +1461,7 @@ class RushRewardFrame(tk.Frame):
             elif status == "失败":
                 status_color = COLORS["danger"]
             tk.Label(row_frame, text=status, bg=row_frame["bg"], fg=status_color,
-                     font=("微软雅黑", 8, "bold"), width=10, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
+                     font=("微软雅黑", 10, "bold"), width=10, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
 
             # 操作按钮
             btn_frame = tk.Frame(row_frame, bg=row_frame["bg"])
@@ -1470,13 +1470,13 @@ class RushRewardFrame(tk.Frame):
             task_id = task.get("id")
             if status in ["等待中", "已完成", "已领取", "失败"]:
                 DarkButton(btn_frame, "开始", command=lambda tid=task_id: self.start_scheduled_task(tid),
-                           width=80, height=28, bg_color=COLORS["success"], text_color="#ffffff").pack(side=tk.LEFT, padx=(0, 2))
+                           width=90, height=34, bg_color=COLORS["success"], text_color="#ffffff").pack(side=tk.LEFT, padx=(0, 2))
             else:
                 DarkButton(btn_frame, "停止", command=lambda tid=task_id: self.stop_scheduled_task(tid),
-                           width=80, height=28, bg_color=COLORS["danger"], text_color="#ffffff").pack(side=tk.LEFT, padx=(0, 2))
+                           width=90, height=34, bg_color=COLORS["danger"], text_color="#ffffff").pack(side=tk.LEFT, padx=(0, 2))
 
             DarkButton(btn_frame, "删除", command=lambda tid=task_id: self.delete_scheduled_task(tid),
-                       width=80, height=28, bg_color="#666666", text_color="#ffffff").pack(side=tk.LEFT)
+                       width=90, height=34, bg_color="#666666", text_color="#ffffff").pack(side=tk.LEFT)
 
     def add_scheduled_task(self):
         """添加当前设置为定时任务"""
@@ -4331,7 +4331,7 @@ class ScheduleFrame(tk.Frame):
                     self.refresh_task_list()
                     self.log(f"✅ 已启用日程「{t['name']}」")
             toggle_btn = DarkButton(row_frame, btn_text, command=toggle_task,
-                                     width=80, height=28, bg_color=btn_bg, text_color="#ffffff")
+                                     width=90, height=34, bg_color=btn_bg, text_color="#ffffff")
             toggle_btn.pack(side=tk.RIGHT, padx=(4, 4), pady=6)
 
     def select_task(self, task_id):
