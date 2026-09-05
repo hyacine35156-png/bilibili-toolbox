@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.2.9"
+APP_VERSION = "v5.3.0"
 
 TASK_GUIDE_TEXT = """═══════════════════════════════════════════════════════
                     B站工具箱 使用说明
@@ -6739,12 +6739,13 @@ bili_jct: {jct_preview}
         elif tab_name == "account":
             self.account_page.pack(fill=tk.BOTH, expand=True)
             self.tab_account.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 10, "bold"))
-        elif tab_name == "guide":
-            self.guide_page.pack(fill=tk.BOTH, expand=True)
-            self.tab_guide.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 12, "bold"))
             self.current_tab = "account"
             # 切换到账户管理页面时刷新列表
             self.refresh_account_manager_list()
+        elif tab_name == "guide":
+            self.guide_page.pack(fill=tk.BOTH, expand=True)
+            self.tab_guide.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 12, "bold"))
+            self.current_tab = "guide"
         # 保存当前标签页
         self.save_config()
 
