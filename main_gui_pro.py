@@ -988,11 +988,8 @@ class RushRewardFrame(tk.Frame):
             self.rush_config["interval"] = self.interval_entry.get().strip()
             self.rush_config["task_name"] = self.task_var.get()
             # 保存选中的账户
-            selected = []
-            for i in self.rush_account_list.curselection():
-                if i < len(self.account_mgr.accounts):
-                    selected.append(self.account_mgr.accounts[i]["name"])
-            self.rush_config["selected_accounts"] = selected
+            selected_name = self.rush_account_var.get()
+            self.rush_config["selected_accounts"] = [selected_name] if selected_name else []
             self.rush_config["duration"] = self.duration_entry.get().strip()
             self.rush_config["interval_mode"] = self.interval_mode.get()
             self.rush_config["fixed_interval"] = self.fixed_interval_entry.get().strip()
@@ -1106,10 +1103,8 @@ class RushRewardFrame(tk.Frame):
     def restore_selected_accounts(self, selected_names):
         """恢复选中的账户"""
         try:
-            self.rush_account_list.selection_clear(0, tk.END)
-            for i, acc in enumerate(self.account_mgr.accounts):
-                if acc["name"] in selected_names:
-                    self.rush_account_list.selection_set(i)
+            if selected_names and len(selected_names) > 0:
+                self.rush_account_var.set(selected_names[0])
         except Exception:
             pass
 
@@ -1128,7 +1123,7 @@ class RushRewardFrame(tk.Frame):
         self.schedule_hour_combo.bind("<<ComboboxSelected>>", lambda e: self.save_rush_config())
         self.schedule_minute_combo.bind("<<ComboboxSelected>>", lambda e: self.save_rush_config())
         self.schedule_second_combo.bind("<<ComboboxSelected>>", lambda e: self.save_rush_config())
-        self.rush_account_list.bind("<<ListboxSelect>>", lambda e: self.save_rush_config())
+        self.rush_account_var.trace_add("write", lambda *a: self.save_rush_config())
 
     def build_ui(self):
         # 顶部标题
