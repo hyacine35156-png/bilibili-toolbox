@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>卡密管理系统</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+    .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+    /* ===== 登录页 ===== */
+    .login-box {
+      max-width: 400px;
+      margin: 120px auto;
+      background: #1e293b;
+      padding: 40px;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+      border: 1px solid #334155;
+    }
+    .login-box h1 { text-align: center; margin-bottom: 32px; color: #38bdf8; font-size: 24px; }
+    .login-box input {
+      width: 100%;
+      padding: 14px;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-size: 15px;
+      margin-bottom: 16px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .login-box input:focus { border-color: #38bdf8; }
+    .login-box button {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #0ea5e9, #0284c7);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .login-box button:hover { opacity: 0.9; }
+
+    /* ===== 头部 ===== */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+    .header h1 { color: #f1f5f9; font-size: 26px; font-weight: 700; }
+    .header h1 span { color: #38bdf8; }
+    .header .logout {
+      padding: 10px 20px;
+      background: #1e293b;
+      color: #fca5a5;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .header .logout:hover { background: #7f1d1d; border-color: #ef4444; color: white; }
+
+    /* ===== 统计卡片 ===== */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .stat-card {
+      background: #1e293b;
+      padding: 20px;
+      border-radius: 12px;
+      border: 1px solid #334155;
+      position: relative;
+      overflow: hidden;
+    }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: #38bdf8;
+    }
+    .stat-card.inactive::before { background: #94a3b8; }
+    .stat-card.active::before { background: #22c55e; }
+    .stat-card.expired::before { background: #f59e0b; }
+    .stat-card.banned::before { background: #ef4444; }
+    .stat-card .label { color: #94a3b8; font-size: 13px; margin-bottom: 8px; font-weight: 500; }
+    .stat-card .value { font-size: 36px; font-weight: 700; color: #f1f5f9; line-height: 1; }
+
+    /* ===== 操作栏 ===== */
+    .toolbar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .toolbar .search-wrap { flex: 1; min-width: 240px; position: relative; }
+    .toolbar .search-wrap input {
+      width: 100%;
+      padding: 11px 14px 11px 40px;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      background: #1e293b;
+      color: #e2e8f0;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .toolbar .search-wrap input:focus { border-color: #38bdf8; }
+    .toolbar .search-wrap::before {
+      content: '🔍';
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 14px;
+      opacity: 0.6;
+    }
+    .toolbar select {
+      padding: 11px 14px;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      background: #1e293b;
+      color: #e2e8f0;
+      font-size: 14px;
+      outline: none;
+      cursor: pointer;
+    }
+    .btn {
+      padding: 11px 20px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-primary { background: linear-gradient(135deg, #0ea5e9, #0284c7); color: white; }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-success { background: linear-gradient(135deg, #22c55e, #16a34a); color: white; }
+    .btn-success:hover { opacity: 0.9; }
+    .btn-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; }
+    .btn-warning:hover { opacity: 0.9; }
+    .btn-danger { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; }
+    .btn-danger:hover { opacity: 0.9; }
+    .btn-info { background: #475569; color: white; }
+    .btn-info:hover { background: #334155; }
+    .btn-icon {
+      padding: 6px 10px;
+      font-size: 13px;
+      border-radius: 8px;
+      min-width: 32px;
+      justify-content: center;
+    }
+
+    /* ===== 表格 ===== */
+    .table-container {
+      background: #1e293b;
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 20px;
+      border: 1px solid #334155;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      background: #0f172a;
+      color: #94a3b8;
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 14px 16px;
+      text-align: left;
+      border-bottom: 2px solid #334155;
+    }
+    td {
+      padding: 14px 16px;
+      text-align: left;
+      border-bottom: 1px solid #263449;
+      font-size: 14px;
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover { background: #263449; }
+
+    /* 卡密号 + 复制按钮 */
+    .card-code-cell {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .machine-code-cell {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .machine-code {
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .machine-code-unbound {
+      color: #64748b;
+      font-style: italic;
+    }
+    .card-code {
+      font-family: 'Consolas', 'Monaco', monospace;
+      color: #38bdf8;
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: 0.5px;
+    }
+    .copy-btn {
+      background: none;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 3px 7px;
+      cursor: pointer;
+      font-size: 12px;
+      color: #94a3b8;
+      transition: all 0.2s;
+      line-height: 1;
+    }
+    .copy-btn:hover { background: #38bdf8; border-color: #38bdf8; color: white; }
+    .copy-btn.copied { background: #22c55e; border-color: #22c55e; color: white; }
+
+    .status-badge {
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      display: inline-block;
+    }
+    .status-inactive { background: #334155; color: #cbd5e1; }
+    .status-active { background: #14532d; color: #86efac; }
+    .status-expired { background: #78350f; color: #fcd34d; }
+    .status-banned { background: #7f1d1d; color: #fca5a5; }
+
+    .type-badge {
+      padding: 4px 10px;
+      background: #1e3a5f;
+      color: #7dd3fc;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      display: inline-block;
+    }
+
+    .expire-info { font-size: 13px; color: #cbd5e1; }
+    .expire-info.permanent { color: #86efac; font-weight: 600; }
+    .expire-info.expired { color: #fca5a5; }
+
+    .notes-cell {
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #94a3b8;
+      font-size: 13px;
+    }
+    .notes-cell.empty { color: #475569; }
+
+    /* 操作列 */
+    .actions {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+    .action-btn {
+      padding: 5px 8px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .action-btn:hover { transform: translateY(-1px); }
+    .action-ban { background: #7f1d1d; color: #fca5a5; }
+    .action-ban:hover { background: #991b1b; }
+    .action-unban { background: #14532d; color: #86efac; }
+    .action-unban:hover { background: #166534; }
+    .action-reset { background: #78350f; color: #fcd34d; }
+    .action-reset:hover { background: #92400e; }
+    .action-extend { background: #1e3a5f; color: #7dd3fc; }
+    .action-extend:hover { background: #1e40af; }
+    .action-notes { background: #334155; color: #cbd5e1; }
+    .action-notes:hover { background: #475569; }
+    .action-delete { background: #450a0a; color: #f87171; }
+    .action-delete:hover { background: #7f1d1d; }
+
+    /* ===== 分页 ===== */
+    .pagination {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 24px;
+      align-items: center;
+    }
+    .pagination button {
+      padding: 8px 14px;
+      background: #1e293b;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+    .pagination button:hover:not(:disabled) { background: #334155; border-color: #475569; }
+    .pagination button.active { background: #0ea5e9; border-color: #0ea5e9; color: white; font-weight: 600; }
+    .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .pagination .info { color: #94a3b8; font-size: 13px; margin: 0 12px; }
+
+    /* ===== 模态框 ===== */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: #1e293b;
+      padding: 32px;
+      border-radius: 16px;
+      width: 90%;
+      max-width: 480px;
+      max-height: 90vh;
+      overflow-y: auto;
+      border: 1px solid #334155;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .modal h2 { margin-bottom: 24px; color: #f1f5f9; font-size: 20px; font-weight: 700; }
+    .form-group { margin-bottom: 18px; }
+    .form-group label { display: block; margin-bottom: 8px; color: #94a3b8; font-size: 13px; font-weight: 500; }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%;
+      padding: 11px 14px;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: #38bdf8; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 28px; }
+    .modal-actions .btn { padding: 10px 22px; }
+
+    /* ===== Toast ===== */
+    .toast {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      padding: 14px 24px;
+      border-radius: 10px;
+      color: white;
+      font-weight: 600;
+      font-size: 14px;
+      z-index: 2000;
+      transform: translateX(120%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+    }
+    .toast.show { transform: translateX(0); }
+    .toast.success { background: linear-gradient(135deg, #22c55e, #16a34a); }
+    .toast.error { background: linear-gradient(135deg, #ef4444, #dc2626); }
+    .toast.info { background: linear-gradient(135deg, #0ea5e9, #0284c7); }
+
+    /* ===== 生成结果 ===== */
+    .generated-cards {
+      margin-top: 20px;
+      max-height: 280px;
+      overflow-y: auto;
+      background: #0f172a;
+      padding: 16px;
+      border-radius: 10px;
+      border: 1px solid #334155;
+    }
+    .generated-cards .card-item {
+      padding: 8px 0;
+      border-bottom: 1px solid #1e293b;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .generated-cards .card-item:last-child { border-bottom: none; }
+    .generated-cards .card-item .code { font-family: monospace; color: #38bdf8; font-size: 13px; }
+    .generated-cards .card-item .type { color: #94a3b8; font-size: 12px; }
+    .copy-all-btn { margin-top: 12px; width: 100%; }
+
+    /* 空数据 */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #475569;
+    }
+    .empty-state .icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+    .empty-state .text { font-size: 15px; }
+
+    /* 响应式 */
+    @media (max-width: 1024px) {
+      .stats-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 768px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .container { padding: 16px; }
+      .header h1 { font-size: 20px; }
+    }
+    /* 手机端适配 */
+    @media (max-width: 640px) {
+      .container { padding: 12px; }
+      .header { margin-bottom: 20px; padding-bottom: 14px; }
+      .header h1 { font-size: 18px; }
+      .header .logout { padding: 8px 14px; font-size: 13px; }
+
+      /* 统计卡片 */
+      .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
+      .stat-card { padding: 14px; }
+      .stat-card .label { font-size: 12px; margin-bottom: 4px; }
+      .stat-card .value { font-size: 26px; }
+
+      /* 操作栏 */
+      .toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+      .toolbar .search-wrap { width: 100%; }
+      .toolbar select { width: 100%; }
+      .toolbar .btn { width: 100%; justify-content: center; }
+
+      /* 表格：横向滚动 */
+      .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      table { min-width: 640px; }
+      th, td { padding: 10px 12px; font-size: 13px; }
+      .card-code { font-size: 12px; }
+      .actions { gap: 3px; }
+      .action-btn { padding: 4px 6px; font-size: 11px; }
+
+      /* 分页 */
+      .pagination { flex-wrap: wrap; gap: 4px; }
+      .pagination button { padding: 6px 10px; font-size: 12px; }
+      .pagination .info { width: 100%; text-align: center; margin: 4px 0; }
+
+      /* 登录页 */
+      .login-box { margin: 40px auto; padding: 24px; max-width: 92%; }
+      .login-box h1 { font-size: 20px; margin-bottom: 24px; }
+      .login-box input { padding: 12px; font-size: 15px; }
+      .login-box button { padding: 12px; font-size: 15px; }
+
+      /* 模态框 */
+      .modal { padding: 20px; width: 95%; max-width: 95%; }
+      .modal h2 { font-size: 18px; margin-bottom: 18px; }
+      .form-group { margin-bottom: 14px; }
+      .form-group input, .form-group select, .form-group textarea { padding: 10px; font-size: 14px; }
+      .modal-actions { margin-top: 20px; }
+      .modal-actions .btn { padding: 10px 18px; font-size: 14px; }
+
+      /* 生成结果 */
+      .generated-cards { max-height: 200px; padding: 12px; }
+      .generated-cards .card-item { padding: 6px 0; }
+      .generated-cards .card-item .code { font-size: 12px; }
+
+      /* Toast */
+      .toast { top: 12px; right: 12px; left: 12px; padding: 12px 16px; font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+  <!-- 登录页 -->
+  <div id="loginPage" class="container">
+    <div class="login-box">
+      <h1>🔐 卡密管理系统</h1>
+      <div id="loginForm">
+        <div style="position:relative;">
+          <input type="password" id="passwordInput" placeholder="请输入管理员密码" onkeypress="if(event.key==='Enter')login()" style="padding-right:56px;">
+          <button onclick="togglePassword()" style="position:absolute;right:14px;top:50%;transform:translateY(-50%);background:none;border:none;color:#94a3b8;cursor:pointer;font-size:18px;width:24px;text-align:center;padding:0;" id="togglePwdBtn">👁</button>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;color:#94a3b8;font-size:13px;margin:12px 0 20px;cursor:pointer;">
+          <input type="checkbox" id="rememberPwd" checked style="width:16px;height:16px;cursor:pointer;">
+          记住密码
+        </label>
+        <button onclick="login()">登 录</button>
+      </div>
+      <div id="autoLoginLoading" style="display:none;text-align:center;padding:20px 0;">
+        <div style="font-size:40px;margin-bottom:15px;">⏳</div>
+        <div style="color:#94a3b8;font-size:14px;">正在自动登录...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主界面 -->
+  <div id="mainPage" class="container" style="display:none;">
+    <div class="header">
+      <h1>🎫 <span>卡密管理系统</span></h1>
+      <button class="logout" onclick="logout()">退出登录</button>
+    </div>
+
+    <!-- 统计卡片 -->
+    <div class="stats-grid" id="statsGrid"></div>
+
+    <!-- 操作栏 -->
+    <div class="toolbar">
+      <div class="search-wrap">
+        <input type="text" id="searchInput" placeholder="搜索卡密号..." onkeypress="if(event.key==='Enter')loadCards(1)">
+      </div>
+      <select id="statusFilter" onchange="loadCards(1)">
+        <option value="all">全部状态</option>
+        <option value="inactive">未激活</option>
+        <option value="active">已激活</option>
+        <option value="expired">已过期</option>
+        <option value="banned">已封禁</option>
+      </select>
+      <select id="typeFilter" onchange="loadCards(1)">
+        <option value="all">全部类型</option>
+        <option value="monthly">月卡</option>
+        <option value="quarterly">季卡</option>
+        <option value="yearly">年卡</option>
+        <option value="trial">体验卡</option>
+        <option value="permanent">永久卡</option>
+      </select>
+      <button class="btn btn-primary" onclick="openGenerateModal()">➕ 批量生成</button>
+      <button class="btn btn-info" onclick="loadStats()">🔄 刷新</button>
+    </div>
+
+    <!-- 卡密列表 -->
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:18%;">卡密号</th>
+            <th style="width:8%;">类型</th>
+            <th style="width:8%;">状态</th>
+            <th style="width:14%;">到期时间</th>
+            <th style="width:14%;">绑定设备码</th>
+            <th style="width:16%;">备注</th>
+            <th style="width:22%;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="cardsTableBody"></tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pagination" id="pagination"></div>
+  </div>
+
+  <!-- 生成卡密模态框 -->
+  <div class="modal-overlay" id="generateModal">
+    <div class="modal">
+      <h2>➕ 批量生成卡密</h2>
+      <div class="form-group">
+        <label>生成数量</label>
+        <input type="number" id="genCount" value="10" min="1" max="1000">
+      </div>
+      <div class="form-group">
+        <label>卡密类型</label>
+        <select id="genType">
+          <option value="monthly">月卡（30天）</option>
+          <option value="quarterly">季卡（90天）</option>
+          <option value="yearly">年卡（365天）</option>
+          <option value="trial">体验卡（3小时）</option>
+          <option value="permanent">永久卡</option>
+        </select>
+      </div>
+      <div class="form-group" id="durationGroup">
+        <label>有效期（自动填充，可修改）</label>
+        <div style="display:flex;gap:8px;">
+          <input type="number" id="genDuration" value="30" min="1" step="0.01" style="flex:1;">
+          <select id="genDurationUnit" style="width:90px;">
+            <option value="day">天</option>
+            <option value="hour">小时</option>
+            <option value="minute">分钟</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>备注（可选）</label>
+        <input type="text" id="genNotes" placeholder="例如：淘宝订单、代理批次等">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-info" onclick="closeGenerateModal()">取消</button>
+        <button class="btn btn-primary" onclick="generateCards()">生成卡密</button>
+      </div>
+      <div id="generatedResult" style="display:none;">
+        <div class="generated-cards" id="generatedCardsList"></div>
+        <button class="btn btn-success copy-all-btn" onclick="copyAllGenerated()">📋 复制全部卡密</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 编辑备注模态框 -->
+  <div class="modal-overlay" id="notesModal">
+    <div class="modal">
+      <h2>📝 编辑备注</h2>
+      <div class="form-group">
+        <label>卡密号</label>
+        <div id="notesCardCode" style="color:#38bdf8;font-weight:600;font-size:14px;font-family:monospace;"></div>
+      </div>
+      <div class="form-group">
+        <label>备注内容</label>
+        <textarea id="notesInput" rows="3" placeholder="输入备注内容" style="resize:vertical;"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-info" onclick="closeNotesModal()">取消</button>
+        <button class="btn btn-primary" onclick="saveNotes()">保存备注</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 延长卡密模态框 -->
+  <div class="modal-overlay" id="extendModal">
+    <div class="modal">
+      <h2>⏰ 延长有效期</h2>
+      <div class="form-group">
+        <label>卡密号</label>
+        <div id="extendCardCode" style="color:#38bdf8;font-weight:600;font-size:14px;font-family:monospace;"></div>
+      </div>
+      <div class="form-group">
+        <label>延长时间</label>
+        <div style="display:flex;gap:8px;">
+          <input type="number" id="extendValue" value="30" min="1" step="0.5" style="flex:1;">
+          <select id="extendUnit" style="width:100px;">
+            <option value="day">天</option>
+            <option value="hour">小时</option>
+            <option value="minute">分钟</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-info" onclick="closeExtendModal()">取消</button>
+        <button class="btn btn-primary" onclick="confirmExtend()">确认延长</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    let adminPassword = '';
+    let currentPage = 1;
+    let totalPages = 1;
+    const API_BASE = '/api';
+
+    const typeMap = { monthly: '月卡', quarterly: '季卡', yearly: '年卡', permanent: '永久卡', trial: '体验卡' };
+    const statusMap = { inactive: '未激活', active: '已激活', expired: '已过期', banned: '已封禁' };
+
+    // 登录
+    function login() {
+      const pwd = document.getElementById('passwordInput').value;
+      if (!pwd) { showToast('请输入密码', 'error'); return; }
+      adminPassword = pwd;
+      fetch(`${API_BASE}/stats?password=${encodeURIComponent(pwd)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.code === 0) {
+            if (document.getElementById('rememberPwd').checked) {
+              localStorage.setItem('card_admin_password', pwd);
+            } else {
+              localStorage.removeItem('card_admin_password');
+            }
+            document.getElementById('loginPage').style.display = 'none';
+            document.getElementById('mainPage').style.display = 'block';
+            setTimeout(() => { loadStats(); loadCards(1); }, 800);
+            showToast('登录成功', 'success');
+          } else {
+            showToast(data.msg || '密码错误', 'error');
+            document.getElementById('loginForm').style.display = 'block';
+            document.getElementById('autoLoginLoading').style.display = 'none';
+          }
+        })
+        .catch(err => {
+          showToast('网络错误: ' + err.message, 'error');
+          document.getElementById('loginForm').style.display = 'block';
+          document.getElementById('autoLoginLoading').style.display = 'none';
+        });
+    }
+
+    function logout() {
+      adminPassword = '';
+      document.getElementById('loginPage').style.display = 'block';
+      document.getElementById('mainPage').style.display = 'none';
+      document.getElementById('loginForm').style.display = 'block';
+      document.getElementById('autoLoginLoading').style.display = 'none';
+      if (!document.getElementById('rememberPwd').checked) {
+        document.getElementById('passwordInput').value = '';
+        localStorage.removeItem('card_admin_password');
+      }
+    }
+
+    function togglePassword() {
+      const input = document.getElementById('passwordInput');
+      const btn = document.getElementById('togglePwdBtn');
+      if (input.type === 'password') { input.type = 'text'; btn.textContent = '🙈'; }
+      else { input.type = 'password'; btn.textContent = '👁'; }
+    }
+
+    window.onload = function() {
+      const savedPwd = localStorage.getItem('card_admin_password');
+      if (savedPwd) {
+        document.getElementById('passwordInput').value = savedPwd;
+        document.getElementById('rememberPwd').checked = true;
+        document.getElementById('loginForm').style.display = 'none';
+        document.getElementById('autoLoginLoading').style.display = 'block';
+        setTimeout(login, 300);
+      }
+    };
+
+    // 加载统计
+    function loadStats(retryCount = 0) {
+      fetch(`${API_BASE}/stats?password=${encodeURIComponent(adminPassword)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.code !== 0) { showToast(data.msg, 'error'); return; }
+          const s = data.data;
+          document.getElementById('statsGrid').innerHTML = `
+            <div class="stat-card"><div class="label">总卡密数</div><div class="value">${s.total}</div></div>
+            <div class="stat-card inactive"><div class="label">未激活</div><div class="value">${s.inactive}</div></div>
+            <div class="stat-card active"><div class="label">已激活</div><div class="value">${s.active}</div></div>
+            <div class="stat-card expired"><div class="label">已过期</div><div class="value">${s.expired}</div></div>
+            <div class="stat-card banned"><div class="label">已封禁</div><div class="value">${s.banned}</div></div>
+          `;
+        })
+        .catch(err => {
+          if (retryCount < 1) setTimeout(() => loadStats(retryCount + 1), 1000);
+          else showToast('加载统计失败', 'error');
+        });
+    }
+
+    // 复制设备码
+    function copyMachineCode(code, btn) {
+      navigator.clipboard.writeText(code).then(() => {
+        btn.textContent = '✓';
+        btn.classList.add('copied');
+        showToast('已复制设备码', 'success');
+        setTimeout(() => { btn.textContent = '📋'; btn.classList.remove('copied'); }, 1500);
+      }).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = code;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        btn.textContent = '✓';
+        btn.classList.add('copied');
+        showToast('已复制设备码', 'success');
+        setTimeout(() => { btn.textContent = '📋'; btn.classList.remove('copied'); }, 1500);
+      });
+    }
+
+    // 复制卡密
+    function copyCardCode(code, btn) {
+      navigator.clipboard.writeText(code).then(() => {
+        btn.textContent = '✓';
+        btn.classList.add('copied');
+        showToast('已复制: ' + code, 'success');
+        setTimeout(() => { btn.textContent = '📋'; btn.classList.remove('copied'); }, 1500);
+      }).catch(() => {
+        // 降级方案
+        const ta = document.createElement('textarea');
+        ta.value = code;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        btn.textContent = '✓';
+        btn.classList.add('copied');
+        showToast('已复制: ' + code, 'success');
+        setTimeout(() => { btn.textContent = '📋'; btn.classList.remove('copied'); }, 1500);
+      });
+    }
+
+    // 加载卡密列表
+    function loadCards(page, retryCount = 0) {
+      currentPage = page;
+      const search = document.getElementById('searchInput').value;
+      const status = document.getElementById('statusFilter').value;
+      const type = document.getElementById('typeFilter').value;
+
+      let url = `${API_BASE}/list-cards?password=${encodeURIComponent(adminPassword)}&page=${page}&page_size=20`;
+      if (search) url += `&search=${encodeURIComponent(search)}`;
+      if (status !== 'all') url += `&status=${status}`;
+      if (type !== 'all') url += `&card_type=${type}`;
+
+      fetch(url)
+        .then(r => r.json())
+        .then(data => {
+          if (data.code !== 0) { showToast(data.msg, 'error'); return; }
+
+          const tbody = document.getElementById('cardsTableBody');
+          if (data.data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="icon">📭</div><div class="text">暂无数据</div></div></td></tr>';
+          } else {
+            const now = new Date();
+            tbody.innerHTML = data.data.map(card => {
+              const isExpired = card.expires_at && new Date(card.expires_at) < now;
+              const expireClass = card.card_type === 'permanent' ? 'permanent' : (isExpired ? 'expired' : '');
+              const expireText = card.card_type === 'permanent' ? '♾ 永久' :
+                (card.expires_at ? new Date(card.expires_at).toLocaleString('zh-CN', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-');
+              const notesEscaped = (card.notes || '').replace(/"/g, '&quot;').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+              const machineCodeText = card.machine_code ? 
+                '<span class="machine-code" title="' + card.machine_code + '">' + card.machine_code.substring(0, 8) + '...' + card.machine_code.substring(card.machine_code.length - 8) + '</span>' +
+                '<button class="copy-btn" onclick="copyMachineCode(\'' + card.machine_code + '\', this)" title="复制设备码">📋</button>' :
+                '<span class="machine-code-unbound">未绑定</span>';
+              return `
+              <tr>
+                <td>
+                  <div class="card-code-cell">
+                    <span class="card-code">${card.card_code}</span>
+                    <button class="copy-btn" onclick="copyCardCode('${card.card_code}', this)" title="复制卡密">📋</button>
+                  </div>
+                </td>
+                <td><span class="type-badge">${typeMap[card.card_type] || card.card_type}</span></td>
+                <td><span class="status-badge status-${card.status}">${statusMap[card.status] || card.status}</span></td>
+                <td><span class="expire-info ${expireClass}">${expireText}</span></td>
+                <td><div class="machine-code-cell">${machineCodeText}</div></td>
+                <td class="notes-cell ${card.notes ? '' : 'empty'}" title="${notesEscaped}">${card.notes || '—'}</td>
+                <td>
+                  <div class="actions">
+                    ${card.status === 'banned' ?
+                      `<button class="action-btn action-unban" onclick="updateCard('${card.id}','unban')" title="解封">解封</button>` :
+                      `<button class="action-btn action-ban" onclick="updateCard('${card.id}','ban')" title="封禁">封禁</button>`
+                    }
+                    <button class="action-btn action-reset" onclick="updateCard('${card.id}','reset_machine')" title="重置机器码">重置</button>
+                    <button class="action-btn action-extend" onclick="extendCard('${card.id}','${card.card_code}')" title="延长有效期">延长</button>
+                    <button class="action-btn action-notes" onclick="editNotes('${card.id}','${notesEscaped}')" title="编辑备注">备注</button>
+                    <button class="action-btn action-delete" onclick="deleteCard('${card.id}')" title="删除">删除</button>
+                  </div>
+                </td>
+              </tr>`;
+            }).join('');
+          }
+
+          totalPages = data.total_pages;
+          renderPagination(data.total);
+        })
+        .catch(err => {
+          if (retryCount < 1) setTimeout(() => loadCards(page, retryCount + 1), 1000);
+          else showToast('加载失败', 'error');
+        });
+    }
+
+    // 渲染分页
+    function renderPagination(total) {
+      const pag = document.getElementById('pagination');
+      let html = `<span class="info">共 ${total} 条，第 ${currentPage}/${totalPages} 页</span>`;
+      html += `<button onclick="loadCards(1)" ${currentPage===1?'disabled':''}>首页</button>`;
+      html += `<button onclick="loadCards(${currentPage-1})" ${currentPage===1?'disabled':''}>上一页</button>`;
+      const start = Math.max(1, currentPage - 2);
+      const end = Math.min(totalPages, currentPage + 2);
+      for (let i = start; i <= end; i++) {
+        html += `<button class="${i===currentPage?'active':''}" onclick="loadCards(${i})">${i}</button>`;
+      }
+      html += `<button onclick="loadCards(${currentPage+1})" ${currentPage===totalPages?'disabled':''}>下一页</button>`;
+      html += `<button onclick="loadCards(${totalPages})" ${currentPage===totalPages?'disabled':''}>末页</button>`;
+      pag.innerHTML = html;
+    }
+
+    function openGenerateModal() {
+      document.getElementById('generateModal').classList.add('active');
+      document.getElementById('generatedResult').style.display = 'none';
+    }
+    function closeGenerateModal() {
+      document.getElementById('generateModal').classList.remove('active');
+    }
+
+    document.addEventListener('change', function(e) {
+      if (e.target.id === 'genType') {
+        const type = e.target.value;
+        const durationMap = { monthly: 30, quarterly: 90, yearly: 365, trial: 3, permanent: 0 };
+        const unitMap = { monthly: 'day', quarterly: 'day', yearly: 'day', trial: 'hour', permanent: 'day' };
+        document.getElementById('genDuration').value = durationMap[type] || 30;
+        document.getElementById('genDurationUnit').value = unitMap[type] || 'day';
+        document.getElementById('durationGroup').style.display = type === 'permanent' ? 'none' : 'block';
+      }
+    });
+
+    function generateCards() {
+      const count = parseInt(document.getElementById('genCount').value);
+      const card_type = document.getElementById('genType').value;
+      const duration_val = parseFloat(document.getElementById('genDuration').value);
+      const duration_unit = document.getElementById('genDurationUnit').value;
+      let duration_days;
+      if (duration_unit === 'minute') duration_days = duration_val / 1440;
+      else if (duration_unit === 'hour') duration_days = duration_val / 24;
+      else duration_days = duration_val;
+      const notes = document.getElementById('genNotes').value;
+
+      fetch(`${API_BASE}/generate-cards`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count, card_type, duration_days, notes, password: adminPassword })
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.code !== 0) { showToast(data.msg, 'error'); return; }
+        showToast(`成功生成 ${data.count} 个卡密`, 'success');
+        const resultDiv = document.getElementById('generatedResult');
+        const listDiv = document.getElementById('generatedCardsList');
+        listDiv.innerHTML = data.cards.map(c => `
+          <div class="card-item">
+            <span class="code">${c.card_code}</span>
+            <span class="type">${typeMap[c.card_type]}</span>
+          </div>
+        `).join('');
+        resultDiv.style.display = 'block';
+        loadStats();
+        loadCards(1);
+      })
+      .catch(err => showToast('生成失败', 'error'));
+    }
+
+    function copyAllGenerated() {
+      const cards = document.querySelectorAll('#generatedCardsList .card-item .code');
+      const text = Array.from(cards).map(c => c.textContent).join('\n');
+      navigator.clipboard.writeText(text).then(() => showToast('已复制全部卡密', 'success'));
+    }
+
+    function updateCard(id, action) {
+      const actionNames = { ban: '封禁', unban: '解封', reset_machine: '重置机器码' };
+      if (!confirm(`确定要${actionNames[action]}该卡密吗？`)) return;
+      fetch(`${API_BASE}/update-card`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action, password: adminPassword })
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.code !== 0) { showToast(data.msg, 'error'); return; }
+        showToast('操作成功', 'success');
+        loadStats();
+        loadCards(currentPage);
+      })
+      .catch(err => showToast('操作失败', 'error'));
+    }
+
+    // 延长卡密（打开模态框）
+    let currentExtendId = '';
+    function extendCard(id, cardCode) {
+      currentExtendId = id;
+      document.getElementById('extendCardCode').textContent = cardCode || id;
+      document.getElementById('extendValue').value = 30;
+      document.getElementById('extendUnit').value = 'day';
+      document.getElementById('extendModal').classList.add('active');
+    }
+    function closeExtendModal() {
+      document.getElementById('extendModal').classList.remove('active');
+    }
+    function confirmExtend() {
+      const value = parseFloat(document.getElementById('extendValue').value);
+      const unit = document.getElementById('extendUnit').value;
+      if (!value || value <= 0) { showToast('请输入有效的延长时间', 'error'); return; }
+      const body = { id: currentExtendId, action: 'extend', password: adminPassword };
+      if (unit === 'day') body.extra_days = value;
+      else if (unit === 'hour') body.extra_hours = value;
+      else body.extra_minutes = value;
+      fetch(`${API_BASE}/update-card`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.code !== 0) { showToast(data.msg, 'error'); return; }
+        showToast(data.msg, 'success');
+        closeExtendModal();
+        loadCards(currentPage);
+      })
+      .catch(err => showToast('操作失败', 'error'));
+    }
+
+    function editNotes(id, notes) {
+      document.getElementById('notesCardCode').textContent = id;
+      document.getElementById('notesInput').value = notes || '';
+      document.getElementById('notesModal').classList.add('active');
+    }
+    function closeNotesModal() {
+      document.getElementById('notesModal').classList.remove('active');
+    }
+    function saveNotes() {
+      const id = document.getElementById('notesCardCode').textContent.trim();
+      const notes = document.getElementById('notesInput').value.trim();
+      if (!id) { showToast('卡密ID无效', 'error'); return; }
+      fetch(`${API_BASE}/update-card`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action: 'edit_notes', notes, password: adminPassword })
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.code !== 0) { showToast(data.msg, 'error'); return; }
+        showToast('备注已更新', 'success');
+        closeNotesModal();
+        loadCards(currentPage);
+      })
+      .catch(err => showToast('保存失败', 'error'));
+    }
+
+    function deleteCard(id) {
+      if (!confirm('确定要删除该卡密吗？此操作不可恢复！')) return;
+      fetch(`${API_BASE}/update-card`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action: 'delete', password: adminPassword })
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.code !== 0) { showToast(data.msg, 'error'); return; }
+        showToast('删除成功', 'success');
+        loadStats();
+        loadCards(currentPage);
+      })
+      .catch(err => showToast('删除失败', 'error'));
+    }
+
+    function showToast(msg, type = 'info') {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.className = `toast ${type} show`;
+      setTimeout(() => toast.classList.remove('show'), 2500);
+    }
+
+    document.getElementById('generateModal').addEventListener('click', function(e) {
+      if (e.target === this) closeGenerateModal();
+    });
+    document.getElementById('notesModal').addEventListener('click', function(e) {
+      if (e.target === this) closeNotesModal();
+    });
+    document.getElementById('extendModal').addEventListener('click', function(e) {
+      if (e.target === this) closeExtendModal();
+    });
+  </script>
+</body>
+</html>

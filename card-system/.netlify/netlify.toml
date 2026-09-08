@@ -1,0 +1,42 @@
+functionsDirectory = "C:\\Users\\15868\\Doubao\\chats\\2026-08-29\\new-chat\\bilibili-danmaku-bot\\card-system\\netlify\\functions"
+functionsDirectoryOrigin = "config-v1"
+redirectsOrigin = "config"
+plugins = []
+headers = []
+
+[build]
+publish = "C:\\Users\\15868\\Doubao\\chats\\2026-08-29\\new-chat\\bilibili-danmaku-bot\\card-system\\public"
+publishOrigin = "config"
+base = "C:\\Users\\15868\\Doubao\\chats\\2026-08-29\\new-chat\\bilibili-danmaku-bot\\card-system"
+functions = "C:\\Users\\15868\\Doubao\\chats\\2026-08-29\\new-chat\\bilibili-danmaku-bot\\card-system\\netlify\\functions"
+
+[build.environment]
+
+[build.processing]
+
+[build.processing.css]
+
+[build.processing.html]
+
+[build.processing.images]
+
+[build.processing.js]
+
+[build.services]
+
+[functions]
+
+[functions."*"]
+node_bundler = "esbuild"
+
+[[redirects]]
+from = "/api/*"
+to = "/.netlify/functions/:splat"
+status = 200.0
+force = false
+
+[redirects.query]
+
+[redirects.conditions]
+
+[redirects.headers]

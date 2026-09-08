@@ -25,102 +25,42 @@ wheels/
 build/
 dist/
 
-# 数据和配置（可选，根据需要决定是否版本控制）
-# data/
-# *.json
-# *.txt
+# PyArmor
+pyarmor_runtime_*/
+
+# 临时脚本
+fix_*.py
+update_version*.py
+optimize_*.py
+self_check*.py
+query_*.py
+gen_test*.py
+reset_*.py
+unbind_*.py
+refactor_*.py
+integrate_*.py
+replace_*.py
+download_img*.py
+code_review.py
+check_*.py
+
+# 数据文件
+data/
+*.json
+!card-system/**/*.json
 
 # 日志
-logs/
 *.log
 
-# 临时文件
-*.tmp
-*.bak
-*.swp
-*.swo
-*~
-
-# 操作系统
-.DS_Store
-Thumbs.db
+# 压缩包
+*.zip
 
 # IDE
-.vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
 
-# 备份文件
-backups/
-*_backup.py
-*_backup.*
-
-# Node.js
-node_modules/
-package-lock.json
-
-# 备份目录
-backup/
-backup_*/
-backups/
-
-# 截图
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.bmp
-
-# 大文件
-*.exe
-*.wasm
-*.wat
-ffmpeg.exe
-
-# 数据文件（根据需要决定是否版本控制）
-# data/
-*.json
-!package.json
-!requirements.txt
-
-# 临时和测试文件
-uploaded_file
-test_*
-debug_*
-analyze_*
-patch_*
-rollback_*
-move_*
-remove_*
-fix_*
-update_*
-add_*
-change_*
-check_*
-extract_*
-find_*
-generate_*
-modify_*
-probe_*
-verify_*
-deep_probe.py
-calc_sign*.js
-convert_wat.js
-find_unreachable.js
-test_min.js
-test_wasmer.js
-sign_input.json
-test_data.json
-task_verification_results.json
-all_tasks.json
-config.json
-danmaku_list.txt
-spyder.wat
-spyder.wasm
-spyder_new.wasm
-git_installer.exe
-*.spec
-
-# 截图和测试文件
-screenshot_*.png
+# OS
+.DS_Store
+Thumbs.db

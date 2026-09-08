@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 B站自动发弹幕工具 - 美观深色主题版
@@ -7,16 +7,16 @@ B站自动发弹幕工具 - 美观深色主题版
 """
 
 import json
-import os
 import time
 import random
 import threading
 import hashlib
 import urllib.parse
 import struct
+import re
 from datetime import datetime, timedelta
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext, simpledialog, filedialog
+from tkinter import ttk, messagebox, simpledialog
 from pathlib import Path
 
 import requests
@@ -89,7 +89,12 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.3.0"
+APP_VERSION = "v5.8.0"
+
+# ========== 卡密验证配置 ==========
+CARD_API_BASE = "https://precious-tanuki-c4b16d.netlify.app/api"
+CARD_VERIFY_URL = f"{CARD_API_BASE}/verify-card"
+CARD_FILE = BASE_DIR / "card_auth.json"
 
 TASK_GUIDE_TEXT = """═══════════════════════════════════════════════════════
                     B站工具箱 使用说明
@@ -332,6 +337,7 @@ USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
 # 抢码相关API
 MISSION_INFO_API = "https://api.bilibili.com/x/activity_components/mission/info"
 MISSION_RECEIVE_API = "https://api.bilibili.com/x/activity_components/mission/receive"
+MISSION_MYLIST_API = "https://api.bilibili.com/x/activity_components/mission/mylist"
 
 # 活动任务列表（按版本+期数+类型分类）
 ALL_TASKS = [
@@ -412,6 +418,8 @@ ALL_TASKS = [
 MINGCHAO_TASKS = [t for t in ALL_TASKS if t["version"] == "鸣潮3.6"]
 
 # task_id到act_id的缓存字典（查询成功时自动保存，查询失败时使用）
+# 全局变量线程锁
+_GLOBAL_LOCK = threading.Lock()
 TASK_ACT_ID_CACHE = {}
 
 # 版本默认act_id（同一版本的所有任务共享同一个act_id）
@@ -491,6 +499,9 @@ HEADERS = {
 
 
 # ========== 数据管理 ==========
+_last_claim_data_global = None
+_last_claim_result_global = None
+
 class AccountManager:
     def __init__(self):
         self.accounts = []
@@ -510,6 +521,9 @@ class AccountManager:
             json.dump(self.accounts, f, ensure_ascii=False, indent=2)
 
     def add_account(self, name, sessdata, bili_jct, dede_userid=""):
+        MAX_ACCOUNTS = 8
+        if len(self.accounts) >= MAX_ACCOUNTS:
+            return False, f"最多只能添加 {MAX_ACCOUNTS} 个账户，当前已有 {len(self.accounts)} 个"
         for acc in self.accounts:
             if acc["name"] == name:
                 return False, f"账户名「{name}」已存在"
@@ -667,8 +681,27 @@ def send_danmaku(cookie_str, csrf, room_id, msg):
 
 
 # ========== 抢码相关函数 ==========
+# WBI密钥缓存（减少重复网络请求）
+_WBI_KEY_CACHE = {}  # {cookie_hash: (img_key, sub_key, expire_time)}
+_WBI_CACHE_TTL = 3600  # 缓存1小时
+
 def get_wbi_keys(cookies_dict):
-    """获取WBI签名密钥"""
+    """获取WBI签名密钥（带缓存，减少重复请求）"""
+    # 生成cookie的哈希作为缓存键
+    try:
+        cookie_str = str(sorted(cookies_dict.items())) if isinstance(cookies_dict, dict) else str(cookies_dict)
+        cookie_hash = hashlib.md5(cookie_str.encode()).hexdigest()
+    except Exception:
+        cookie_hash = 'default'
+    
+    # 检查缓存
+    now = time.time()
+    if cookie_hash in _WBI_KEY_CACHE:
+        img_key, sub_key, expire_time = _WBI_KEY_CACHE[cookie_hash]
+        if now < expire_time and img_key and sub_key:
+            return img_key, sub_key
+    
+    # 缓存未命中，请求网络
     headers = {**HEADERS, "Referer": "https://www.bilibili.com/"}
     try:
         resp = requests.get(USER_INFO_API, headers=headers, cookies=cookies_dict, timeout=10)
@@ -677,12 +710,12 @@ def get_wbi_keys(cookies_dict):
             wbi_img = data["data"]["wbi_img"]
             img_key = wbi_img["img_url"].rsplit("/", 1)[1].split(".")[0]
             sub_key = wbi_img["sub_url"].rsplit("/", 1)[1].split(".")[0]
+            # 存入缓存
+            _WBI_KEY_CACHE[cookie_hash] = (img_key, sub_key, now + _WBI_CACHE_TTL)
             return img_key, sub_key
     except Exception:
         pass
     return None, None
-
-
 def get_mixin_key(orig):
     """生成混淆密钥"""
     return "".join([orig[i] for i in MIXIN_KEY_ENC_TAB])[:32]
@@ -717,6 +750,34 @@ def get_mission_info(task_id, cookies_dict):
 
     try:
         resp = requests.get(MISSION_INFO_API, headers=headers, cookies=cookies_dict, params=signed_params, timeout=10)
+        data = resp.json()
+        if data.get("code") == 0:
+            return data.get("data"), "成功"
+        return None, f"[{data.get('code')}] {data.get('message', '未知错误')}"
+    except Exception as e:
+        return None, f"网络异常: {e}"
+
+
+def get_award_record(activity_id, cookies_dict):
+    """获取领取记录（含兑换码）"""
+    img_key, sub_key = get_wbi_keys(cookies_dict)
+    if not img_key:
+        return None, "获取WBI密钥失败"
+
+    headers = {
+        **HEADERS,
+        "Referer": "https://www.bilibili.com/blackboard/era/award-exchange.html",
+        "Origin": "https://www.bilibili.com",
+        "Accept": "*/*",
+    }
+    params = {
+        "activity_id": activity_id,
+        "web_location": "888.126558",
+    }
+    signed_params = wbi_sign(params, img_key, sub_key)
+
+    try:
+        resp = requests.get(MISSION_MYLIST_API, headers=headers, cookies=cookies_dict, params=signed_params, timeout=10)
         data = resp.json()
         if data.get("code") == 0:
             return data.get("data"), "成功"
@@ -989,6 +1050,10 @@ def receive_reward(task_id, task_info, cookies_dict, csrf):
         message = result.get("message", "")
 
         if code == 0:
+            # 保存最后一次领取成功的数据，供兑换码提取使用
+            global _last_claim_data_global, _last_claim_result_global
+            _last_claim_data_global = result.get("data")
+            _last_claim_result_global = result
             return True, "领取成功", result.get("data")
 
         # 识别已领取状态
@@ -999,6 +1064,166 @@ def receive_reward(task_id, task_info, cookies_dict, csrf):
         return False, f"[{code}] {message}", None
     except Exception as e:
         return False, f"网络异常: {e}", None
+
+
+
+# ========== 兑换码导出相关函数 ==========
+CODE_EXPORT_FILE = str(BASE_DIR / "兑换码记录.json")
+
+def _ensure_code_dir():
+    """确保data目录存在"""
+    d = os.path.dirname(CODE_EXPORT_FILE)
+    if not os.path.exists(d):
+        os.makedirs(d, exist_ok=True)
+
+def extract_redeem_codes(data):
+    """从API返回数据中递归提取兑换码"""
+    codes = []
+    if not data:
+        return codes
+    # 可能的兑换码字段名
+    code_keys = ["cdk", "redeem_code", "redeemCode", "award_code", "awardCode",
+                 "gift_code", "giftCode", "exchange_code", "exchangeCode",
+                 "code", "key", "ticket", "coupon", "cdkey", "cd_key",
+                 "cdkey_content", "cdkeyContent", "cdk_content", "cdkContent"]
+    
+    def search(obj, path=""):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                k_lower = k.lower()
+                # 检查是否是兑换码字段
+                if k_lower in [ck.lower() for ck in code_keys]:
+                    if isinstance(v, str) and v and len(v) >= 4 and not v.startswith("http"):
+                        # 排除明显不是兑换码的值
+                        if v not in ["0", "1", "true", "false", "success", "ok"]:
+                            codes.append({"field": k, "value": v, "path": path + "." + k})
+                    elif isinstance(v, list):
+                        for item in v:
+                            if isinstance(item, str) and item and len(item) >= 4:
+                                codes.append({"field": k, "value": item, "path": path + "." + k})
+                search(v, path + "." + k)
+        elif isinstance(obj, list):
+            for i, item in enumerate(obj):
+                search(item, path + f"[{i}]")
+    
+    search(data)
+    return codes
+
+def save_redeem_code(task_name, account_name, data, task_period="", task_type=""):
+    """领取成功后保存兑换码到本地文件（自动去重）"""
+    try:
+        _ensure_code_dir()
+        codes = extract_redeem_codes(data)
+        if not codes:
+            return False, "未提取到兑换码"
+        
+        # 读取已有记录
+        records = []
+        if os.path.exists(CODE_EXPORT_FILE):
+            try:
+                with open(CODE_EXPORT_FILE, "r", encoding="utf-8") as f:
+                    records = json.load(f)
+            except:
+                records = []
+        
+        # 构建已有兑换码集合（账户+兑换码 作为唯一键）
+        existing_codes = set()
+        for r in records:
+            key = f"{r.get('account', '')}|{r.get('redeem_code', '')}"
+            existing_codes.add(key)
+        
+        import time as _time
+        timestamp = _time.strftime("%Y-%m-%d %H:%M:%S")
+        
+        saved_count = 0
+        skipped_count = 0
+        
+        for code_info in codes:
+            code_value = code_info["value"]
+            # 检查是否已存在（相同账户+相同兑换码）
+            unique_key = f"{account_name}|{code_value}"
+            if unique_key in existing_codes:
+                skipped_count += 1
+                continue
+            
+            record = {
+                "id": len(records) + 1,
+                "time": timestamp,
+                "task_name": task_name,
+                "task_period": task_period,
+                "task_type": task_type,
+                "account": account_name,
+                "code_field": code_info["field"],
+                "redeem_code": code_value,
+                "status": "未使用",
+                "raw_path": code_info.get("path", "")
+            }
+            records.append(record)
+            existing_codes.add(unique_key)
+            saved_count += 1
+        
+        # 重新编号ID
+        for i, r in enumerate(records):
+            r["id"] = i + 1
+        
+        with open(CODE_EXPORT_FILE, "w", encoding="utf-8") as f:
+            json.dump(records, f, ensure_ascii=False, indent=2)
+        
+        if skipped_count > 0:
+            return True, f"已保存 {saved_count} 个兑换码，跳过 {skipped_count} 个重复"
+        return True, f"已保存 {saved_count} 个兑换码"
+    except Exception as e:
+        return False, f"保存兑换码失败: {e}"
+
+def load_redeem_codes():
+    """读取所有兑换码记录"""
+    try:
+        if os.path.exists(CODE_EXPORT_FILE):
+            with open(CODE_EXPORT_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except:
+        pass
+    return []
+
+def update_redeem_code_status(record_id, status):
+    """更新兑换码状态"""
+    try:
+        records = load_redeem_codes()
+        for r in records:
+            if r["id"] == record_id:
+                r["status"] = status
+                break
+        _ensure_code_dir()
+        with open(CODE_EXPORT_FILE, "w", encoding="utf-8") as f:
+            json.dump(records, f, ensure_ascii=False, indent=2)
+        return True
+    except:
+        return False
+
+def delete_redeem_code(record_id):
+    """删除单条兑换码记录"""
+    try:
+        records = load_redeem_codes()
+        records = [r for r in records if r["id"] != record_id]
+        # 重新编号
+        for i, r in enumerate(records):
+            r["id"] = i + 1
+        _ensure_code_dir()
+        with open(CODE_EXPORT_FILE, "w", encoding="utf-8") as f:
+            json.dump(records, f, ensure_ascii=False, indent=2)
+        return True
+    except:
+        return False
+
+def clear_redeem_codes():
+    """清空所有兑换码记录"""
+    try:
+        _ensure_code_dir()
+        with open(CODE_EXPORT_FILE, "w", encoding="utf-8") as f:
+            json.dump([], f, ensure_ascii=False, indent=2)
+        return True
+    except:
+        return False
 
 
 def cookies_from_account(acc):
@@ -2114,6 +2339,7 @@ class RushRewardFrame(tk.Frame):
                                 break
                     else:
                         self.log(f"🎉 定时任务「{task_name}」领取成功！（第{attempt}次，账户：{account['name']}）")
+                        self.log(f"  💡 提示: 兑换码请在「兑换码」页面点击「从领取记录导入」获取")
                         for t in self.scheduled_tasks:
                             if t["id"] == task_id:
                                 t["status"] = "已完成"
@@ -2398,19 +2624,34 @@ class RushRewardFrame(tk.Frame):
             self.log_file = None
 
     def log(self, msg):
+        """线程安全的日志输出"""
         timestamp = time.strftime("%H:%M:%S")
         line = f"[{timestamp}] {msg}\n"
-        self.rush_log_text.config(state=tk.NORMAL)
-        self.rush_log_text.insert(tk.END, line)
-        self.rush_log_text.see(tk.END)
-        self.rush_log_text.config(state=tk.DISABLED)
-        # 同时写入日志文件
+        # 写入日志文件（线程安全）
         if self.log_file:
             try:
                 with open(self.log_file, "a", encoding="utf-8") as f:
                     f.write(line)
             except Exception:
                 pass
+        # 通过主线程更新UI，避免Tkinter线程安全问题
+        def _update():
+            try:
+                self.rush_log_text.config(state=tk.NORMAL)
+                self.rush_log_text.insert(tk.END, line)
+                self.rush_log_text.see(tk.END)
+                self.rush_log_text.config(state=tk.DISABLED)
+            except Exception:
+                pass
+        try:
+            if hasattr(self, 'root') and self.root:
+                self.root.after(0, _update)
+            elif hasattr(self, 'app') and hasattr(self.app, 'root') and self.app.root:
+                self.app.root.after(0, _update)
+            else:
+                _update()
+        except Exception:
+            _update()
 
     def query_status(self):
         """手动查询任务状态"""
@@ -2532,8 +2773,8 @@ class RushRewardFrame(tk.Frame):
         # 直接尝试领取，不先判断状态（避免状态判断错误导致无法领取）
         ok, result, data = receive_reward(task["task_id"], info, cookies, csrf)
         if ok:
-            return True, "领取成功"
-        return False, result
+            return True, "领取成功", data
+        return False, result, None
 
     def manual_receive(self):
         """手动领取：立即尝试领取一次"""
@@ -2548,10 +2789,11 @@ class RushRewardFrame(tk.Frame):
         acc = accounts[0]
         self.log(f"手动领取: [{task['period']}][{task['type']}] {task['name']} => {task['award']}")
         self.log(f"  账户: {acc['name']}")
-        ok, msg = self.do_receive_once(task, acc)
+        ok, msg, receive_data = self.do_receive_once(task, acc)
         if ok:
             self.log(f"🎉 领取成功：[{task['period']}][{task['type']}]{task['name']} -> {task['award']}")
             self.log(f"  账户：{acc['name']}")
+            self.log(f"  💡 提示: 兑换码请在「兑换码」页面点击「从领取记录导入」获取")
         else:
             self.log(f"✗ 领取失败：{msg}")
 
@@ -2701,6 +2943,7 @@ class RushRewardFrame(tk.Frame):
             if ok:
                 success = True
                 self.log(f"🎉 领取成功：[{task['period']}][{task['type']}]{task['name']} -> {task['award']}")
+                self.log(f"  💡 提示: 兑换码请在「兑换码」页面点击「从领取记录导入」获取")
                 self.log(f"  账户：{account['name']} | 第{attempt}次尝试")
                 break
             else:
@@ -2955,6 +3198,7 @@ class RushRewardFrame(tk.Frame):
             if ok:
                 success = True
                 self.log(f"🎉 领取成功：[{task['period']}][{task['type']}]{task['name']} -> {task['award']}")
+                self.log(f"  💡 提示: 兑换码请在「兑换码」页面点击「从领取记录导入」获取")
                 self.log(f"  账户：{account['name']} | 第{attempt}次尝试")
                 break
             else:
@@ -3146,6 +3390,7 @@ class RushRewardFrame(tk.Frame):
                     ok, result, data = receive_reward(task["task_id"], info, cookies, csrf)
                     if ok:
                         self.log(f"🎉 领取成功：[{task['period']}][{task['type']}]{task['name']} -> {task['award']}")
+                        self.log(f"  💡 提示: 兑换码请在「兑换码」页面点击「从领取记录导入」获取")
                         self.log(f"  账户：{account['name']}")
                         if data:
                             self.log(f"  返回数据: {json.dumps(data, ensure_ascii=False)[:200]}")
@@ -3175,6 +3420,558 @@ class RushRewardFrame(tk.Frame):
 
 
 # ========== 看播任务工具 ==========
+
+# ========== 兑换码导出模块 ==========
+class CodeExportFrame(tk.Frame):
+    """兑换码导出页面"""
+    def __init__(self, parent, account_mgr=None, room_mgr=None):
+        super().__init__(parent, bg=COLORS["bg_dark"])
+        self.account_mgr = account_mgr
+        self.room_mgr = room_mgr
+        self.selected_ids = set()
+        self.current_activity_filter = "全部活动"
+        self.build_ui()
+        self.refresh_list()
+
+    def build_ui(self):
+        # 顶部标题栏
+        header = tk.Frame(self, bg=COLORS["bg_card"], height=60)
+        header.pack(fill=tk.X)
+        header.pack_propagate(False)
+        tk.Label(header, text="🎁 兑换码导出", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=("微软雅黑", 16, "bold")).pack(side=tk.LEFT, padx=20)
+        tk.Label(header, text="领取成功后自动保存兑换码，支持复制和导出",
+                 bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                 font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=(0, 20))
+
+        # 操作按钮栏
+        btn_bar = tk.Frame(self, bg=COLORS["bg_card"], height=56)
+        btn_bar.pack(fill=tk.X, pady=(0, 2))
+        btn_bar.pack_propagate(False)
+
+        btn_frame = tk.Frame(btn_bar, bg=COLORS["bg_card"])
+        btn_frame.pack(side=tk.LEFT, padx=15, pady=8)
+
+        self.refresh_btn = tk.Button(btn_frame, text="🔄 刷新列表", bg=COLORS["bg_input"],
+                                      fg=COLORS["text_secondary"], font=("微软雅黑", 10),
+                                      bd=0, padx=16, pady=6, cursor="hand2", command=self.refresh_list)
+        self.refresh_btn.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.import_btn = tk.Button(btn_frame, text="📥 从领取记录导入", bg="#FF8F00",
+                                     fg="#FFFFFF", font=("微软雅黑", 10, "bold"),
+                                     bd=0, padx=16, pady=6, cursor="hand2", command=self.import_from_records)
+        self.import_btn.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.copy_selected_btn = tk.Button(btn_frame, text="📋 复制选中", bg=COLORS["accent"],
+                                            fg="#000000", font=("微软雅黑", 10, "bold"),
+                                            bd=0, padx=16, pady=6, cursor="hand2", command=self.copy_selected)
+        self.copy_selected_btn.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.copy_all_btn = tk.Button(btn_frame, text="📋 复制全部", bg=COLORS["accent"],
+                                       fg="#000000", font=("微软雅黑", 10, "bold"),
+                                       bd=0, padx=16, pady=6, cursor="hand2", command=self.copy_all)
+        self.copy_all_btn.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.export_btn = tk.Button(btn_frame, text="💾 导出TXT", bg="#2E7D32",
+                                     fg="#FFFFFF", font=("微软雅黑", 10, "bold"),
+                                     bd=0, padx=16, pady=6, cursor="hand2", command=self.export_txt)
+        self.export_btn.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.export_csv_btn = tk.Button(btn_frame, text="📊 导出CSV", bg="#1565C0",
+                                          fg="#FFFFFF", font=("微软雅黑", 10, "bold"),
+                                          bd=0, padx=16, pady=6, cursor="hand2", command=self.export_csv)
+        self.export_csv_btn.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.delete_selected_btn = tk.Button(btn_frame, text="🗑 删除选中", bg="#C62828",
+                                               fg="#FFFFFF", font=("微软雅黑", 10, "bold"),
+                                               bd=0, padx=16, pady=6, cursor="hand2", command=self.delete_selected)
+        self.delete_selected_btn.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.clear_btn = tk.Button(btn_frame, text="🧹 清空全部", bg="#616161",
+                                    fg="#FFFFFF", font=("微软雅黑", 10, "bold"),
+                                    bd=0, padx=16, pady=6, cursor="hand2", command=self.clear_all)
+        self.clear_btn.pack(side=tk.LEFT)
+
+        # 活动筛选下拉框
+        filter_frame = tk.Frame(btn_bar, bg=COLORS["bg_card"])
+        filter_frame.pack(side=tk.RIGHT, padx=(0, 15))
+        
+        tk.Label(filter_frame, text="活动筛选:", bg=COLORS["bg_card"],
+                 fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=(0, 8))
+        
+        from tkinter import ttk
+        activity_list = ["全部活动"] + list(VERSION_DEFAULT_ACT_ID.keys())
+        self.activity_filter_var = tk.StringVar(value="全部活动")
+        
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure('Filter.TCombobox', 
+                        fieldbackground=COLORS["bg_input"], 
+                        background=COLORS["bg_input"],
+                        foreground=COLORS["text_primary"],
+                        arrowcolor=COLORS["accent"])
+        
+        self.activity_filter_combo = ttk.Combobox(filter_frame, textvariable=self.activity_filter_var,
+                                                    values=activity_list, state="readonly",
+                                                    font=("微软雅黑", 10), width=18,
+                                                    style='Filter.TCombobox')
+        self.activity_filter_combo.pack(side=tk.LEFT)
+        self.activity_filter_combo.bind("<<ComboboxSelected>>", self._on_activity_filter_change)
+
+        # 统计信息
+        self.stats_label = tk.Label(btn_bar, text="", bg=COLORS["bg_card"],
+                                     fg=COLORS["text_muted"], font=("微软雅黑", 10))
+        self.stats_label.pack(side=tk.RIGHT, padx=20)
+
+        # 列表区域
+        list_container = tk.Frame(self, bg=COLORS["bg_card"])
+        list_container.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
+
+        # 表头
+        header_frame = tk.Frame(list_container, bg=COLORS["bg_input"], height=40)
+        header_frame.pack(fill=tk.X)
+        header_frame.pack_propagate(False)
+
+        cols = [
+            ("选择", 50),
+            ("ID", 50),
+            ("领取时间", 160),
+            ("任务名称", 250),
+            ("账户", 120),
+            ("兑换码", 300),
+            ("字段", 100),
+            ("状态", 80),
+            ("操作", 150),
+        ]
+        self.col_widths = [w for _, w in cols]
+        for text, width in cols:
+            tk.Label(header_frame, text=text, bg=COLORS["bg_input"],
+                     fg=COLORS["accent"], font=("微软雅黑", 10, "bold"),
+                     width=width // 8, anchor="w").pack(side=tk.LEFT, padx=4, pady=8)
+
+        # 可滚动列表
+        self.canvas = tk.Canvas(list_container, bg=COLORS["bg_dark"], highlightthickness=0)
+        scrollbar = tk.Scrollbar(list_container, orient="vertical", command=self.canvas.yview)
+        self.scroll_frame = tk.Frame(self.canvas, bg=COLORS["bg_dark"])
+
+        self.scroll_frame.bind("<Configure>",
+                               lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        self.canvas.create_window((0, 0), window=self.scroll_frame, anchor="nw", 
+                                  tags="scroll_frame")
+        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfig("scroll_frame", width=e.width))
+        self.canvas.configure(yscrollcommand=scrollbar.set)
+
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # 鼠标滚轮
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+
+    def _on_mousewheel(self, event):
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+    
+    def _on_activity_filter_change(self, event=None):
+        """活动筛选变更"""
+        self.current_activity_filter = self.activity_filter_var.get()
+        self.refresh_list()
+    
+    def _get_filtered_records(self, records=None):
+        """获取筛选后的记录"""
+        if records is None:
+            records = self.records
+        if self.current_activity_filter == "全部活动":
+            return records
+        # 根据task_name前缀筛选（task_name格式为"活动名称 奖励名称"）
+        filtered = []
+        for r in records:
+            task_name = r.get("task_name", "")
+            if task_name.startswith(self.current_activity_filter):
+                filtered.append(r)
+        return filtered
+
+    def import_from_records(self):
+        """从领取记录导入所有兑换码（选择活动或全部导入）"""
+        # 创建活动选择对话框
+        dialog = tk.Toplevel(self)
+        dialog.title("选择活动")
+        dialog.geometry("360x200")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        # 居中显示
+        dialog.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - 360) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - 200) // 2
+        dialog.geometry(f"+{x}+{y}")
+        
+        tk.Label(dialog, text="请选择要导入兑换码的活动：", 
+                 font=("微软雅黑", 11), bg=COLORS["bg_dark"], fg=COLORS["text_primary"]).pack(pady=(20, 10))
+        
+        # 活动列表（从VERSION_DEFAULT_ACT_ID获取）
+        activity_list = ["全部活动"] + list(VERSION_DEFAULT_ACT_ID.keys())
+        activity_var = tk.StringVar(value=activity_list[0])
+        
+        from tkinter import ttk
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure('Activity.TCombobox', 
+                        fieldbackground=COLORS["bg_input"], 
+                        background=COLORS["bg_input"],
+                        foreground=COLORS["text_primary"],
+                        arrowcolor=COLORS["accent"])
+        
+        activity_combo = ttk.Combobox(dialog, textvariable=activity_var, 
+                                        values=activity_list, state="readonly",
+                                        font=("微软雅黑", 11), width=25,
+                                        style='Activity.TCombobox')
+        activity_combo.pack(pady=10)
+        
+        result = {"selected": None}
+        
+        def on_confirm():
+            result["selected"] = activity_var.get()
+            dialog.destroy()
+        
+        def on_cancel():
+            dialog.destroy()
+        
+        btn_frame = tk.Frame(dialog, bg=COLORS["bg_dark"])
+        btn_frame.pack(pady=20)
+        
+        tk.Button(btn_frame, text="确定", bg=COLORS["accent"], fg="#000000",
+                  font=("微软雅黑", 10, "bold"), bd=0, padx=25, pady=6, cursor="hand2",
+                  command=on_confirm).pack(side=tk.LEFT, padx=10)
+        
+        tk.Button(btn_frame, text="取消", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
+                  font=("微软雅黑", 10), bd=0, padx=25, pady=6, cursor="hand2",
+                  command=on_cancel).pack(side=tk.LEFT, padx=10)
+        
+        dialog.configure(bg=COLORS["bg_dark"])
+        self.wait_window(dialog)
+        
+        selected_activity = result["selected"]
+        if not selected_activity:
+            return
+        
+        # 根据选择获取act_id列表
+        if selected_activity == "全部活动":
+            act_id_list = list(VERSION_DEFAULT_ACT_ID.values())
+            activity_names = list(VERSION_DEFAULT_ACT_ID.keys())
+        else:
+            act_id_list = [VERSION_DEFAULT_ACT_ID.get(selected_activity, "")]
+            activity_names = [selected_activity]
+        
+        # 过滤掉空的act_id
+        valid_pairs = [(name, aid) for name, aid in zip(activity_names, act_id_list) if aid]
+        if not valid_pairs:
+            messagebox.showwarning("提示", "未找到有效的活动ID")
+            return
+
+        # 获取所有账户
+        accounts = []
+        try:
+            if self.account_mgr and hasattr(self.account_mgr, 'accounts'):
+                accounts = self.account_mgr.accounts
+            else:
+                # 从文件读取（使用统一的ACCOUNTS_FILE路径）
+                if os.path.exists(str(ACCOUNTS_FILE)):
+                    with open(str(ACCOUNTS_FILE), "r", encoding="utf-8") as f:
+                        accounts = json.load(f)
+        except Exception as e:
+            messagebox.showerror("错误", f"读取账户失败: {e}")
+            return
+
+        if not accounts:
+            messagebox.showwarning("提示", "没有可用的账户，请先导入账户")
+            return
+
+        # 遍历所有活动和账户，调用领取记录API
+        total_imported = 0
+        total_skipped = 0
+        account_results = []
+
+        for activity_name, act_id in valid_pairs:
+            for acc in accounts:
+                try:
+                    cookies = cookies_from_account(acc)
+                    record_data, record_msg = get_award_record(act_id, cookies)
+                    
+                    if record_data and record_data.get("list"):
+                        record_list = record_data["list"]
+                        account_codes = 0
+                        
+                        for record in record_list:
+                            # 提取兑换码
+                            codes = extract_redeem_codes(record)
+                            for code_info in codes:
+                                # 保存兑换码（去重）
+                                # 构建任务名称：活动名称(简化) + 奖励名称
+                                record_activity_name = record.get("activity_name", "")
+                                award_name = record.get("award_name", "未知奖励")
+                                
+                                # 简化活动名称：去掉"版本激励计划"等后缀
+                                if record_activity_name:
+                                    record_activity_name = re.sub(r'版本激励计划.*$', '', record_activity_name)
+                                    record_activity_name = re.sub(r'激励计划.*$', '', record_activity_name)
+                                    record_activity_name = record_activity_name.strip()
+                                
+                                if record_activity_name:
+                                    task_name = f"{record_activity_name} {award_name}"
+                                else:
+                                    task_name = award_name
+                                
+                                ok_save, save_msg = save_redeem_code(
+                                    task_name,
+                                    acc.get("name", "未知"),
+                                    record,
+                                    task_period="",
+                                    task_type=record.get("type", "")
+                                )
+                                if ok_save:
+                                    total_imported += 1
+                                    account_codes += 1
+                                else:
+                                    total_skipped += 1
+                        
+                        account_results.append(f"  [{activity_name}] {acc['name']}: 导入 {account_codes} 个，共 {len(record_list)} 条记录")
+                    else:
+                        account_results.append(f"  [{activity_name}] {acc['name']}: 无领取记录 ({record_msg})")
+                except Exception as e:
+                    account_results.append(f"  [{activity_name}] {acc['name']}: 异常 - {e}")
+
+        # 刷新列表
+        self.refresh_list()
+
+        # 显示结果
+        result_msg = f"导入完成！\n\n共导入 {total_imported} 个兑换码\n跳过 {total_skipped} 个（重复）\n\n详情：\n" + "\n".join(account_results)
+        messagebox.showinfo("导入结果", result_msg)
+    def refresh_list(self):
+        """刷新兑换码列表"""
+        # 清空现有内容
+        for widget in self.scroll_frame.winfo_children():
+            widget.destroy()
+        self.selected_ids.clear()
+
+        all_records = load_redeem_codes()
+        self.records = all_records
+        records = self._get_filtered_records(all_records)
+
+        # 更新统计（显示筛选后的数量和总数）
+        total = len(records)
+        total_all = len(all_records)
+        unused = sum(1 for r in records if r.get("status") == "未使用")
+        used = sum(1 for r in records if r.get("status") == "已使用")
+        if self.current_activity_filter == "全部活动":
+            self.stats_label.config(text=f"共 {total} 条 | 未使用 {unused} | 已使用 {used}")
+        else:
+            self.stats_label.config(text=f"筛选 {total}/{total_all} 条 | 未使用 {unused} | 已使用 {used}")
+
+        if not records:
+            empty_frame = tk.Frame(self.scroll_frame, bg=COLORS["bg_dark"])
+            empty_frame.pack(fill=tk.X, pady=40)
+            tk.Label(empty_frame, text="📭 暂无兑换码记录", bg=COLORS["bg_dark"],
+                     fg=COLORS["text_muted"], font=("微软雅黑", 14)).pack()
+            tk.Label(empty_frame, text="领取奖励成功后，兑换码会自动保存到这里",
+                     bg=COLORS["bg_dark"], fg=COLORS["text_muted"],
+                     font=("微软雅黑", 10)).pack(pady=(8, 0))
+            return
+
+        for i, record in enumerate(records):
+            try:
+                row_frame = tk.Frame(self.scroll_frame, bg=COLORS["bg_card"] if i % 2 == 0 else COLORS["bg_dark"])
+                row_frame.pack(fill=tk.X, pady=1)
+
+                # 确保record是字典
+                if not isinstance(record, dict):
+                    tk.Label(row_frame, text=f"记录格式错误: {str(record)[:50]}", bg=row_frame["bg"],
+                             fg="#FF5252", font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=10, pady=6)
+                    continue
+
+                rec_id = record.get("id", i + 1)
+                rec_time = record.get("time", "")
+                rec_task = record.get("task_name", "")
+                if record.get("task_period"):
+                    rec_task = f"[{record['task_period']}] {rec_task}"
+                rec_account = record.get("account", "")
+                rec_code = record.get("redeem_code", "")
+                rec_field = record.get("code_field", "")
+                rec_status = record.get("status", "未使用")
+
+                # 选择框
+                var = tk.BooleanVar(value=False)
+                cb = tk.Checkbutton(row_frame, variable=var, bg=row_frame["bg"],
+                                     activebackground=row_frame["bg"], command=lambda rid=rec_id, v=var: self._toggle_select(rid, v))
+                cb.pack(side=tk.LEFT, padx=(10, 5), pady=6)
+
+                # ID
+                tk.Label(row_frame, text=str(rec_id), bg=row_frame["bg"],
+                         fg=COLORS["text_secondary"], font=("微软雅黑", 9),
+                         width=4, anchor="w").pack(side=tk.LEFT, padx=2, pady=6)
+
+                # 时间
+                tk.Label(row_frame, text=rec_time, bg=row_frame["bg"],
+                         fg=COLORS["text_secondary"], font=("微软雅黑", 9),
+                         width=18, anchor="w").pack(side=tk.LEFT, padx=2, pady=6)
+
+                # 任务名称
+                tk.Label(row_frame, text=rec_task, bg=row_frame["bg"],
+                         fg=COLORS["text_primary"], font=("微软雅黑", 9),
+                         width=28, anchor="w").pack(side=tk.LEFT, padx=2, pady=6)
+
+                # 账户
+                tk.Label(row_frame, text=rec_account, bg=row_frame["bg"],
+                         fg=COLORS["text_secondary"], font=("微软雅黑", 9),
+                         width=12, anchor="w").pack(side=tk.LEFT, padx=2, pady=6)
+
+                # 兑换码（可点击复制）
+                code_label = tk.Label(row_frame, text=rec_code, bg=row_frame["bg"],
+                                       fg="#4FC3F7", font=("Consolas", 10, "bold"),
+                                       cursor="hand2", anchor="w")
+                code_label.pack(side=tk.LEFT, padx=2, pady=6)
+                code_label.bind("<Button-1>", lambda e, c=rec_code: self._copy_to_clipboard(c))
+
+                # 字段
+                tk.Label(row_frame, text=rec_field, bg=row_frame["bg"],
+                         fg=COLORS["text_muted"], font=("微软雅黑", 8),
+                         width=10, anchor="w").pack(side=tk.LEFT, padx=2, pady=6)
+
+                # 状态
+                status_color = "#4CAF50" if rec_status == "未使用" else "#9E9E9E"
+                tk.Label(row_frame, text=rec_status, bg=row_frame["bg"],
+                         fg=status_color, font=("微软雅黑", 9, "bold"),
+                         width=6, anchor="w").pack(side=tk.LEFT, padx=2, pady=6)
+
+                # 操作按钮
+                op_frame = tk.Frame(row_frame, bg=row_frame["bg"])
+                op_frame.pack(side=tk.LEFT, padx=(10, 5), pady=4)
+
+                tk.Button(op_frame, text="复制", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
+                          font=("微软雅黑", 8), bd=0, padx=8, pady=2, cursor="hand2",
+                          command=lambda c=rec_code: self._copy_to_clipboard(c)).pack(side=tk.LEFT, padx=(0, 4))
+
+                if rec_status == "未使用":
+                    tk.Button(op_frame, text="标记已用", bg="#FF8F00", fg="#FFFFFF",
+                              font=("微软雅黑", 8), bd=0, padx=8, pady=2, cursor="hand2",
+                              command=lambda rid=rec_id: self._mark_used(rid)).pack(side=tk.LEFT, padx=(0, 4))
+                else:
+                    tk.Button(op_frame, text="标记未用", bg="#1565C0", fg="#FFFFFF",
+                              font=("微软雅黑", 8), bd=0, padx=8, pady=2, cursor="hand2",
+                              command=lambda rid=rec_id: self._mark_unused(rid)).pack(side=tk.LEFT, padx=(0, 4))
+
+                tk.Button(op_frame, text="删除", bg="#C62828", fg="#FFFFFF",
+                          font=("微软雅黑", 8), bd=0, padx=8, pady=2, cursor="hand2",
+                          command=lambda rid=rec_id: self._delete_one(rid)).pack(side=tk.LEFT)
+            except Exception as e:
+                # 渲染失败时显示错误信息，不中断整个列表
+                err_frame = tk.Frame(self.scroll_frame, bg="#FFEBEE")
+                err_frame.pack(fill=tk.X, pady=1)
+                tk.Label(err_frame, text=f"记录 {i+1} 渲染失败: {str(e)}", bg="#FFEBEE",
+                         fg="#C62828", font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=10, pady=6)
+
+    def _toggle_select(self, record_id, var):
+        if var.get():
+            self.selected_ids.add(record_id)
+        else:
+            self.selected_ids.discard(record_id)
+
+    def _copy_to_clipboard(self, text):
+        """复制到剪贴板"""
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self.update()
+        except:
+            pass
+
+    def _mark_used(self, record_id):
+        update_redeem_code_status(record_id, "已使用")
+        self.refresh_list()
+
+    def _mark_unused(self, record_id):
+        update_redeem_code_status(record_id, "未使用")
+        self.refresh_list()
+
+    def _delete_one(self, record_id):
+        delete_redeem_code(record_id)
+        self.refresh_list()
+
+    def copy_selected(self):
+        """复制选中的兑换码（仅筛选后的记录）"""
+        if not self.selected_ids:
+            return
+        filtered = self._get_filtered_records()
+        codes = [r["redeem_code"] for r in filtered if r["id"] in self.selected_ids]
+        if codes:
+            self._copy_to_clipboard("\n".join(codes))
+
+    def copy_all(self):
+        """复制全部兑换码（仅筛选后的记录）"""
+        filtered = self._get_filtered_records()
+        if not filtered:
+            return
+        codes = [r["redeem_code"] for r in filtered]
+        self._copy_to_clipboard("\n".join(codes))
+
+    def export_txt(self):
+        """导出为TXT文件（仅筛选后的记录）"""
+        filtered = self._get_filtered_records()
+        if not filtered:
+            return
+        try:
+            _ensure_code_dir()
+            filepath = os.path.join(os.path.dirname(CODE_EXPORT_FILE), "兑换码导出.txt")
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write("===== B站工具箱 兑换码导出 =====\n")
+                f.write(f"导出时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"活动筛选: {self.current_activity_filter}\n")
+                f.write(f"共 {len(filtered)} 条\n")
+                f.write("=" * 50 + "\n\n")
+                for r in filtered:
+                    f.write(f"ID: {r['id']}\n")
+                    f.write(f"时间: {r.get('time', '')}\n")
+                    f.write(f"任务: {r.get('task_name', '')}\n")
+                    f.write(f"账户: {r.get('account', '')}\n")
+                    f.write(f"兑换码: {r.get('redeem_code', '')}\n")
+                    f.write(f"状态: {r.get('status', '')}\n")
+                    f.write("-" * 40 + "\n")
+            self._copy_to_clipboard(filepath)
+        except Exception as e:
+            pass
+
+    def export_csv(self):
+        """导出为CSV文件（仅筛选后的记录）"""
+        filtered = self._get_filtered_records()
+        if not filtered:
+            return
+        try:
+            _ensure_code_dir()
+            filepath = os.path.join(os.path.dirname(CODE_EXPORT_FILE), "兑换码导出.csv")
+            with open(filepath, "w", encoding="utf-8-sig") as f:
+                f.write("ID,领取时间,任务名称,账户,兑换码,字段,状态\n")
+                for r in filtered:
+                    f.write(f"{r['id']},{r.get('time','')},{r.get('task_name','')},{r.get('account','')},{r.get('redeem_code','')},{r.get('code_field','')},{r.get('status','')}\n")
+        except Exception as e:
+            pass
+
+    def delete_selected(self):
+        """删除选中的记录（仅筛选后的记录中选中的）"""
+        if not self.selected_ids:
+            return
+        filtered = self._get_filtered_records()
+        filtered_ids = set(r["id"] for r in filtered)
+        for rid in list(self.selected_ids):
+            if rid in filtered_ids:
+                delete_redeem_code(rid)
+        self.refresh_list()
+
+    def clear_all(self):
+        """清空全部记录"""
+        clear_redeem_codes()
+        self.refresh_list()
+
+
+
 class WatchLiveFrame(tk.Frame):
     """看播任务工具：模拟观看B站直播间，完成看播里程碑任务"""
 
@@ -3688,12 +4485,26 @@ class WatchLiveFrame(tk.Frame):
             self.status_tree.insert("", tk.END, values=(name, status_text, f"{watch_min}分{watch_sec}秒", stats.get("heartbeat_count", 0), f"{self.duration_var.get()}分钟"))
 
     def log(self, msg):
+        """线程安全的日志输出"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_msg = f"[{timestamp}] {msg}\n"
-        self.log_text.config(state=tk.NORMAL)
-        self.log_text.insert(tk.END, log_msg)
-        self.log_text.see(tk.END)
-        self.log_text.config(state=tk.DISABLED)
+        def _update():
+            try:
+                self.log_text.config(state=tk.NORMAL)
+                self.log_text.insert(tk.END, log_msg)
+                self.log_text.see(tk.END)
+                self.log_text.config(state=tk.DISABLED)
+            except Exception:
+                pass
+        try:
+            if hasattr(self, 'root') and self.root:
+                self.root.after(0, _update)
+            elif hasattr(self, 'app') and hasattr(self.app, 'root') and self.app.root:
+                self.app.root.after(0, _update)
+            else:
+                _update()
+        except Exception:
+            _update()
 
     def get_danmu_token(self, account, room_id):
         """用登录cookie获取弹幕服务器token"""
@@ -4845,12 +5656,26 @@ class ScheduleFrame(tk.Frame):
         self.selected_task_id = None
 
     def log(self, msg):
+        """线程安全的日志输出"""
         timestamp = time.strftime("%H:%M:%S")
         line = f"[{timestamp}] {msg}\n"
-        self.schedule_log_text.config(state=tk.NORMAL)
-        self.schedule_log_text.insert(tk.END, line)
-        self.schedule_log_text.see(tk.END)
-        self.schedule_log_text.config(state=tk.DISABLED)
+        def _update():
+            try:
+                self.schedule_log_text.config(state=tk.NORMAL)
+                self.schedule_log_text.insert(tk.END, line)
+                self.schedule_log_text.see(tk.END)
+                self.schedule_log_text.config(state=tk.DISABLED)
+            except Exception:
+                pass
+        try:
+            if hasattr(self, 'root') and self.root:
+                self.root.after(0, _update)
+            elif hasattr(self, 'app') and hasattr(self.app, 'root') and self.app.root:
+                self.app.root.after(0, _update)
+            else:
+                _update()
+        except Exception:
+            _update()
 
     def sync_log_to_modules(self, msg):
         """将日志同步到所有相关模块页面"""
@@ -4858,19 +5683,19 @@ class ScheduleFrame(tk.Frame):
             # 同步到抢码页面
             if hasattr(self.app, 'rush_page') and hasattr(self.app.rush_page, 'log'):
                 self.app.rush_page.log(msg)
-        except:
+        except Exception:
             pass
         try:
             # 同步到看播页面
             if hasattr(self.app, 'watch_page') and hasattr(self.app.watch_page, 'log'):
                 self.app.watch_page.log(msg)
-        except:
+        except Exception:
             pass
         try:
             # 同步到弹幕页面（主页面日志）
             if hasattr(self.app, 'log'):
                 self.app.log(msg)
-        except:
+        except Exception:
             pass
 
     def _on_type_changed(self, *args):
@@ -5051,7 +5876,7 @@ class ScheduleFrame(tk.Frame):
                     from datetime import datetime as _dt
                     _parsed = _dt.strptime(last_run, "%Y-%m-%d %H:%M:%S")
                     last_run = _parsed.strftime("%m-%d %H:%M")
-                except:
+                except Exception:
                     pass
             last_label = tk.Label(row_frame, text=last_run, bg=bg_color,
                                   fg=text_color if not is_selected else "#000000",
@@ -5809,7 +6634,8 @@ class ScheduleFrame(tk.Frame):
 class DanmakuApp:
     def __init__(self, root):
         self.root = root
-        self.root.title(f"B站工具箱 {APP_VERSION} - 弹幕+抢码+定时关机+看播任务+日程任务")
+        self.card_text = get_card_remaining_text()
+        self.root.title(f"B站工具箱 {APP_VERSION} - 弹幕+抢码+定时关机+看播任务+日程任务{self.card_text}")
         self.root.geometry("1800x1400")
         self.root.minsize(1500, 1100)
         self.root.configure(bg=COLORS["bg_dark"])
@@ -5938,6 +6764,11 @@ class DanmakuApp:
         self.tab_watch.pack(side=tk.LEFT, padx=(0, 5), pady=6)
         self.tab_watch.bind("<Button-1>", lambda e: self.switch_tab("watch"))
 
+        self.tab_code_export = tk.Label(tab_bar, text="🎁 兑换码", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
+                                         font=("微软雅黑", 12), padx=24, pady=10, cursor="hand2")
+        self.tab_code_export.pack(side=tk.LEFT, padx=(0, 5), pady=6)
+        self.tab_code_export.bind("<Button-1>", lambda e: self.switch_tab("code_export"))
+
         self.tab_schedule = tk.Label(tab_bar, text="📅 日程任务", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
                                       font=("微软雅黑", 12), padx=24, pady=10, cursor="hand2")
         self.tab_schedule.pack(side=tk.LEFT, padx=(0, 5), pady=6)
@@ -5958,6 +6789,35 @@ class DanmakuApp:
         footer = tk.Frame(self.root, bg=COLORS["bg_card"], height=56)
         footer.pack(fill=tk.X, side=tk.BOTTOM)
         footer.pack_propagate(False)
+        
+        # 左侧：版本号 + 卡密信息
+        left_info = tk.Frame(footer, bg=COLORS["bg_card"])
+        left_info.pack(side=tk.LEFT, padx=20)
+        tk.Label(left_info, text=f"{APP_VERSION}", 
+                bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=(0, 15))
+        self.footer_card_label = tk.Label(left_info, text=self.card_text, 
+                bg=COLORS["bg_card"], fg=COLORS["success"],
+                font=("微软雅黑", 10))
+        self.footer_card_label.pack(side=tk.LEFT)
+        
+        # 右侧：设备码 + 复制按钮
+        right_info = tk.Frame(footer, bg=COLORS["bg_card"])
+        right_info.pack(side=tk.RIGHT, padx=20)
+        machine_code = get_machine_code()
+        tk.Label(right_info, text="设备码:", 
+                bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=(0, 8))
+        self.footer_machine_label = tk.Label(right_info, 
+                text=f"{machine_code[:8]}...{machine_code[-8:]}", 
+                bg=COLORS["bg_card"], fg=COLORS["accent"],
+                font=("Consolas", 10))
+        self.footer_machine_label.pack(side=tk.LEFT, padx=(0, 8))
+        copy_machine_btn = tk.Button(right_info, text="📋 复制", 
+                bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                font=("微软雅黑", 9), relief=tk.FLAT, cursor="hand2",
+                command=lambda: self._copy_machine_code())
+        copy_machine_btn.pack(side=tk.LEFT, ipadx=8, ipady=2)
 
         # 主内容区（标签页容器）
         self.tab_container = tk.Frame(self.root, bg=COLORS["bg_dark"])
@@ -5982,6 +6842,11 @@ class DanmakuApp:
         self.watch_page = WatchLiveFrame(self.tab_container, self.account_mgr, self.room_mgr)
         self.watch_page.pack(fill=tk.BOTH, expand=True)
         self.watch_page.pack_forget()
+
+        # 兑换码导出页面
+        self.code_export_page = CodeExportFrame(self.tab_container, self.account_mgr, self.room_mgr)
+        self.code_export_page.pack(fill=tk.BOTH, expand=True)
+        self.code_export_page.pack_forget()
 
         # 日程任务页面
         self.schedule_page = ScheduleFrame(self.tab_container, self.account_mgr, self)
@@ -6649,6 +7514,10 @@ bili_jct: {jct_preview}
         return self.account_mgr.accounts[selection[0]]
 
     def add_account(self):
+        MAX_ACCOUNTS = 8
+        if len(self.account_mgr.accounts) >= MAX_ACCOUNTS:
+            messagebox.showwarning("提示", f"最多只能添加 {MAX_ACCOUNTS} 个账户\n当前已有 {len(self.account_mgr.accounts)} 个，请先删除不需要的账户")
+            return
         dialog = AddAccountDialog(self.root, on_add=self.account_mgr.add_account)
         self.root.wait_window(dialog)
         self.refresh_account_list()
@@ -6687,6 +7556,20 @@ bili_jct: {jct_preview}
             messagebox.showerror("验证失败", f"账户「{acc['name']}」验证失败: {msg}")
             self.log(f"账户「{acc['name']}」验证失败: {msg}")
 
+    def _copy_machine_code(self):
+        """复制设备码到剪贴板"""
+        try:
+            machine_code = get_machine_code()
+            self.root.clipboard_clear()
+            self.root.clipboard_append(machine_code)
+            self.root.update()
+            # 临时显示复制成功
+            old_text = self.footer_machine_label.cget("text")
+            self.footer_machine_label.config(text="✓ 已复制", fg=COLORS["success"])
+            self.root.after(1500, lambda: self.footer_machine_label.config(text=old_text, fg=COLORS["accent"]))
+        except Exception as e:
+            pass
+    
     def switch_tab(self, tab_name):
         """切换标签页"""
         if tab_name == self.current_tab:
@@ -6697,6 +7580,7 @@ bili_jct: {jct_preview}
         self.danmaku_page.pack_forget()
         self.shutdown_page.pack_forget()
         self.watch_page.pack_forget()
+        self.code_export_page.pack_forget()
         self.schedule_page.pack_forget()
         self.account_page.pack_forget()
         self.guide_page.pack_forget()
@@ -6706,6 +7590,7 @@ bili_jct: {jct_preview}
         self.tab_danmaku.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
         self.tab_shutdown.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
         self.tab_watch.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
+        self.tab_code_export.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
         self.tab_schedule.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
         self.tab_account.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
         self.tab_guide.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 12))
@@ -6732,6 +7617,12 @@ bili_jct: {jct_preview}
             self.current_tab = "watch"
             # 切换到看播任务时刷新账户列表
             self.watch_page.refresh_account_list()
+        elif tab_name == "code_export":
+            self.code_export_page.pack(fill=tk.BOTH, expand=True)
+            self.tab_code_export.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 10, "bold"))
+            self.current_tab = "code_export"
+            # 切换到兑换码页面时刷新列表
+            self.code_export_page.refresh_list()
         elif tab_name == "schedule":
             self.schedule_page.pack(fill=tk.BOTH, expand=True)
             self.tab_schedule.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 10, "bold"))
@@ -7401,12 +8292,26 @@ bili_jct: {jct_preview}
 
     # ---------- 日志 ----------
     def log(self, msg):
+        """线程安全的日志输出"""
         timestamp = time.strftime("%H:%M:%S")
         line = f"[{timestamp}] {msg}\n"
-        self.log_text.config(state=tk.NORMAL)
-        self.log_text.insert(tk.END, line)
-        self.log_text.see(tk.END)
-        self.log_text.config(state=tk.DISABLED)
+        def _update():
+            try:
+                self.log_text.config(state=tk.NORMAL)
+                self.log_text.insert(tk.END, line)
+                self.log_text.see(tk.END)
+                self.log_text.config(state=tk.DISABLED)
+            except Exception:
+                pass
+        try:
+            if hasattr(self, 'root') and self.root:
+                self.root.after(0, _update)
+            elif hasattr(self, 'app') and hasattr(self.app, 'root') and self.app.root:
+                self.app.root.after(0, _update)
+            else:
+                _update()
+        except Exception:
+            _update()
 
     # ---------- 发送控制 ----------
     def start_sending(self):
@@ -7564,19 +8469,285 @@ bili_jct: {jct_preview}
         self.log(f"本次结束，共成功发送 {send_count} 条")
 
 
+
+
+# 卡密验证核心函数已移至 card_verify.py（PyArmor加密保护）
+# 从加密模块导入所有核心函数
+from card_verify import (
+    get_machine_code, verify_card_online, load_saved_card,
+    is_card_expired, save_card_info, clear_saved_card,
+    get_card_remaining_text, CARD_FILE, CARD_API_BASE, CARD_VERIFY_URL
+)
+
+
+class CardAuthFrame:
+    """卡密验证界面（直接在主窗口显示，不用Toplevel）"""
+    
+    def __init__(self, root, on_success):
+        self.root = root
+        self.on_success = on_success
+        self.result = False
+        self.card_info = None
+        self._verifying = False
+        
+        # 清空主窗口
+        for widget in root.winfo_children():
+            widget.destroy()
+        
+        # 设置窗口
+        root.title("卡密验证 - B站工具箱")
+        root.geometry("450x350")
+        root.resizable(False, False)
+        root.configure(bg=COLORS["bg_dark"])
+        
+        # 居中
+        root.update_idletasks()
+        x = (root.winfo_screenwidth() - 450) // 2
+        y = (root.winfo_screenheight() - 350) // 2
+        root.geometry(f"450x350+{x}+{y}")
+        
+        self._build_ui()
+        
+        # 检查是否有保存的卡密
+        saved = load_saved_card()
+        if saved and saved.get("card_code"):
+            # 先检查本地是否过期
+            if is_card_expired(saved):
+                # 已过期，删除保存的卡密，显示验证界面
+                try:
+                    CARD_FILE.unlink()
+                except Exception:
+                    pass
+                self.status_label.config(text="⚠ 卡密已过期，请重新输入", fg=COLORS["warning"])
+            else:
+                # 未过期，先在线验证卡密状态（检查是否被封禁）
+                self.status_label.config(text="⏳ 正在验证卡密状态...", fg=COLORS["text_secondary"])
+                self._verify_saved_card(saved)
+                return
+    
+    def _build_ui(self):
+        """构建UI"""
+        # 标题
+        title_frame = tk.Frame(self.root, bg=COLORS["bg_dark"])
+        title_frame.pack(fill=tk.X, pady=(30, 10))
+        
+        tk.Label(title_frame, text="🔐 卡密验证", 
+                bg=COLORS["bg_dark"], fg=COLORS["accent"],
+                font=("微软雅黑", 18, "bold")).pack()
+        
+        tk.Label(title_frame, text="请输入您的卡密以激活软件", 
+                bg=COLORS["bg_dark"], fg=COLORS["text_secondary"],
+                font=("微软雅黑", 10)).pack(pady=(5, 0))
+        
+        # 卡密输入
+        input_frame = tk.Frame(self.root, bg=COLORS["bg_dark"])
+        input_frame.pack(fill=tk.X, padx=40, pady=(20, 10))
+        
+        tk.Label(input_frame, text="卡密:", 
+                bg=COLORS["bg_dark"], fg=COLORS["text_primary"],
+                font=("微软雅黑", 11)).pack(anchor=tk.W)
+        
+        self.card_entry = tk.Entry(input_frame, 
+                                   bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                                   insertbackground=COLORS["accent"],
+                                   font=("微软雅黑", 12),
+                                   relief=tk.FLAT, justify=tk.CENTER)
+        self.card_entry.pack(fill=tk.X, pady=(5, 0), ipady=8)
+        self.card_entry.bind('<Return>', lambda e: self._verify())
+        
+        # 状态标签
+        self.status_label = tk.Label(self.root, text="", 
+                                    bg=COLORS["bg_dark"], fg=COLORS["text_muted"],
+                                    font=("微软雅黑", 9))
+        self.status_label.pack(pady=(5, 0))
+        
+        # 按钮
+        btn_frame = tk.Frame(self.root, bg=COLORS["bg_dark"])
+        btn_frame.pack(fill=tk.X, padx=40, pady=(20, 0))
+        
+        self.verify_btn = tk.Button(btn_frame, text="验证激活", 
+                              bg=COLORS["accent"], fg="#000000",
+                              font=("微软雅黑", 11, "bold"),
+                              relief=tk.FLAT, cursor="hand2",
+                              command=self._verify)
+        self.verify_btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5), ipady=8)
+        
+        cancel_btn = tk.Button(btn_frame, text="退出", 
+                             bg=COLORS["danger"], fg="#ffffff",
+                             font=("微软雅黑", 11, "bold"),
+                             relief=tk.FLAT, cursor="hand2",
+                             command=self._cancel)
+        cancel_btn.pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=(5, 0), ipady=8)
+        
+        # 机器码显示
+        machine_code = get_machine_code()
+        tk.Label(self.root, text=f"设备码: {machine_code[:8]}...{machine_code[-8:]}", 
+                bg=COLORS["bg_dark"], fg=COLORS["text_muted"],
+                font=("微软雅黑", 8)).pack(side=tk.BOTTOM, pady=(0, 15))
+    
+    def _verify(self):
+        """验证卡密（后台线程）"""
+        card_code = self.card_entry.get().strip().upper()
+        if not card_code:
+            self.status_label.config(text="⚠ 请输入卡密", fg=COLORS["warning"])
+            return
+        
+        if self._verifying:
+            return
+        
+        self._verifying = True
+        self.verify_btn.config(state=tk.DISABLED, text="验证中...")
+        self.status_label.config(text="⏳ 正在验证...", fg=COLORS["text_secondary"])
+        
+        def verify_thread():
+            try:
+                machine_code = get_machine_code()
+                success, result = verify_card_online(card_code, machine_code)
+            except Exception as e:
+                success = False
+                result = {"code": -99, "msg": f"验证异常: {str(e)}"}
+            
+            self.root.after(0, lambda: self._verify_result(card_code, success, result))
+        
+        threading.Thread(target=verify_thread, daemon=True).start()
+    
+    def _verify_result(self, card_code, success, result):
+        """验证结果回调"""
+        self._verifying = False
+        self.verify_btn.config(state=tk.NORMAL, text="验证激活")
+        
+        if success:
+            self.status_label.config(text=f"✓ {result.get('msg', '验证成功')}", fg=COLORS["success"])
+            self.result = True
+            self.card_info = result
+            save_card_info(card_code, result)
+            self.root.after(1000, lambda: self.on_success(self.card_info))
+        else:
+            code = result.get("code", -99)
+            msg = result.get("msg", "验证失败")
+            self.status_label.config(text=f"✗ {msg}", fg=COLORS["danger"])
+            
+            # 网络错误时尝试离线验证
+            if code == -99:
+                saved = load_saved_card()
+                if saved and saved.get("card_code") == card_code:
+                    try:
+                        last_verify = datetime.strptime(saved.get("last_verify", ""), "%Y-%m-%dT%H:%M:%S")
+                        days_diff = (datetime.now() - last_verify).days
+                        if days_diff <= 1:
+                            self.status_label.config(text=f"⚠ 网络错误，离线验证（剩余{1-days_diff}天）", fg=COLORS["warning"])
+                            self.result = True
+                            self.card_info = saved
+                            self.root.after(1500, lambda: self.on_success(self.card_info))
+                            return
+                    except Exception:
+                        pass
+    
+    def _verify_saved_card(self, saved):
+        """在线验证保存的卡密状态（检查是否被封禁）"""
+        card_code = saved.get("card_code")
+        
+        def verify_thread():
+            try:
+                machine_code = get_machine_code()
+                success, result = verify_card_online(card_code, machine_code)
+            except Exception as e:
+                success = False
+                result = {"code": -99, "msg": f"验证异常: {str(e)}"}
+            
+            self.root.after(0, lambda: self._verify_saved_card_result(saved, success, result))
+        
+        threading.Thread(target=verify_thread, daemon=True).start()
+    
+    def _verify_saved_card_result(self, saved, success, result):
+        """保存卡密的在线验证结果"""
+        card_code = saved.get("card_code")
+        
+        if success:
+            # 在线验证通过，更新本地缓存并登录
+            self.status_label.config(text="✓ 卡密有效，正在进入...", fg=COLORS["success"])
+            self.result = True
+            self.card_info = result
+            save_card_info(card_code, result)
+            self.root.after(1000, lambda: self.on_success(self.card_info))
+        else:
+            code = result.get("code", -99)
+            msg = result.get("msg", "验证失败")
+            
+            if code == -99:
+                # 网络错误，尝试离线登录（1天宽限期）
+                try:
+                    last_verify = datetime.strptime(saved.get("last_verify", ""), "%Y-%m-%dT%H:%M:%S")
+                    days_diff = (datetime.now() - last_verify).days
+                    if days_diff <= 1:
+                        self.status_label.config(text=f"⚠ 网络错误，离线验证（剩余{1-days_diff}天）", fg=COLORS["warning"])
+                        self.result = True
+                        self.card_info = saved
+                        self.root.after(1500, lambda: self.on_success(self.card_info))
+                        return
+                except Exception:
+                    pass
+                
+                # 超过1天或解析失败，清除本地缓存，要求重新输入
+                self.status_label.config(text="⚠ 网络错误且离线验证已过期，请重新输入", fg=COLORS["danger"])
+                clear_saved_card()
+            else:
+                # 卡密被封禁/过期/绑定其他设备，清除本地缓存，要求重新输入
+                self.status_label.config(text=f"✗ {msg}，请重新输入", fg=COLORS["danger"])
+                clear_saved_card()
+    
+    def _cancel(self):
+        """取消"""
+        self.result = False
+        self.root.destroy()
+
+
+def show_card_auth(root):
+    """显示卡密验证界面，阻塞直到验证通过或退出"""
+    result = {"success": False, "card_info": None}
+    
+    def on_success(card_info):
+        result["success"] = True
+        result["card_info"] = card_info
+        root.quit()
+    
+    frame = CardAuthFrame(root, on_success)
+    
+    # 进入事件循环，直到验证通过或窗口关闭
+    root.mainloop()
+    
+    return result["success"], result["card_info"]
+
+
 def main():
     # 设置DPI感知，解决高DPI显示器上文字模糊问题
     try:
         import ctypes
-        # 尝试设置Per-Monitor DPI Aware（Windows 8.1+）
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except Exception:
         try:
-            # 降级为System DPI Aware（Windows Vista+）
             ctypes.windll.user32.SetProcessDPIAware()
         except Exception:
             pass
 
+    root = tk.Tk()
+    
+    # 卡密验证（直接在主窗口显示，验证通过后on_success会调用root.quit()）
+    auth_success, card_info = show_card_auth(root)
+    
+    if not auth_success:
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        return
+    
+    # 验证通过，重新创建主窗口进入主程序
+    try:
+        root.destroy()
+    except Exception:
+        pass
+    
     root = tk.Tk()
     app = DanmakuApp(root)
     root.mainloop()
@@ -7584,3 +8755,11 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+

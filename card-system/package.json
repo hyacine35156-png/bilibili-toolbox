@@ -1,0 +1,12 @@
+{
+  "name": "card-system",
+  "version": "1.0.0",
+  "description": "卡密管理系统 - Netlify Functions + Supabase",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["card", "license", "netlify", "supabase"],
+  "author": "",
+  "license": "ISC"
+}
