@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.8.5"
+APP_VERSION = "v5.8.6"
 
 # ========== 卡密验证配置 ==========
 CARD_API_BASE = "https://precious-tanuki-c4b16d.netlify.app/api"
@@ -432,6 +432,14 @@ ALL_TASKS = [
     {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "投稿≥5，播放≥500", "task_id": "6ERAcwloghva2p00", "award": "原装母带*1"},
     {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "播放≥15万", "task_id": "6ERAcwloghvstw00", "award": "菲林*1000"},
     {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "播放≥70万", "task_id": "6ERAcwloghva0600", "award": "菲林*1600"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "单稿播放≥100", "task_id": "6ERAcwloghvydm00", "award": "菲林*30"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "单稿播放≥10000", "task_id": "6ERAcwloghvuvr00", "award": "菲林*300"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "单稿播放≥10000的有效投稿≥3", "task_id": "6ERAcwloghva5u00", "award": "菲林*800"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "累计投稿3天，且累计视频播放≥500", "task_id": "6ERAcwloghvany00", "award": "菲林*150"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "累计投稿10天，且累计视频播放≥1000", "task_id": "6ERAcwloghvse600", "award": "菲林*300"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "累计投稿20天，且累计视频播放≥3000", "task_id": "6ERAcwloghvyvy00", "award": "菲林*500"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "累计投稿30天，且累计视频播放≥6000", "task_id": "6ERAcwloghvy3900", "award": "菲林*1000"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "累计投稿35天，且累计视频播放≥50000", "task_id": "6ERAcwloghvsp300", "award": "菲林*1000"},
 ]
 
 # 兼容旧代码
