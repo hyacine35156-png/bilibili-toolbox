@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.8.8"
+APP_VERSION = "v5.8.9"
 
 # ========== 卡密验证配置 ==========
 CARD_API_BASE = "https://precious-tanuki-c4b16d.netlify.app/api"
@@ -1299,8 +1299,30 @@ class DarkButton(tk.Canvas):
                          font=("微软雅黑", 11, "bold"))
 
     def _on_click(self, e):
+        # 调试：检查点击事件是否被触发
+        debug_msg = f"按钮被点击: {self.text}\ncommand是否存在: {self.command is not None}"
         if self.command:
-            self.command()
+            try:
+                self.command()
+                debug_msg += "\n✓ command执行成功"
+            except Exception as ex:
+                import traceback
+                debug_msg += f"\n✗ command执行异常: {ex}\n{traceback.format_exc()}"
+                try:
+                    from tkinter import messagebox
+                    messagebox.showerror("按钮调试", debug_msg)
+                except Exception:
+                    pass
+                return
+        else:
+            debug_msg += "\n✗ command为None"
+        # 只在调试模式下显示，避免每次点击都弹窗
+        # 临时开启调试弹窗
+        try:
+            from tkinter import messagebox
+            messagebox.showinfo("按钮调试", debug_msg)
+        except Exception:
+            pass
 
     def set_state(self, state):
         if state == "disabled":
