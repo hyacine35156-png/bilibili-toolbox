@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.8.4"
+APP_VERSION = "v5.8.5"
 
 # ========== 卡密验证配置 ==========
 CARD_API_BASE = "https://precious-tanuki-c4b16d.netlify.app/api"
@@ -427,6 +427,11 @@ ALL_TASKS = [
     {"version": "绝区零3.2", "period": "全版本", "type": "直播", "name": "当日直播间收到电池≥2", "task_id": "6ERAcwloghvyxs00", "award": "音擎能源模块*2"},
     {"version": "绝区零3.2", "period": "全版本", "type": "直播", "name": "当日直播间弹幕≥10条", "task_id": "6ERAcwloghvabs00", "award": "资深调查员记录*2"},
     {"version": "绝区零3.2", "period": "全版本", "type": "直播", "name": "当日至少1名用户观看≥10分钟", "task_id": "6ERAcwloghvsp000", "award": "丁尼*5000"},
+    # 全版本 - 投稿任务
+    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "投稿≥4，播放≥400", "task_id": "6ERAcwloghvy3000", "award": "菲林*80"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "投稿≥5，播放≥500", "task_id": "6ERAcwloghva2p00", "award": "原装母带*1"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "播放≥15万", "task_id": "6ERAcwloghvstw00", "award": "菲林*1000"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "播放≥70万", "task_id": "6ERAcwloghva0600", "award": "菲林*1600"},
 ]
 
 # 兼容旧代码
