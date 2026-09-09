@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.8.3"
+APP_VERSION = "v5.8.4"
 
 # ========== 卡密验证配置 ==========
 CARD_API_BASE = "https://precious-tanuki-c4b16d.netlify.app/api"
@@ -419,9 +419,14 @@ ALL_TASKS = [
     {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计5天完成开播及互动任务", "task_id": "18ERA1wloghvbtf00", "award": "菲林*660"},
     {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计10天完成开播及互动任务", "task_id": "18ERA1wloghvv1m00", "award": "菲林*1000"},
     {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计20天完成开播及互动任务", "task_id": "18ERA1wloghvbfq00", "award": "菲林*1000"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计30天完成开播及互动任务", "task_id": "18ERA1wloghvc4600", "award": "菲林*1000"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计30天完成开播及互动任务", "task_id": "18ERA1wloghvvef00", "award": "菲林*1000"},
     {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计35天完成开播及互动任务", "task_id": "18ERA1wloghvc4600", "award": "菲林*1000"},
     {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "直播收获1名舰长", "task_id": "6ERAcwloghvuzk00", "award": "菲林*480"},
+    # 全版本 - 每日直播任务
+    {"version": "绝区零3.2", "period": "全版本", "type": "直播", "name": "当日开播60分钟", "task_id": "6ERAcwloghvuse00", "award": "丁尼*1000"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "直播", "name": "当日直播间收到电池≥2", "task_id": "6ERAcwloghvyxs00", "award": "音擎能源模块*2"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "直播", "name": "当日直播间弹幕≥10条", "task_id": "6ERAcwloghvabs00", "award": "资深调查员记录*2"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "直播", "name": "当日至少1名用户观看≥10分钟", "task_id": "6ERAcwloghvsp000", "award": "丁尼*5000"},
 ]
 
 # 兼容旧代码
@@ -1717,7 +1722,7 @@ class RushRewardFrame(tk.Frame):
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
         self.version_var = tk.StringVar(value="鸣潮3.6")
         self.version_combo = ttk.Combobox(row1, textvariable=self.version_var,
-                                           values=["鸣潮3.6", "原神7.0", "崩坏星穹铁道4.5"], state="readonly",
+                                           values=["鸣潮3.6", "原神7.0", "崩坏星穹铁道4.5", "绝区零3.2"], state="readonly",
                                            width=14, font=("微软雅黑", 11))
         self.version_combo.pack(side=tk.LEFT, padx=(8, 15))
         self.version_combo.bind("<<ComboboxSelected>>", lambda e: self.on_version_change())
