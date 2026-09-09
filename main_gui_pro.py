@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.9.1"
+APP_VERSION = "v5.9.2"
 
 # ========== 卡密验证配置 ==========
 CARD_API_BASE = "https://precious-tanuki-c4b16d.netlify.app/api"
@@ -417,12 +417,12 @@ ALL_TASKS = [
     # 限时任务2 - 高阶投稿任务
     {"version": "崩坏星穹铁道4.5", "period": "限时任务2", "type": "投稿", "name": "累计7天投稿总播≥2000且三连≥30", "task_id": "6ERAcwloghvudj00", "award": "星琼*500"},
     # 直播里程碑任务（9月11日-9月27日）
-    {"version": "崩坏星穹铁道4.5", "period": "直播里程碑", "type": "直播", "name": "累计3天完成开播及互动任务", "task_id": "18ERA1wloghvbtg00", "award": "星轨通票*2"},
-    {"version": "崩坏星穹铁道4.5", "period": "直播里程碑", "type": "直播", "name": "累计5天完成开播及互动任务", "task_id": "18ERA1wloghvv0w00", "award": "星琼*600"},
-    {"version": "崩坏星穹铁道4.5", "period": "直播里程碑", "type": "直播", "name": "累计10天完成开播及互动任务", "task_id": "18ERA1wloghvbye00", "award": "星琼*800"},
-    {"version": "崩坏星穹铁道4.5", "period": "直播里程碑", "type": "直播", "name": "累计15天完成开播及互动任务", "task_id": "18ERA1wloghvbr900", "award": "星琼*1000"},
+    {"version": "崩坏星穹铁道4.5", "period": "直播里程碑（下半）", "type": "直播", "name": "累计3天完成开播及互动任务", "task_id": "18ERA1wloghvbtg00", "award": "星轨通票*2"},
+    {"version": "崩坏星穹铁道4.5", "period": "直播里程碑（下半）", "type": "直播", "name": "累计5天完成开播及互动任务", "task_id": "18ERA1wloghvv0w00", "award": "星琼*600"},
+    {"version": "崩坏星穹铁道4.5", "period": "直播里程碑（下半）", "type": "直播", "name": "累计10天完成开播及互动任务", "task_id": "18ERA1wloghvbye00", "award": "星琼*800"},
+    {"version": "崩坏星穹铁道4.5", "period": "直播里程碑（下半）", "type": "直播", "name": "累计15天完成开播及互动任务", "task_id": "18ERA1wloghvbr900", "award": "星琼*1000"},
     # 直播特殊任务
-    {"version": "崩坏星穹铁道4.5", "period": "直播特殊", "type": "直播", "name": "直播间新增1名舰长", "task_id": "6ERAcwloghvymq00", "award": "星轨通票*3"},
+    {"version": "崩坏星穹铁道4.5", "period": "直播里程碑（下半）", "type": "直播", "name": "直播间新增1名舰长", "task_id": "6ERAcwloghvymq00", "award": "星轨通票*3"},
     # 每日直播任务
     {"version": "崩坏星穹铁道4.5", "period": "每日直播", "type": "直播", "name": "【每日】开播满60分钟且有效观看≥15分钟", "task_id": "6ERAcwloghva5j00", "award": "冒险记录*6+遗失碎金*5"},
     {"version": "崩坏星穹铁道4.5", "period": "每日直播", "type": "直播", "name": "【每日】获得礼物≥10电池且弹幕人数≥4人", "task_id": "6ERAcwloghvy4d00", "award": "漫游指南*2+信用点*11111"},
@@ -7526,27 +7526,38 @@ bili_jct: {jct_preview}
             widget.destroy()
         self.danmaku_account_vars.clear()
         self.danmaku_account_checkbuttons.clear()
+        # 从配置加载选中的账户列表
+        saved_selected = self.config.get("danmaku_selected_accounts", [])
         for acc in self.account_mgr.accounts:
             name = acc.get("name", "未知账户")
-            var = tk.BooleanVar(value=True)
+            # 如果有保存的选择，按保存的来；否则默认全选
+            is_selected = name in saved_selected if saved_selected else True
+            var = tk.BooleanVar(value=is_selected)
             self.danmaku_account_vars[name] = var
             cb = tk.Checkbutton(self.danmaku_account_frame, text=name, variable=var,
                                 bg=COLORS["bg_input"], fg=COLORS["text_primary"],
                                 selectcolor=COLORS["accent"], activebackground=COLORS["bg_input"],
                                 activeforeground=COLORS["text_primary"], font=("微软雅黑", 9),
-                                anchor="w", padx=8, pady=4)
+                                anchor="w", padx=8, pady=4,
+                                command=self._on_danmaku_account_changed)
             cb.pack(fill=tk.X, anchor="w")
             self.danmaku_account_checkbuttons.append(cb)
+
+    def _on_danmaku_account_changed(self):
+        """弹幕账户选择改变时：保存配置"""
+        self.save_config()
 
     def _danmaku_select_all(self):
         """弹幕账户全选"""
         for var in self.danmaku_account_vars.values():
             var.set(True)
+        self.save_config()
 
     def _danmaku_deselect_all(self):
         """弹幕账户取消全选"""
         for var in self.danmaku_account_vars.values():
             var.set(False)
+        self.save_config()
 
     def _refresh_danmaku_room_combo_values(self):
         """刷新弹幕直播间下拉框选项：只显示直播间名称，不显示数字ID"""
@@ -8211,6 +8222,7 @@ bili_jct: {jct_preview}
             "selected_account": "",
             "current_tab": "rush",
             "window_geometry": "",
+            "danmaku_selected_accounts": [],
         }
         if CONFIG_FILE.exists():
             try:
@@ -8231,6 +8243,13 @@ bili_jct: {jct_preview}
             self.config["send_limit"] = self.max_send_entry.get().strip()
             self.config["current_tab"] = self.current_tab
             self.config["window_geometry"] = self.root.geometry()
+            # 保存弹幕工具选中的账户列表
+            try:
+                if hasattr(self, 'danmaku_account_vars'):
+                    selected = [name for name, var in self.danmaku_account_vars.items() if var.get()]
+                    self.config["danmaku_selected_accounts"] = selected
+            except Exception:
+                pass
             # 保存当前选中的账户
             try:
                 selection = self.account_listbox.curselection()
