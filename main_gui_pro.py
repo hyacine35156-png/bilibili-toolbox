@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.8.9"
+APP_VERSION = "v5.9.0"
 
 # ========== 卡密验证配置 ==========
 CARD_API_BASE = "https://precious-tanuki-c4b16d.netlify.app/api"
@@ -1299,30 +1299,13 @@ class DarkButton(tk.Canvas):
                          font=("微软雅黑", 11, "bold"))
 
     def _on_click(self, e):
-        # 调试：检查点击事件是否被触发
-        debug_msg = f"按钮被点击: {self.text}\ncommand是否存在: {self.command is not None}"
         if self.command:
             try:
                 self.command()
-                debug_msg += "\n✓ command执行成功"
             except Exception as ex:
                 import traceback
-                debug_msg += f"\n✗ command执行异常: {ex}\n{traceback.format_exc()}"
-                try:
-                    from tkinter import messagebox
-                    messagebox.showerror("按钮调试", debug_msg)
-                except Exception:
-                    pass
-                return
-        else:
-            debug_msg += "\n✗ command为None"
-        # 只在调试模式下显示，避免每次点击都弹窗
-        # 临时开启调试弹窗
-        try:
-            from tkinter import messagebox
-            messagebox.showinfo("按钮调试", debug_msg)
-        except Exception:
-            pass
+                print(f"[DarkButton错误] 按钮 {self.text} 的command执行异常: {ex}")
+                traceback.print_exc()
 
     def set_state(self, state):
         if state == "disabled":
@@ -5173,7 +5156,8 @@ class WatchLiveFrame(tk.Frame):
             self.log("[调试] stop_btn状态已设置为启用")
             for bar, combo, del_btn in self.watch_room_bars:
                 combo.config(state=tk.DISABLED)
-                del_btn.config(state=tk.DISABLED)
+                if del_btn is not None:
+                    del_btn.config(state=tk.DISABLED)
             self.add_room_bar_btn.config(state=tk.DISABLED)
             self.duration_combo.config(state=tk.DISABLED)
             self.interval_combo.config(state=tk.DISABLED)
@@ -5214,7 +5198,7 @@ class WatchLiveFrame(tk.Frame):
         self.stop_btn.config(state=tk.DISABLED)
         for bar, combo, del_btn in self.watch_room_bars:
             combo.config(state="readonly")
-            if len(self.watch_room_bars) > 1:
+            if del_btn is not None:
                 del_btn.config(state=tk.NORMAL)
         self.add_room_bar_btn.config(state=tk.NORMAL)
         self.duration_combo.config(state="readonly")
@@ -5362,7 +5346,7 @@ class WatchLiveFrame(tk.Frame):
         self.stop_btn.config(state=tk.DISABLED)
         for bar, combo, del_btn in self.watch_room_bars:
             combo.config(state="readonly")
-            if len(self.watch_room_bars) > 1:
+            if del_btn is not None:
                 del_btn.config(state=tk.NORMAL)
         self.add_room_bar_btn.config(state=tk.NORMAL)
         self.duration_combo.config(state="readonly")
