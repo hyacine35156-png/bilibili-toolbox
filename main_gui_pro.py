@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.8.6"
+APP_VERSION = "v5.8.7"
 
 # ========== 卡密验证配置 ==========
 CARD_API_BASE = "https://precious-tanuki-c4b16d.netlify.app/api"
@@ -1309,6 +1309,19 @@ class DarkButton(tk.Canvas):
         else:
             self._draw(self.bg_color)
             self.bind("<Button-1>", self._on_click)
+
+    def config(self, **kwargs):
+        """兼容标准Tkinter按钮的config方法，支持state参数"""
+        if "state" in kwargs:
+            state = kwargs["state"]
+            if state == tk.DISABLED:
+                self.set_state("disabled")
+            else:
+                self.set_state("normal")
+        # 其他参数传给Canvas的config
+        canvas_kwargs = {k: v for k, v in kwargs.items() if k != "state"}
+        if canvas_kwargs:
+            super().config(**canvas_kwargs)
 
 
 class DarkEntry(ttk.Entry):
