@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.8.0"
+APP_VERSION = "v5.8.1"
 
 # ========== 卡密验证配置 ==========
 CARD_API_BASE = "https://precious-tanuki-c4b16d.netlify.app/api"
@@ -427,6 +427,7 @@ VERSION_DEFAULT_ACT_ID = {
     "鸣潮3.6": "1ERAzwloghvn7l00",
     "原神7.0": "1ERAzwloghvcpc00",
     "崩坏星穹铁道4.5": "1ERAzwloghvb5600",
+    "绝区零3.2": "1ERAzwloghvbmi00",
 }
 
 # 从ALL_TASKS自动填充初始缓存（按版本设置默认act_id）
