@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.8.2"
+APP_VERSION = "v5.8.3"
 
 # ========== 卡密验证配置 ==========
 CARD_API_BASE = "https://precious-tanuki-c4b16d.netlify.app/api"
@@ -412,13 +412,16 @@ ALL_TASKS = [
     {"version": "崩坏星穹铁道4.5", "period": "新人限定", "type": "直播", "name": "累积3天开播", "task_id": "18ERA1wloghvbfe00", "award": "星琼*50"},
     {"version": "崩坏星穹铁道4.5", "period": "新人限定", "type": "直播", "name": "累积7天开播", "task_id": "18ERA1wloghvbuc00", "award": "星轨通票*2"},
     {"version": "崩坏星穹铁道4.5", "period": "新人限定", "type": "直播", "name": "累积14天开播", "task_id": "18ERA1wloghvbww00", "award": "星琼*200"},
+
     # ===== 绝区零3.2 =====
-    # 全版本 - 抽奖任务
-    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "每日投递活动话题稿件", "task_id": "6ERAcwloghvse500", "award": "抽奖次数+3"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "直播", "name": "每日开播>30分钟", "task_id": "6ERAcwloghvycf00", "award": "抽奖次数+3"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "看播里程碑", "name": "每日累计观看直播", "task_id": "6ERAcwloghvyc600", "award": "抽奖次数+1~3"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "看播里程碑", "name": "每日累计观看活动视频", "task_id": "6ERAcwloghvyin00", "award": "抽奖次数+1~3"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "其他", "name": "首次关注绝区零官号", "task_id": "6ERAcwloghva0300", "award": "抽奖次数+3"},
+    # 全版本 - 直播里程碑任务
+    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计3天完成开播及互动任务", "task_id": "18ERA1wloghvv9m00", "award": "菲林*360"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计5天完成开播及互动任务", "task_id": "18ERA1wloghvbtf00", "award": "菲林*660"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计10天完成开播及互动任务", "task_id": "18ERA1wloghvv1m00", "award": "菲林*1000"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计20天完成开播及互动任务", "task_id": "18ERA1wloghvbfq00", "award": "菲林*1000"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计30天完成开播及互动任务", "task_id": "18ERA1wloghvc4600", "award": "菲林*1000"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计35天完成开播及互动任务", "task_id": "18ERA1wloghvc4600", "award": "菲林*1000"},
+    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "直播收获1名舰长", "task_id": "6ERAcwloghvuzk00", "award": "菲林*480"},
 ]
 
 # 兼容旧代码
