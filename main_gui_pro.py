@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.8.7"
+APP_VERSION = "v5.8.8"
 
 # ========== 卡密验证配置 ==========
 CARD_API_BASE = "https://precious-tanuki-c4b16d.netlify.app/api"
@@ -5121,45 +5121,67 @@ class WatchLiveFrame(tk.Frame):
                 time.sleep(0.5)  # 错开启动，避免同时请求
 
     def start_watch(self):
-        if self.running:
-            return
-        room_ids = self._get_watch_room_ids()
-        if not room_ids:
-            messagebox.showwarning("提示", "请至少选择一个直播间（可在账户管理页面添加）")
-            return
-        # 从复选框获取选中账户
-        selected_names = [name for name, var in self.account_vars.items() if var.get()]
-        if not selected_names:
-            messagebox.showwarning("提示", "请至少勾选一个账户")
-            return
-        selected_accounts = [acc for acc in self.account_mgr.accounts if acc.get("name", "") in selected_names]
-        if not selected_accounts:
-            messagebox.showwarning("提示", "未找到选中的账户")
-            return
-        self.running = True
-        self.stop_flag = {"stop": False}
-        self.start_btn.config(state=tk.DISABLED)
-        self.stop_btn.config(state=tk.NORMAL)
-        for bar, combo, del_btn in self.watch_room_bars:
-            combo.config(state=tk.DISABLED)
-            del_btn.config(state=tk.DISABLED)
-        self.add_room_bar_btn.config(state=tk.DISABLED)
-        self.duration_combo.config(state=tk.DISABLED)
-        self.interval_combo.config(state=tk.DISABLED)
-        # 禁用所有复选框和按钮
-        for cb in self.account_checkbuttons:
-            cb.config(state=tk.DISABLED)
-        self.select_all_btn.config(state=tk.DISABLED)
-        self.deselect_all_btn.config(state=tk.DISABLED)
-        self.account_stats = {}
-        for acc in selected_accounts:
-            name = acc.get("name", "未知")
-            self.account_stats[name] = {"watch_seconds": 0, "heartbeat_count": 0, "play_count": 0, "status": "进入中", "last_heartbeat": None, "account": acc}
-        room_display = ", ".join(room_ids)
-        self.log(f"开始看播，直播间: {room_display}（共{len(room_ids)}个），账户: {len(selected_accounts)}个")
-        self.log(f"目标时长: {self.duration_var.get()} 分钟，心跳间隔: {self.interval_var.get()} 秒")
-        self.watch_thread = threading.Thread(target=self._watch_loop, args=(room_ids, selected_accounts), daemon=True)
-        self.watch_thread.start()
+        try:
+            self.log("[调试] start_watch被调用")
+            if self.running:
+                self.log("[调试] 已经在运行中，直接返回")
+                return
+            room_ids = self._get_watch_room_ids()
+            self.log(f"[调试] 获取到直播间ID: {room_ids}")
+            if not room_ids:
+                messagebox.showwarning("提示", "请至少选择一个直播间（可在账户管理页面添加）")
+                return
+            # 从复选框获取选中账户
+            selected_names = [name for name, var in self.account_vars.items() if var.get()]
+            self.log(f"[调试] 选中的账户名: {selected_names}")
+            if not selected_names:
+                messagebox.showwarning("提示", "请至少勾选一个账户")
+                return
+            selected_accounts = [acc for acc in self.account_mgr.accounts if acc.get("name", "") in selected_names]
+            self.log(f"[调试] 找到的账户对象数量: {len(selected_accounts)}")
+            if not selected_accounts:
+                messagebox.showwarning("提示", "未找到选中的账户")
+                return
+            self.running = True
+            self.stop_flag = {"stop": False}
+            self.log("[调试] 开始设置按钮状态")
+            self.start_btn.config(state=tk.DISABLED)
+            self.log("[调试] start_btn状态已设置为禁用")
+            self.stop_btn.config(state=tk.NORMAL)
+            self.log("[调试] stop_btn状态已设置为启用")
+            for bar, combo, del_btn in self.watch_room_bars:
+                combo.config(state=tk.DISABLED)
+                del_btn.config(state=tk.DISABLED)
+            self.add_room_bar_btn.config(state=tk.DISABLED)
+            self.duration_combo.config(state=tk.DISABLED)
+            self.interval_combo.config(state=tk.DISABLED)
+            # 禁用所有复选框和按钮
+            for cb in self.account_checkbuttons:
+                cb.config(state=tk.DISABLED)
+            self.select_all_btn.config(state=tk.DISABLED)
+            self.deselect_all_btn.config(state=tk.DISABLED)
+            self.account_stats = {}
+            for acc in selected_accounts:
+                name = acc.get("name", "未知")
+                self.account_stats[name] = {"watch_seconds": 0, "heartbeat_count": 0, "play_count": 0, "status": "进入中", "last_heartbeat": None, "account": acc}
+            room_display = ", ".join(room_ids)
+            self.log(f"开始看播，直播间: {room_display}（共{len(room_ids)}个），账户: {len(selected_accounts)}个")
+            self.log(f"目标时长: {self.duration_var.get()} 分钟，心跳间隔: {self.interval_var.get()} 秒")
+            self.watch_thread = threading.Thread(target=self._watch_loop, args=(room_ids, selected_accounts), daemon=True)
+            self.watch_thread.start()
+            self.log("[调试] start_watch执行完成，线程已启动")
+        except Exception as e:
+            import traceback
+            self.log(f"[错误] start_watch异常: {e}")
+            self.log(traceback.format_exc())
+            # 恢复按钮状态
+            self.running = False
+            try:
+                self.start_btn.config(state=tk.NORMAL)
+                self.stop_btn.config(state=tk.DISABLED)
+            except Exception:
+                pass
+            messagebox.showerror("错误", f"启动看播失败: {e}")
 
     def stop_watch(self):
         if not self.running:
