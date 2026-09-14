@@ -89,7 +89,14 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.9.2"
+APP_VERSION = "v5.9.11"
+
+# ========== 任务信息缓存 ==========
+# 缓存已判定为"已领取"或"无剩余总量"的任务信息，避免重复查询API
+# key: task_id, value: {finished, status, message, total_stock, day_stock, timestamp}
+_mission_info_cache = {}
+# 缓存有效期：24小时（秒）
+_MISSION_CACHE_TTL = 24 * 3600
 
 # ========== 卡密验证配置 ==========
 CARD_API_BASE = "https://precious-tanuki-c4b16d.netlify.app/api"
@@ -232,7 +239,7 @@ TASK_GUIDE_TEXT = """═══════════════════�
     ③ 选择礼物（固定：牛蛙牛蛙，1电池/个）
     ④ 设置数量（1个 或 10个）
     ⑤ 设置送礼间隔（秒，两次送礼之间的等待时间）
-    ⑥ 设置送礼次数（0=不限制，持续送礼；其他数字=送N次后停止）
+    ⑥ 设置送礼次数（0=未设置，需输入大于0的次数才能开始；其他数字=送N次后停止）
     ⑦ 点击「查询电池」查看账户当前电池余额
     ⑧ 点击「开始送礼」自动执行
 
@@ -548,7 +555,6 @@ _last_claim_result_global = None
 class AccountManager:
     def __init__(self):
         self.accounts = []
-        self._deleting = False  # 删除标志，防止删除时自动保存
         self.load()
 
     def load(self):
@@ -587,11 +593,34 @@ class AccountManager:
         self.save()
         return True, f"账户「{name}」添加成功（登录用户: {msg}）\n已保存到: {ACCOUNTS_FILE}"
 
+    def update_account(self, old_name, name, sessdata, bili_jct, dede_userid=""):
+        """更新账户信息（先验证cookie有效性，失效则禁止修改）"""
+        # 先验证新cookie是否有效
+        cookie_str = f"SESSDATA={sessdata}; bili_jct={bili_jct}"
+        if dede_userid:
+            cookie_str += f"; DedeUserID={dede_userid}"
+        ok, msg = verify_login(cookie_str)
+        if not ok:
+            return False, f"登录验证失败，无法修改账户信息: {msg}"
+        # 检查新名称是否与其他账户冲突
+        for acc in self.accounts:
+            if acc["name"] == name and acc["name"] != old_name:
+                return False, f"账户名「{name}」已存在"
+        # 更新账户
+        for acc in self.accounts:
+            if acc["name"] == old_name:
+                acc["name"] = name
+                acc["SESSDATA"] = sessdata
+                acc["bili_jct"] = bili_jct
+                acc["DedeUserID"] = dede_userid
+                acc["username"] = msg
+                break
+        self.save()
+        return True, f"账户「{name}」更新成功（当前用户: {msg}）"
+
     def delete_account(self, name):
-        self._deleting = True
         self.accounts = [a for a in self.accounts if a["name"] != name]
         self.save()
-        self._deleting = False
 
     def get_account(self, name):
         for acc in self.accounts:
@@ -800,6 +829,119 @@ def get_mission_info(task_id, cookies_dict):
     except Exception as e:
         return None, f"网络异常: {e}"
 
+
+
+
+def check_all_tasks_finished(version, period, task_type, cookies):
+    """查询某类型任务的所有完成情况
+    返回: (all_finished: bool, details: list[dict])
+    details中每个元素包含: task_id, name, finished, status, message, award
+    注意: 查询失败的任务标记为finished=None，表示未知状态，不计入未完成
+    """
+    tasks = [t for t in ALL_TASKS if t["version"] == version and t["period"] == period and t["type"] == task_type]
+    if not tasks:
+        return False, []
+
+    details = []
+    all_finished = True
+    has_unknown = False
+
+    for idx, task in enumerate(tasks):
+        # 请求间隔，避免频率过高（每个任务之间等待500ms）
+        if idx > 0:
+            time.sleep(0.5)
+
+        task_finished = None
+        status = -1
+        message = ""
+        total_stock = 0
+        day_stock = 0
+        used_cache = False
+
+        # 先检查缓存：已领取或无剩余总量的任务可以直接使用缓存
+        task_id = task["task_id"]
+        if task_id in _mission_info_cache:
+            cached = _mission_info_cache[task_id]
+            cache_age = time.time() - cached.get("timestamp", 0)
+            # 缓存有效条件：库存为0 或 已领取(status=6)，且缓存时间在24小时内
+            # 注意：未完成但库存>0的任务不缓存（还有完成机会，需要每次扫一遍）
+            # 注意：status=2每日库存上限且库存>0的任务不使用缓存（明日可能可领）
+            cached_status = cached.get("status", -1)
+            cached_total_stock = cached.get("total_stock", 0)
+            cached_msg = cached.get("message", "")
+            is_cached_daily_limit = (cached_status == 2 and ("每日库存" in cached_msg or "上限" in cached_msg or "今日" in cached_msg) and cached_total_stock > 0)
+            if cache_age < _MISSION_CACHE_TTL:
+                if (cached_total_stock == 0 or cached_status == 6) and not is_cached_daily_limit:
+                    task_finished = cached.get("finished")
+                    status = cached.get("status", -1)
+                    message = cached.get("message", "")
+                    total_stock = cached.get("total_stock", 0)
+                    day_stock = cached.get("day_stock", 0)
+                    used_cache = True
+
+        # 如果使用了缓存，跳过API查询
+        if not used_cache:
+            # 重试机制：最多重试2次
+            for retry in range(2):
+                try:
+                    info, msg = get_mission_info(task["task_id"], cookies)
+                    if info:
+                        task_finished = info.get("task_finished", False)
+                        status = info.get("status", 0)
+                        message = info.get("message", "")
+                        # 解析库存信息（剩余总量）
+                        try:
+                            day_stock, total_stock, stock_raw, stock_source, _, _, _ = parse_stock_info(info)
+                        except Exception:
+                            day_stock, total_stock, stock_raw, stock_source = 0, 0, {}, "parse_error"
+                        # 更新缓存：库存为0 或 已领取(status=6)的任务加入缓存
+                        # 注意：未完成但库存>0的任务不缓存（还有完成机会，需要每次扫一遍）
+                        # 注意：status=2每日库存上限且库存>0的任务不缓存（明日可能可领）
+                        is_daily_limit = (status == 2 and ("每日库存" in message or "上限" in message or "今日" in message) and total_stock > 0)
+                        if (total_stock == 0 or status == 6) and not is_daily_limit:
+                            _mission_info_cache[task_id] = {
+                                "finished": task_finished,
+                                "status": status,
+                                "message": message,
+                                "total_stock": total_stock,
+                                "day_stock": day_stock,
+                                "timestamp": time.time()
+                            }
+                        break
+                    else:
+                        message = f"查询失败: {msg}"
+                        # 如果是频率过高，等待1秒后重试
+                        if "-702" in msg or "频率" in msg:
+                            time.sleep(1.0)
+                            continue
+                        break
+                except Exception as e:
+                    message = f"异常: {str(e)}"
+                    time.sleep(0.5)
+
+        details.append({
+            "task_id": task["task_id"],
+            "name": task["name"],
+            "finished": task_finished,
+            "status": status,
+            "message": message,
+            "award": task.get("award", ""),
+            "total_stock": total_stock,  # 剩余总量（百分比）
+            "day_stock": day_stock,       # 今日剩余（百分比）
+            "from_cache": used_cache      # 是否来自缓存
+        })
+
+        if task_finished is None:
+            # 查询失败，标记为未知状态
+            has_unknown = True
+        elif not task_finished:
+            all_finished = False
+
+    # 如果有查询失败的任务，且所有成功查询的任务都已完成，则结果为未知（不判定为false）
+    if has_unknown and all_finished:
+        all_finished = None  # None表示未知
+
+    return all_finished, details
 
 def get_award_record(activity_id, cookies_dict):
     """获取领取记录（含兑换码）"""
@@ -1330,15 +1472,20 @@ class DarkButton(tk.Canvas):
             self.bind("<Button-1>", self._on_click)
 
     def config(self, **kwargs):
-        """兼容标准Tkinter按钮的config方法，支持state参数"""
+        """兼容标准Tkinter按钮的config方法，支持state和text参数"""
         if "state" in kwargs:
             state = kwargs["state"]
             if state == tk.DISABLED:
                 self.set_state("disabled")
             else:
                 self.set_state("normal")
+        if "text" in kwargs:
+            self.text = kwargs["text"]
+            # 重绘按钮文本，保持当前背景色
+            current_bg = self.cget("bg")
+            self._draw(current_bg if current_bg != COLORS["bg_card"] else self.bg_color)
         # 其他参数传给Canvas的config
-        canvas_kwargs = {k: v for k, v in kwargs.items() if k != "state"}
+        canvas_kwargs = {k: v for k, v in kwargs.items() if k not in ("state", "text")}
         if canvas_kwargs:
             super().config(**canvas_kwargs)
 
@@ -1469,13 +1616,20 @@ class AddAccountDialog(tk.Toplevel):
         sessdata = self.sess_entry.get().strip()
         bili_jct = self.jct_entry.get().strip()
         dede = self.dede_entry.get().strip()
-        if not name:
-            messagebox.showwarning("提示", "请填写账户备注名")
-            return
         if not sessdata or not bili_jct:
             messagebox.showwarning("提示", "SESSDATA 和 bili_jct 不能为空")
             return
         if self.on_add:
+            # 备注名为空时，先验证获取用户名，默认使用用户名作为备注
+            if not name:
+                cookie_str = f"SESSDATA={sessdata}; bili_jct={bili_jct}"
+                if dede:
+                    cookie_str += f"; DedeUserID={dede}"
+                ok, msg = verify_login(cookie_str)
+                if not ok:
+                    messagebox.showwarning("提示", f"登录验证失败: {msg}")
+                    return
+                name = msg  # 默认使用B站用户名作为备注
             ok, msg = self.on_add(name, sessdata, bili_jct, dede)
             if ok:
                 messagebox.showinfo("成功", msg)
@@ -1483,6 +1637,90 @@ class AddAccountDialog(tk.Toplevel):
             else:
                 messagebox.showerror("失败", msg)
 
+
+
+
+class EditAccountDialog(tk.Toplevel):
+    """编辑账户对话框（cookie失效时禁止修改）"""
+    def __init__(self, parent, account, on_update=None):
+        super().__init__(parent)
+        self.title("编辑B站账户")
+        self.configure(bg=COLORS["bg_dark"])
+        self.account = account
+        self.on_update = on_update
+        self.old_name = account["name"]
+
+        frame = tk.Frame(self, bg=COLORS["bg_dark"], padx=25, pady=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        title = tk.Label(frame, text="编辑B站账户", bg=COLORS["bg_dark"],
+                         fg=COLORS["accent"], font=("微软雅黑", 14, "bold"))
+        title.pack(anchor=tk.W, pady=(0, 10))
+
+        current_user = account.get("username", "未知")
+        tk.Label(frame, text=f"当前登录用户: {current_user}", bg=COLORS["bg_dark"],
+                 fg=COLORS["text_muted"], font=("微软雅黑", 9)).pack(anchor=tk.W, pady=(0, 10))
+
+        def add_field(label_text, show=None, default=""):
+            lbl = tk.Label(frame, text=label_text, bg=COLORS["bg_dark"],
+                           fg=COLORS["text_secondary"], font=("微软雅黑", 9))
+            lbl.pack(anchor=tk.W, pady=(8, 3))
+            entry = DarkEntry(frame, width=42)
+            if show:
+                entry.config(show=show)
+            if default:
+                entry.insert(0, default)
+            entry.pack(anchor=tk.W, pady=(0, 5))
+            return entry
+
+        self.name_entry = add_field("账户备注名", default=account.get("name", ""))
+        self.sess_entry = add_field("SESSDATA", show="*", default=account.get("SESSDATA", ""))
+        self.jct_entry = add_field("bili_jct", show="*", default=account.get("bili_jct", ""))
+        self.dede_entry = add_field("DedeUserID（可选）", default=account.get("DedeUserID", ""))
+
+        btn_frame = tk.Frame(frame, bg=COLORS["bg_dark"])
+        btn_frame.pack(fill=tk.X, pady=(20, 0))
+
+        DarkButton(btn_frame, "显示/隐藏", command=self.toggle_show,
+                   width=150, height=42, bg_color="#444466", text_color="#ffffff").pack(side=tk.LEFT)
+        DarkButton(btn_frame, "取消", command=self.destroy,
+                   width=160, height=42, bg_color="#555577", text_color="#ffffff").pack(side=tk.RIGHT, padx=(5, 0))
+        DarkButton(btn_frame, "验证并保存", command=self.on_submit,
+                   width=160, height=42).pack(side=tk.RIGHT)
+
+        self.update_idletasks()
+        self.geometry("500x620")
+        self.minsize(500, 620)
+        self.resizable(False, False)
+        x = (self.winfo_screenwidth() // 2) - 250
+        y = (self.winfo_screenheight() // 2) - 310
+        self.geometry(f"500x620+{x}+{y}")
+        self.grab_set()
+
+    def toggle_show(self):
+        current = self.sess_entry.cget("show")
+        new = "" if current == "*" else "*"
+        self.sess_entry.config(show=new)
+        self.jct_entry.config(show=new)
+
+    def on_submit(self):
+        name = self.name_entry.get().strip()
+        sessdata = self.sess_entry.get().strip()
+        bili_jct = self.jct_entry.get().strip()
+        dede = self.dede_entry.get().strip()
+        if not name:
+            messagebox.showwarning("提示", "请填写账户备注名")
+            return
+        if not sessdata or not bili_jct:
+            messagebox.showwarning("提示", "SESSDATA 和 bili_jct 不能为空")
+            return
+        if self.on_update:
+            ok, msg = self.on_update(self.old_name, name, sessdata, bili_jct, dede)
+            if ok:
+                messagebox.showinfo("成功", msg)
+                self.destroy()
+            else:
+                messagebox.showerror("失败", msg)
 
 # ========== 抢码工具窗口 ==========
 class RushRewardFrame(tk.Frame):
@@ -1907,25 +2145,40 @@ class RushRewardFrame(tk.Frame):
         # 按钮行
         btn_row = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         btn_row.pack(fill=tk.X, pady=(10, 0))
-        self.query_btn = DarkButton(btn_row, "🔍 查询状态", command=self.query_status,
+        # 左侧按钮组
+        left_frame = tk.Frame(btn_row, bg=COLORS["bg_card"])
+        left_frame.pack(side=tk.LEFT)
+        self.query_btn = DarkButton(left_frame, "🔍 查询状态", command=self.query_status,
                                      width=160, height=44, bg_color="#444466", text_color="#ffffff")
         self.query_btn.pack(side=tk.LEFT)
-        self.manual_receive_btn = DarkButton(btn_row, "🎯 手动领取", command=self.manual_receive,
+        self.manual_receive_btn = DarkButton(left_frame, "🎯 手动领取", command=self.manual_receive,
                                               width=160, height=44, bg_color="#ff6b35", text_color="#ffffff")
         self.manual_receive_btn.pack(side=tk.LEFT, padx=(8, 0))
-        self.start_receive_now_btn = DarkButton(btn_row, "🚀 开始领取", command=self.start_receive_now,
+        self.start_receive_now_btn = DarkButton(left_frame, "🚀 开始领取", command=self.start_receive_now,
                                                  width=160, height=44, bg_color="#e74c3c", text_color="#ffffff")
         self.start_receive_now_btn.pack(side=tk.LEFT, padx=(8, 0))
-        self.schedule_receive_btn = DarkButton(btn_row, "⏰ 定时领取", command=self.schedule_receive,
+        self.schedule_receive_btn = DarkButton(left_frame, "⏰ 定时领取", command=self.schedule_receive,
                                                 width=160, height=44, bg_color="#9b59b6", text_color="#ffffff")
         self.schedule_receive_btn.pack(side=tk.LEFT, padx=(8, 0))
-        self.start_rush_btn = DarkButton(btn_row, "▶ 开始监控", command=self.start_rush,
+        self.start_rush_btn = DarkButton(left_frame, "▶ 开始监控", command=self.start_rush,
                                           width=160, height=44, bg_color=COLORS["success"], text_color="#ffffff")
         self.start_rush_btn.pack(side=tk.LEFT, padx=(8, 0))
-        self.stop_rush_btn = DarkButton(btn_row, "■ 停止", command=self.stop_rush,
+        self.stop_rush_btn = DarkButton(left_frame, "■ 停止", command=self.stop_rush,
                                          width=160, height=42, bg_color=COLORS["danger"], text_color="#ffffff")
         self.stop_rush_btn.pack(side=tk.LEFT, padx=(8, 0))
         self.stop_rush_btn.set_state("disabled")
+        # 右侧按钮组（查询全部完成、查询可领取、一键全部领取）
+        right_frame = tk.Frame(btn_row, bg=COLORS["bg_card"])
+        right_frame.pack(side=tk.RIGHT)
+        self.claim_all_btn = DarkButton(right_frame, "🎁 一键全部领取", command=self.claim_all_finished,
+                                         width=170, height=44, bg_color="#e67e22", text_color="#ffffff")
+        self.claim_all_btn.pack(side=tk.RIGHT, padx=(8, 0))
+        self.check_all_finished_btn = DarkButton(right_frame, "✅ 查询全部完成", command=self.check_all_finished,
+                                                  width=170, height=44, bg_color="#16a085", text_color="#ffffff")
+        self.check_all_finished_btn.pack(side=tk.RIGHT, padx=(8, 0))
+        self.check_claimable_btn = DarkButton(right_frame, "📋 查询可领取", command=self.check_claimable_tasks,
+                                               width=150, height=44, bg_color="#3498db", text_color="#ffffff")
+        self.check_claimable_btn.pack(side=tk.RIGHT)
 
         # 定时任务列表区域
         schedule_card = tk.Frame(main, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
@@ -2738,8 +2991,6 @@ class RushRewardFrame(tk.Frame):
                 info, msg = get_mission_info(task["task_id"], cookies)
                 if info:
                     # 调试：输出完整的任务信息，排查库存字段结构
-                    self.log(f"[调试] 任务信息完整数据: {json.dumps(info, ensure_ascii=False)[:1000]}")
-
                     # 显示act_id
                     act_id = info.get("act_id", "")
                     if act_id:
@@ -2836,6 +3087,369 @@ class RushRewardFrame(tk.Frame):
         if ok:
             return True, "领取成功", data
         return False, result, None
+
+    def check_claimable_tasks(self):
+        """查询所有活动中已完成但未领取的任务，输出到日志"""
+        try:
+            # 获取选中的账户
+            selected_accounts = self.get_selected_accounts()
+            if not selected_accounts:
+                messagebox.showwarning("提示", "请先选择一个账户")
+                return
+
+            account = selected_accounts[0]
+            cookies = {"SESSDATA": account.get("SESSDATA", ""), "bili_jct": account.get("bili_jct", "")}
+
+            self.log(f"查询全部可领取任务（所有活动）")
+            self.log(f"账户: {account['name']}")
+            self.check_claimable_btn.config(state="disabled", text="查询中...")
+
+            def check_thread():
+                try:
+                    # 查询所有任务，不筛选版本/期数/类型
+                    all_details = []
+                    cache_hit_count = 0
+                    api_query_count = 0
+                    # 获取所有唯一的(version, period, type)组合
+                    combos = set()
+                    for t in ALL_TASKS:
+                        combos.add((t["version"], t["period"], t["type"]))
+                    
+                    self.after(0, lambda: self.log(f"共找到 {len(combos)} 个活动分类，开始查询..."))
+                    
+                    for idx, (version, period, task_type) in enumerate(combos):
+                        if idx > 0:
+                            time.sleep(1.0)  # 每个分类之间间隔1秒
+                        self.after(0, lambda v=version, p=period, tt=task_type: self.log(f"  查询 [{v}][{p}][{tt}]..."))
+                        all_finished, details = check_all_tasks_finished(version, period, task_type, cookies)
+                        # 给每个任务添加分类信息
+                        for d in details:
+                            d["version"] = version
+                            d["period"] = period
+                            d["task_type"] = task_type
+                        all_details.extend(details)
+                    
+                    # 统计缓存使用情况
+                    cache_hit_count = sum(1 for d in all_details if d.get("from_cache", False))
+                    api_query_count = len(all_details) - cache_hit_count
+                    self.after(0, lambda: self.log(f"查询完成: 共{len(all_details)}个任务, 缓存命中{cache_hit_count}个, API查询{api_query_count}个"))
+                    self.after(0, lambda: self._on_check_claimable_all(all_details))
+                except Exception as e:
+                    self.after(0, lambda: self._on_check_claimable_all([]))
+                    self.log(f"查询异常: {str(e)}")
+
+            threading.Thread(target=check_thread, daemon=True).start()
+        except Exception as e:
+            messagebox.showerror("错误", f"查询失败: {str(e)}")
+            self.check_claimable_btn.config(state="normal", text="📋 查询可领取")
+
+    def _on_check_claimable_all(self, details):
+        """查询全部可领取任务的回调（所有活动）"""
+        self.check_claimable_btn.config(state="normal", text="📋 查询可领取")
+
+        if not details:
+            self.log("查询结果: 无匹配的任务")
+            messagebox.showinfo("查询结果", "无匹配的任务")
+            return
+
+        # 筛选真正可领取的任务：已完成且 剩余总量 > 0 且 (status in [0,1] 或 status=2每日库存上限)
+        # 注意：status=6（"查看奖励"）是已经领取过的，不算可领取！
+        # status=2 有两种情况：已领取 或 每日库存已达上限（今日不能领但明天还能领）
+        # 每日库存已达上限的判断：status==2 且 message包含"每日库存"或"上限" 且 total_stock > 0
+        # 已完成但剩余总量为0（库存已领完）的也不纳入可领取统计
+        def is_claimable(d):
+            if d["finished"] is not True:
+                return False
+            if d.get("total_stock", 0) <= 0:
+                return False
+            if d["status"] in [0, 1]:
+                return True
+            if d["status"] == 2:
+                msg = d.get("message", "")
+                # 每日库存已达上限，今日不能领但明天还能领
+                if "每日库存" in msg or "上限" in msg or "今日" in msg:
+                    return True
+            return False
+        
+        claimable_tasks = [d for d in details if is_claimable(d)]
+        claimed_count = sum(1 for d in details if d["finished"] is True and d["status"] == 6)
+        out_of_stock_count = sum(1 for d in details if d["finished"] is True and d.get("total_stock", 0) == 0)
+        daily_limit_count = sum(1 for d in details if d["finished"] is True and d["status"] == 2 and d.get("total_stock", 0) > 0 and ("每日库存" in d.get("message", "") or "上限" in d.get("message", "") or "今日" in d.get("message", "")))
+        unfinished_count = sum(1 for d in details if d["finished"] is False)
+        total_count = len(details)
+
+        self.log("=" * 50)
+        self.log(f"可领取任务查询结果: 共{total_count}个任务, 可领取{len(claimable_tasks)}个, 已领取{claimed_count}个, 库存为0{out_of_stock_count}个, 每日上限{daily_limit_count}个, 未完成{unfinished_count}个")
+        if out_of_stock_count > 0:
+            self.log(f"  ⚠ 注意: 有{out_of_stock_count}个任务已完成，但剩余总量为0（库存已领完），不纳入可领取统计")
+        if daily_limit_count > 0:
+            self.log(f"  ℹ 提示: 有{daily_limit_count}个任务已完成，但今日库存已达上限（明日0点后可领），已纳入可领取统计")
+        self.log("-" * 50)
+
+        if claimable_tasks:
+            self.log("以下任务可领取（已完成但未领取）:")
+            # 按活动分类显示
+            current_combo = None
+            for d in claimable_tasks:
+                version = d.get("version", "")
+                period = d.get("period", "")
+                task_type = d.get("task_type", "")
+                combo = f"[{version}][{period}][{task_type}]"
+                if combo != current_combo:
+                    self.log(f"  --- {combo} ---")
+                    current_combo = combo
+                self.log(f"    🎁 {d['name']} => {d['award']}")
+                if d["status"] == 2:
+                    self.log(f"       状态: {d['message']} (status={d['status']}, 剩余总量={d.get('total_stock', 0)}%, 今日上限明日可领)")
+                else:
+                    self.log(f"       状态: {d['message']} (status={d['status']}, 剩余总量={d.get('total_stock', 0)}%)")
+        else:
+            self.log("没有可领取的任务")
+
+        self.log("=" * 50)
+
+        # 弹窗显示结果（只显示可领取的任务）
+        if claimable_tasks:
+            result_text = f"找到 {len(claimable_tasks)} 个可领取任务:\n\n"
+            for d in claimable_tasks:
+                version = d.get("version", "")
+                period = d.get("period", "")
+                result_text += f"🎁 [{version}][{period}] {d['name']} => {d['award']}\n"
+            result_text += "\n详细信息请查看日志"
+        else:
+            result_text = "没有可领取的任务\n\n详细信息请查看日志"
+        messagebox.showinfo("可领取任务查询结果", result_text)
+
+    def check_all_finished(self):
+        """查询当前选择类型的所有任务是否全部完成"""
+        try:
+            version = self.version_var.get()
+            period = self.period_var.get()
+            task_type = self.task_type_var.get()
+
+            # 获取选中的账户
+            selected_accounts = self.get_selected_accounts()
+            if not selected_accounts:
+                messagebox.showwarning("提示", "请先选择一个账户")
+                return
+
+            account = selected_accounts[0]
+            cookies = {"SESSDATA": account.get("SESSDATA", ""), "bili_jct": account.get("bili_jct", "")}
+
+            print(f"[DEBUG] check_all_finished called: version={version}, period={period}, type={task_type}")
+            print(f"[DEBUG] account: {account.get('name', 'unknown')}")
+
+            self.log(f"查询全部完成: [{version}][{period}][{task_type}]")
+            self.log(f"账户: {account['name']}")
+            self.check_all_finished_btn.config(state="disabled", text="查询中...")
+
+            def check_thread():
+                try:
+                    print("[DEBUG] check_thread started")
+                    all_finished, details = check_all_tasks_finished(version, period, task_type, cookies)
+                    print(f"[DEBUG] check_thread finished: all_finished={all_finished}, details_count={len(details)}")
+                    self.after(0, lambda: self._on_check_all_finished(all_finished, details))
+                except Exception as e:
+                    print(f"[DEBUG] check_thread exception: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    self.after(0, lambda: self._on_check_all_finished(False, []))
+                    self.log(f"查询异常: {str(e)}")
+
+            threading.Thread(target=check_thread, daemon=True).start()
+        except Exception as e:
+            print(f"[DEBUG] check_all_finished exception: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("错误", f"查询失败: {str(e)}")
+
+    def _on_check_all_finished(self, all_finished, details):
+        """查询全部完成的回调"""
+        self.check_all_finished_btn.config(state="normal", text="✅ 查询全部完成")
+
+        if not details:
+            self.log("查询结果: 无匹配的任务")
+            messagebox.showinfo("查询结果", "无匹配的任务")
+            return
+
+        # 统计
+        finished_count = sum(1 for d in details if d["finished"] is True)
+        unfinished_count = sum(1 for d in details if d["finished"] is False)
+        unknown_count = sum(1 for d in details if d["finished"] is None)
+
+        # 确定最终结果文本
+        if all_finished is True:
+            result_label = "全部已完成 ✓"
+            result_value = "true"
+        elif all_finished is False:
+            result_label = "存在未完成任务 ✗"
+            result_value = "false"
+        else:
+            result_label = "结果未知（有查询失败的任务）⚠"
+            result_value = "unknown"
+
+        # 输出每个任务的完成情况
+        self.log("=" * 50)
+        self.log(f"任务完成情况查询结果: {result_label}")
+        self.log("-" * 50)
+        for d in details:
+            if d["finished"] is True:
+                status_icon = "✓"
+                status_text = "已完成"
+            elif d["finished"] is False:
+                status_icon = "✗"
+                status_text = "未完成"
+            else:
+                status_icon = "?"
+                status_text = "查询失败"
+            self.log(f"  {status_icon} {d['name']} => {d['award']}")
+            self.log(f"     状态: {d['message']} (status={d['status']}, {status_text})")
+        self.log("-" * 50)
+        self.log(f"统计: 已完成{finished_count}个, 未完成{unfinished_count}个, 查询失败{unknown_count}个")
+        self.log(f"最终结果: {result_value}")
+        self.log("=" * 50)
+
+        # 弹窗显示结果
+        result_text = f"全部完成: {result_value}\n\n"
+        result_text += f"共 {len(details)} 个任务\n"
+        result_text += f"已完成: {finished_count} 个\n"
+        result_text += f"未完成: {unfinished_count} 个\n"
+        if unknown_count > 0:
+            result_text += f"查询失败: {unknown_count} 个（请稍后重试）\n"
+        result_text += "\n"
+        for d in details:
+            if d["finished"] is True:
+                status_icon = "✓"
+            elif d["finished"] is False:
+                status_icon = "✗"
+            else:
+                status_icon = "?"
+            result_text += f"{status_icon} {d['name']}\n"
+        messagebox.showinfo("任务完成情况", result_text)
+
+    def claim_all_finished(self):
+        """一键领取当前类型下所有已完成的任务"""
+        try:
+            version = self.version_var.get()
+            period = self.period_var.get()
+            task_type = self.task_type_var.get()
+
+            # 获取选中的账户
+            selected_accounts = self.get_selected_accounts()
+            if not selected_accounts:
+                messagebox.showwarning("提示", "请先选择一个账户")
+                return
+
+            account = selected_accounts[0]
+
+            # 确认对话框
+            confirm_msg = f"确定要一键领取 [{version}][{period}][{task_type}] 下所有已完成的任务吗？\n\n账户：{account['name']}"
+            if not messagebox.askyesno("确认", confirm_msg):
+                return
+
+            self.log(f"一键全部领取: [{version}][{period}][{task_type}]")
+            self.log(f"账户: {account['name']}")
+            self.claim_all_btn.config(state="disabled", text="领取中...")
+
+            def claim_thread():
+                try:
+                    # 筛选该类型下所有任务
+                    tasks = [t for t in ALL_TASKS if t["version"] == version and t["period"] == period and t["type"] == task_type]
+                    if not tasks:
+                        self.after(0, lambda: self._on_claim_all_finished([], 0, 0, "无匹配的任务"))
+                        return
+
+                    cookies = {"SESSDATA": account.get("SESSDATA", ""), "bili_jct": account.get("bili_jct", "")}
+                    success_count = 0
+                    fail_count = 0
+                    skip_count = 0
+                    results = []
+
+                    self.after(0, lambda: self.log(f"共找到 {len(tasks)} 个任务，开始查询并领取..."))
+
+                    for idx, task in enumerate(tasks):
+                        # 请求间隔1秒
+                        if idx > 0:
+                            time.sleep(1.0)
+
+                        task_name = task.get("name", "未知")
+                        award = task.get("award", "")
+
+                        # 查询任务完成状态
+                        try:
+                            info, msg = get_mission_info(task["task_id"], cookies)
+                            if not info:
+                                self.after(0, lambda tn=task_name, m=msg: self.log(f"  ⚠ {tn}: 查询失败 - {m}，跳过"))
+                                fail_count += 1
+                                results.append({"name": task_name, "award": award, "status": "查询失败", "success": False})
+                                continue
+
+                            task_finished = info.get("task_finished", False)
+                            status = info.get("status", 0)
+
+                            if not task_finished:
+                                self.after(0, lambda tn=task_name: self.log(f"  ○ {tn}: 未完成，跳过"))
+                                skip_count += 1
+                                results.append({"name": task_name, "award": award, "status": "未完成", "success": False})
+                                continue
+
+                            # 已完成，尝试领取
+                            self.after(0, lambda tn=task_name: self.log(f"  → {tn}: 已完成，正在领取..."))
+                            time.sleep(1.0)  # 领取前间隔1秒
+
+                            ok, result_msg, data = self.do_receive_once(task, account)
+                            if ok:
+                                self.after(0, lambda tn=task_name: self.log(f"  ✓ {tn}: 领取成功！"))
+                                success_count += 1
+                                results.append({"name": task_name, "award": award, "status": "领取成功", "success": True})
+                            else:
+                                self.after(0, lambda tn=task_name, rm=result_msg: self.log(f"  ✗ {tn}: 领取失败 - {rm}"))
+                                fail_count += 1
+                                results.append({"name": task_name, "award": award, "status": f"领取失败: {result_msg}", "success": False})
+
+                        except Exception as e:
+                            self.after(0, lambda tn=task_name, ex=str(e): self.log(f"  ✗ {tn}: 异常 - {ex}"))
+                            fail_count += 1
+                            results.append({"name": task_name, "award": award, "status": f"异常: {str(e)}", "success": False})
+
+                    self.after(0, lambda: self._on_claim_all_finished(results, success_count, fail_count, skip_count, None))
+
+                except Exception as e:
+                    self.after(0, lambda: self._on_claim_all_finished([], 0, 0, 0, f"执行异常: {str(e)}"))
+
+            threading.Thread(target=claim_thread, daemon=True).start()
+
+        except Exception as e:
+            messagebox.showerror("错误", f"一键领取失败: {str(e)}")
+            self.claim_all_btn.config(state="normal", text="🎁 一键全部领取")
+
+    def _on_claim_all_finished(self, results, success_count, fail_count, skip_count, error):
+        """一键全部领取的回调"""
+        self.claim_all_btn.config(state="normal", text="🎁 一键全部领取")
+
+        if error:
+            self.log(f"一键全部领取失败: {error}")
+            messagebox.showerror("错误", error)
+            return
+
+        self.log("=" * 50)
+        self.log(f"一键全部领取完成: 成功 {success_count} 个, 失败 {fail_count} 个, 跳过 {skip_count} 个")
+        self.log("-" * 50)
+        for r in results:
+            icon = "✓" if r["success"] else ("○" if "未完成" in r["status"] else "✗")
+            self.log(f"  {icon} {r['name']} => {r['award']}")
+            self.log(f"     {r['status']}")
+        self.log("=" * 50)
+
+        # 弹窗显示结果
+        result_text = "一键全部领取完成\n\n"
+        result_text += f"成功: {success_count} 个\n"
+        result_text += f"失败: {fail_count} 个\n"
+        result_text += f"跳过(未完成): {skip_count} 个\n\n"
+        for r in results:
+            icon = "✓" if r["success"] else ("○" if "未完成" in r["status"] else "✗")
+            result_text += f"{icon} {r['name']}\n"
+        messagebox.showinfo("一键全部领取结果", result_text)
 
     def manual_receive(self):
         """手动领取：立即尝试领取一次"""
@@ -3326,7 +3940,6 @@ class RushRewardFrame(tk.Frame):
         # 验证账户
         valid_accounts = []
         for acc in rush_accounts:
-            cookies = cookies_from_account(acc)
             ok, msg = verify_login(self.account_mgr.get_cookie_string(acc["name"]))
             if ok:
                 valid_accounts.append(acc)
@@ -3397,10 +4010,6 @@ class RushRewardFrame(tk.Frame):
             if not info:
                 self.log(f"[{query_count}] 查询失败 ({account['name']}): {msg}")
             else:
-                # 调试：输出完整的任务信息，排查库存字段结构
-                if query_count <= 3:
-                    self.log(f"[调试] 任务信息完整数据: {json.dumps(info, ensure_ascii=False)[:500]}")
-
                 # 使用通用库存解析函数，尝试多种字段结构
                 day_stock, total_stock, stock_raw, stock_source, award_total_stock, award_daily_limit, _ = parse_stock_info(info)
                 status = info.get("status", 0)
@@ -3501,7 +4110,7 @@ class CodeExportFrame(tk.Frame):
         header.pack_propagate(False)
         tk.Label(header, text="🎁 兑换码导出", bg=COLORS["bg_card"],
                  fg=COLORS["accent"], font=("微软雅黑", 16, "bold")).pack(side=tk.LEFT, padx=20)
-        tk.Label(header, text="领取成功后自动保存兑换码，支持复制和导出",
+        tk.Label(header, text="从领取记录导入兑换码，支持复制和导出",
                  bg=COLORS["bg_card"], fg=COLORS["text_muted"],
                  font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=(0, 20))
 
@@ -3747,64 +4356,61 @@ class CodeExportFrame(tk.Frame):
             messagebox.showwarning("提示", "没有可用的账户，请先导入账户")
             return
 
-        # 遍历所有活动和账户，调用领取记录API
-        total_imported = 0
-        total_skipped = 0
-        account_results = []
-
-        for activity_name, act_id in valid_pairs:
-            for acc in accounts:
-                try:
-                    cookies = cookies_from_account(acc)
-                    record_data, record_msg = get_award_record(act_id, cookies)
-                    
-                    if record_data and record_data.get("list"):
-                        record_list = record_data["list"]
-                        account_codes = 0
-                        
-                        for record in record_list:
-                            # 提取兑换码
-                            codes = extract_redeem_codes(record)
-                            for code_info in codes:
-                                # 保存兑换码（去重）
-                                # 构建任务名称：活动名称(简化) + 奖励名称
-                                record_activity_name = record.get("activity_name", "")
-                                award_name = record.get("award_name", "未知奖励")
+        # 遍历所有活动和账户，调用领取记录API（后台线程执行，避免卡住UI）
+        self._import_running = True
+        if hasattr(self, 'import_btn'):
+            self.import_btn.config(state=tk.DISABLED, text="导入中...")
+        
+        def _do_import():
+            total_imported = 0
+            total_skipped = 0
+            account_results = []
+            try:
+                for activity_name, act_id in valid_pairs:
+                    for acc in accounts:
+                        try:
+                            cookies = cookies_from_account(acc)
+                            record_data, record_msg = get_award_record(act_id, cookies)
+                            
+                            if record_data and record_data.get("list"):
+                                record_list = record_data["list"]
+                                account_codes = 0
                                 
-                                # 简化活动名称：去掉"版本激励计划"等后缀
-                                if record_activity_name:
-                                    record_activity_name = re.sub(r'版本激励计划.*$', '', record_activity_name)
-                                    record_activity_name = re.sub(r'激励计划.*$', '', record_activity_name)
-                                    record_activity_name = record_activity_name.strip()
-                                
-                                if record_activity_name:
-                                    task_name = f"{record_activity_name} {award_name}"
-                                else:
-                                    task_name = award_name
-                                
-                                ok_save, save_msg = save_redeem_code(
-                                    task_name,
-                                    acc.get("name", "未知"),
-                                    record,
-                                    task_period="",
-                                    task_type=record.get("type", "")
-                                )
-                                if ok_save:
-                                    total_imported += 1
-                                    account_codes += 1
-                                else:
-                                    total_skipped += 1
-                        
-                        account_results.append(f"  [{activity_name}] {acc['name']}: 导入 {account_codes} 个，共 {len(record_list)} 条记录")
-                    else:
-                        account_results.append(f"  [{activity_name}] {acc['name']}: 无领取记录 ({record_msg})")
-                except Exception as e:
-                    account_results.append(f"  [{activity_name}] {acc['name']}: 异常 - {e}")
-
-        # 刷新列表
+                                for record in record_list:
+                                    codes = extract_redeem_codes(record)
+                                    for code_info in codes:
+                                        record_activity_name = record.get("activity_name", "")
+                                        award_name = record.get("award_name", "未知奖励")
+                                        if record_activity_name:
+                                            record_activity_name = re.sub(r'版本激励计划.*$', '', record_activity_name)
+                                            record_activity_name = re.sub(r'激励计划.*$', '', record_activity_name)
+                                            record_activity_name = record_activity_name.strip()
+                                        task_name = f"{record_activity_name} {award_name}" if record_activity_name else award_name
+                                        ok_save, save_msg = save_redeem_code(
+                                            task_name, acc.get("name", "未知"), record,
+                                            task_period="", task_type=record.get("type", "")
+                                        )
+                                        if ok_save:
+                                            total_imported += 1
+                                            account_codes += 1
+                                        else:
+                                            total_skipped += 1
+                                account_results.append(f"  [{activity_name}] {acc['name']}: 导入 {account_codes} 个，共 {len(record_list)} 条记录")
+                            else:
+                                account_results.append(f"  [{activity_name}] {acc['name']}: 无领取记录 ({record_msg})")
+                        except Exception as e:
+                            account_results.append(f"  [{activity_name}] {acc['name']}: 异常 - {e}")
+            finally:
+                self._import_running = False
+            self.after(0, lambda: self._on_import_finished(total_imported, total_skipped, account_results))
+        
+        threading.Thread(target=_do_import, daemon=True).start()
+    
+    def _on_import_finished(self, total_imported, total_skipped, account_results):
+        """导入完成回调（主线程执行）"""
         self.refresh_list()
-
-        # 显示结果
+        if hasattr(self, 'import_btn'):
+            self.import_btn.config(state=tk.NORMAL, text="从领取记录导入")
         result_msg = f"导入完成！\n\n共导入 {total_imported} 个兑换码\n跳过 {total_skipped} 个（重复）\n\n详情：\n" + "\n".join(account_results)
         messagebox.showinfo("导入结果", result_msg)
     def refresh_list(self):
@@ -3833,7 +4439,7 @@ class CodeExportFrame(tk.Frame):
             empty_frame.pack(fill=tk.X, pady=40)
             tk.Label(empty_frame, text="📭 暂无兑换码记录", bg=COLORS["bg_dark"],
                      fg=COLORS["text_muted"], font=("微软雅黑", 14)).pack()
-            tk.Label(empty_frame, text="领取奖励成功后，兑换码会自动保存到这里",
+            tk.Label(empty_frame, text="点击「从领取记录导入」获取兑换码",
                      bg=COLORS["bg_dark"], fg=COLORS["text_muted"],
                      font=("微软雅黑", 10)).pack(pady=(8, 0))
             return
@@ -5038,7 +5644,7 @@ class WatchLiveFrame(tk.Frame):
         base_url = ""
         self.log(f"  [{name}] 播放线程已启动")
         
-        while not self.stop_flag["stop"]:
+        while not self.stop_flag["stop"] and self.running:
             try:
                 # 每60秒刷新一次播放地址（直播流地址会变）
                 now = time.time()
@@ -5141,33 +5747,26 @@ class WatchLiveFrame(tk.Frame):
 
     def start_watch(self):
         try:
-            self.log("[调试] start_watch被调用")
             if self.running:
-                self.log("[调试] 已经在运行中，直接返回")
+                self.log("⚠ 看播任务已在运行中，请勿重复点击")
                 return
             room_ids = self._get_watch_room_ids()
-            self.log(f"[调试] 获取到直播间ID: {room_ids}")
             if not room_ids:
                 messagebox.showwarning("提示", "请至少选择一个直播间（可在账户管理页面添加）")
                 return
             # 从复选框获取选中账户
             selected_names = [name for name, var in self.account_vars.items() if var.get()]
-            self.log(f"[调试] 选中的账户名: {selected_names}")
             if not selected_names:
                 messagebox.showwarning("提示", "请至少勾选一个账户")
                 return
             selected_accounts = [acc for acc in self.account_mgr.accounts if acc.get("name", "") in selected_names]
-            self.log(f"[调试] 找到的账户对象数量: {len(selected_accounts)}")
             if not selected_accounts:
                 messagebox.showwarning("提示", "未找到选中的账户")
                 return
             self.running = True
             self.stop_flag = {"stop": False}
-            self.log("[调试] 开始设置按钮状态")
             self.start_btn.config(state=tk.DISABLED)
-            self.log("[调试] start_btn状态已设置为禁用")
             self.stop_btn.config(state=tk.NORMAL)
-            self.log("[调试] stop_btn状态已设置为启用")
             for bar, combo, del_btn in self.watch_room_bars:
                 combo.config(state=tk.DISABLED)
                 if del_btn is not None:
@@ -5189,7 +5788,6 @@ class WatchLiveFrame(tk.Frame):
             self.log(f"目标时长: {self.duration_var.get()} 分钟，心跳间隔: {self.interval_var.get()} 秒")
             self.watch_thread = threading.Thread(target=self._watch_loop, args=(room_ids, selected_accounts), daemon=True)
             self.watch_thread.start()
-            self.log("[调试] start_watch执行完成，线程已启动")
         except Exception as e:
             import traceback
             self.log(f"[错误] start_watch异常: {e}")
@@ -5222,6 +5820,11 @@ class WatchLiveFrame(tk.Frame):
             cb.config(state=tk.NORMAL)
         self.select_all_btn.config(state=tk.NORMAL)
         self.deselect_all_btn.config(state=tk.NORMAL)
+        # 停止所有x25kn心跳线程
+        for name in self.x25kn_stop:
+            self.x25kn_stop[name] = True
+        self.x25kn_threads = {}
+        self.x25kn_state = {}
         # 关闭所有WebSocket弹幕连接（异步，避免卡住UI）
         threading.Thread(target=self.close_all_ws, daemon=True).start()
         # 停止播放线程（stop_flag已设置，线程会自动退出）
@@ -5434,10 +6037,6 @@ class WatchLiveFrame(tk.Frame):
             bili_jct = account.get("bili_jct", "")
             uid = account.get("uid", "") or account.get("DedeUserID", "")
             cookies = {"SESSDATA": sessdata, "bili_jct": bili_jct}
-            # 先检查电池余额
-            battery = self.get_battery_balance(account)
-            if battery is not None and battery <= 0:
-                return False, "电池余额为0，无法送礼"
             # 获取直播间ruid
             room_info = self.get_room_info(room_id, account)
             ruid = room_info.get("uid", "")
@@ -5576,7 +6175,7 @@ class WatchLiveFrame(tk.Frame):
         self.gift_stop_btn.config(state=tk.DISABLED)
         self.account_listbox.config(state=tk.NORMAL)
         self.refresh_status_tree()
-        self.log("看播任务结束")
+        self.log("送礼任务结束")
 
 
 # ========== 主界面 ==========
@@ -6727,6 +7326,7 @@ class DanmakuApp:
         self.account_mgr = AccountManager()
         self.room_mgr = RoomManager()
         self.danmaku_list = self.load_danmaku()
+        self._config_save_timer = None  # 配置保存防抖定时器
         self.config = self.load_config()
         self.running = False
         self.send_thread = None
@@ -7151,6 +7751,8 @@ class DanmakuApp:
 
         # 加载保存的配置
         self.apply_config()
+        # 刷新弹幕工具页面的账户多选复选框（确保UI构建完成后填充账户列表）
+        self._refresh_danmaku_account_checkboxes()
 
     # ---------- 账户管理 ----------
     def refresh_account_list(self):
@@ -7190,6 +7792,8 @@ class DanmakuApp:
         btn_frame.pack(fill=tk.X, padx=12, pady=(10, 12))
         DarkButton(btn_frame, "+ 添加账户", command=self.add_account,
                    width=270, height=38).pack(pady=(0, 6))
+        DarkButton(btn_frame, "编辑账户", command=self._manager_edit_account,
+                   width=270, height=38, bg_color="#27ae60", text_color="#ffffff").pack(pady=(0, 6))
         DarkButton(btn_frame, "删除账户", command=self._manager_delete_account,
                    width=270, height=38, bg_color=COLORS["danger"], text_color="#ffffff").pack(pady=(0, 6))
         DarkButton(btn_frame, "验证登录", command=self._manager_verify_account,
@@ -7216,6 +7820,14 @@ class DanmakuApp:
         self.manager_info_text.pack(fill=tk.BOTH, expand=True)
         self.manager_info_text.config(state=tk.DISABLED)
         self._manager_show_info(None)
+
+        # 复制按钮区
+        copy_frame = tk.Frame(info_frame, bg=COLORS["bg_card"])
+        copy_frame.pack(fill=tk.X, pady=(8, 0))
+        DarkButton(copy_frame, "📋 复制 SESSDATA", command=self._manager_copy_sessdata,
+                   width=180, height=32, bg_color="#8e44ad", text_color="#ffffff").pack(side=tk.LEFT, padx=(0, 8))
+        DarkButton(copy_frame, "📋 复制 bili_jct", command=self._manager_copy_bili_jct,
+                   width=180, height=32, bg_color="#16a085", text_color="#ffffff").pack(side=tk.LEFT)
 
         # ===== 直播间管理子区域 =====
         room_card = tk.Frame(main, bg=COLORS["bg_card"], bd=0, highlightthickness=1, highlightbackground=COLORS["border"])
@@ -7413,6 +8025,46 @@ bili_jct: {jct_preview}
         self.manager_info_text.insert(tk.END, info)
         self.manager_info_text.config(state=tk.DISABLED)
 
+    def _manager_copy_sessdata(self):
+        """复制当前账户的SESSDATA到剪贴板"""
+        selection = self.manager_account_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("提示", "请先选择一个账户")
+            return
+        acc = self.account_mgr.accounts[selection[0]]
+        sessdata = acc.get("SESSDATA", "")
+        if not sessdata:
+            messagebox.showwarning("提示", "该账户没有SESSDATA")
+            return
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(sessdata)
+            self.root.update()
+            self.log(f"已复制账户「{acc.get('name', '未知')}」的SESSDATA到剪贴板")
+            messagebox.showinfo("成功", "SESSDATA已复制到剪贴板")
+        except Exception as e:
+            messagebox.showerror("错误", f"复制失败: {str(e)}")
+
+    def _manager_copy_bili_jct(self):
+        """复制当前账户的bili_jct到剪贴板"""
+        selection = self.manager_account_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("提示", "请先选择一个账户")
+            return
+        acc = self.account_mgr.accounts[selection[0]]
+        bili_jct = acc.get("bili_jct", "")
+        if not bili_jct:
+            messagebox.showwarning("提示", "该账户没有bili_jct")
+            return
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(bili_jct)
+            self.root.update()
+            self.log(f"已复制账户「{acc.get('name', '未知')}」的bili_jct到剪贴板")
+            messagebox.showinfo("成功", "bili_jct已复制到剪贴板")
+        except Exception as e:
+            messagebox.showerror("错误", f"复制失败: {str(e)}")
+
     def _manager_refresh_info(self):
         """刷新选中账户的详细信息（直播间号、电池余额）"""
         selection = self.manager_account_listbox.curselection()
@@ -7480,6 +8132,22 @@ bili_jct: {jct_preview}
         self.manager_info_text.config(state=tk.DISABLED)
         self.log(f"已刷新账户「{name}」的详细信息")
 
+    def _manager_edit_account(self):
+        """账户管理页面编辑账户"""
+        selection = self.manager_account_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("提示", "请先选择要编辑的账户")
+            return
+        acc = self.account_mgr.accounts[selection[0]]
+        dialog = EditAccountDialog(self.root, acc, on_update=self.account_mgr.update_account)
+        self.root.wait_window(dialog)
+        self.refresh_account_list()
+        self.refresh_account_manager_list()
+        # 刷新看播页面账户列表
+        if hasattr(self, 'watch_page'):
+            self.watch_page.refresh_account_list()
+        self.log(f"已编辑账户: {acc['name']}")
+
     def _manager_delete_account(self):
         """账户管理页面删除账户"""
         selection = self.manager_account_listbox.curselection()
@@ -7487,6 +8155,19 @@ bili_jct: {jct_preview}
             messagebox.showwarning("提示", "请先选择要删除的账户")
             return
         acc = self.account_mgr.accounts[selection[0]]
+        # 检查是否有任务正在运行
+        running_tasks = []
+        if hasattr(self, 'danmaku_frame') and getattr(self.danmaku_frame, 'running', False):
+            running_tasks.append('弹幕发送')
+        if hasattr(self, 'watch_frame') and getattr(self.watch_frame, 'running', False):
+            running_tasks.append('看播')
+        if hasattr(self, 'gift_frame') and getattr(self.gift_frame, 'gift_running', False):
+            running_tasks.append('送礼')
+        if hasattr(self, 'rush_frame') and getattr(self.rush_frame, 'running', False):
+            running_tasks.append('抢码')
+        if running_tasks:
+            messagebox.showwarning("提示", f"以下任务正在运行，请先停止后再删除账户：\n{'、'.join(running_tasks)}")
+            return
         if custom_askyesno(self.root, "确认", f"确定删除账户「{acc['name']}」吗？"):
             self.account_mgr.delete_account(acc["name"])
             self.refresh_account_manager_list()
@@ -7626,6 +8307,19 @@ bili_jct: {jct_preview}
         if not acc:
             messagebox.showwarning("提示", "请先选择要删除的账户")
             return
+        # 检查是否有任务正在运行
+        running_tasks = []
+        if getattr(self, 'running', False):
+            running_tasks.append('弹幕发送')
+        if hasattr(self, 'watch_frame') and getattr(self.watch_frame, 'running', False):
+            running_tasks.append('看播')
+        if hasattr(self, 'gift_frame') and getattr(self.gift_frame, 'gift_running', False):
+            running_tasks.append('送礼')
+        if hasattr(self, 'rush_frame') and getattr(self.rush_frame, 'running', False):
+            running_tasks.append('抢码')
+        if running_tasks:
+            messagebox.showwarning("提示", f"以下任务正在运行，请先停止后再删除账户：\n{'、'.join(running_tasks)}")
+            return
         if custom_askyesno(self.app.root, "确认", f"确定删除账户「{acc['name']}」吗？"):
             self.account_mgr.delete_account(acc["name"])
             self.refresh_account_list()
@@ -7694,6 +8388,8 @@ bili_jct: {jct_preview}
             self.danmaku_page.pack(fill=tk.BOTH, expand=True)
             self.tab_danmaku.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 10, "bold"))
             self.current_tab = "danmaku"
+            # 切换到弹幕工具时刷新账户列表
+            self._refresh_danmaku_account_checkboxes()
         elif tab_name == "rush":
             self.rush_page.pack(fill=tk.BOTH, expand=True)
             self.tab_rush.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 10, "bold"))
@@ -8233,9 +8929,15 @@ bili_jct: {jct_preview}
                 pass
         return default_config
 
+    def _schedule_save_config(self):
+        """调度配置保存（防抖：500ms内连续触发只保存一次）"""
+        if self._config_save_timer:
+            self.root.after_cancel(self._config_save_timer)
+        self._config_save_timer = self.root.after(500, self.save_config)
+
     def save_config(self):
         try:
-            self.config["room_id"] = self.room_combo.get().strip()  # 保存直播间名称
+            self.config["room_name"] = self.room_combo.get().strip()  # 保存直播间名称
             self.config["interval_min"] = self.interval_min.get().strip()
             self.config["interval_max"] = self.interval_max.get().strip()
             self.config["send_mode"] = self.mode_var.get()
@@ -8267,8 +8969,8 @@ bili_jct: {jct_preview}
     def apply_config(self):
         # 初始化直播间下拉框选项
         self._refresh_danmaku_room_combo_values()
-        if self.config.get("room_id"):
-            self.room_combo.set(self.config["room_id"])
+        if self.config.get("room_name"):
+            self.room_combo.set(self.config["room_name"])
         if self.config.get("interval_min"):
             self.interval_min.delete(0, tk.END)
             self.interval_min.insert(0, self.config["interval_min"])
@@ -8282,18 +8984,17 @@ bili_jct: {jct_preview}
         if self.config.get("send_limit"):
             self.max_send_entry.delete(0, tk.END)
             self.max_send_entry.insert(0, self.config["send_limit"])
-        # 恢复窗口大小和位置（如果保存的大小太小则用新默认值）
+        # 恢复窗口大小和位置（如果保存的宽度小于1500则用默认值）
         if self.config.get("window_geometry"):
             try:
                 geom = self.config["window_geometry"]
-                # 解析宽度，如果小于1200则用新默认值
                 width_str = geom.split("x")[0]
                 if width_str.isdigit() and int(width_str) >= 1500:
                     self.root.geometry(geom)
                 else:
-                    self.root.geometry("1800x1400")
+                    self.root.geometry("1600x1000")
             except Exception:
-                self.root.geometry("1400x1000")
+                self.root.geometry("1600x1000")
         # 绑定自动保存
         self.room_combo.bind("<<ComboboxSelected>>", self._on_danmaku_room_selected)
         self.interval_min.bind("<FocusOut>", lambda e: self.save_config())
@@ -8302,7 +9003,7 @@ bili_jct: {jct_preview}
         self.mode_var.trace_add("write", lambda *a: self.save_config())
         self.account_mode_var.trace_add("write", lambda *a: self.save_config())
         # 窗口大小变化时保存
-        self.root.bind("<Configure>", lambda e: self.save_config() if e.widget == self.root else None)
+        self.root.bind("<Configure>", lambda e: self._schedule_save_config() if e.widget == self.root else None)
 
     # ---------- 弹幕列表（三列） ----------
     def get_all_danmaku(self):
@@ -8516,6 +9217,7 @@ bili_jct: {jct_preview}
             # 检查是否达到最大发送条数
             if max_send_count > 0 and send_count >= max_send_count:
                 self.log(f"✓ 已达到最大发送条数 {max_send_count}，自动停止")
+                self.running = False
                 self.root.after(0, self.stop_sending)
                 break
 
@@ -8560,6 +9262,7 @@ bili_jct: {jct_preview}
                 self.log(f"✗ 失败({fail_count}) [{account['name']}]: {msg} - {result}")
                 if fail_count >= 5:
                     self.log("连续失败5次，自动停止")
+                    self.running = False
                     self.root.after(0, self.stop_sending)
                     break
 
@@ -8599,15 +9302,16 @@ class CardAuthFrame:
         
         # 设置窗口
         root.title("卡密验证 - B站工具箱")
-        root.geometry("450x350")
-        root.resizable(False, False)
+        root.geometry("480x380")
+        root.resizable(True, True)
+        root.minsize(420, 340)
         root.configure(bg=COLORS["bg_dark"])
         
         # 居中
         root.update_idletasks()
-        x = (root.winfo_screenwidth() - 450) // 2
-        y = (root.winfo_screenheight() - 350) // 2
-        root.geometry(f"450x350+{x}+{y}")
+        x = (root.winfo_screenwidth() - 480) // 2
+        y = (root.winfo_screenheight() - 380) // 2
+        root.geometry(f"480x380+{x}+{y}")
         
         self._build_ui()
         
@@ -8741,10 +9445,18 @@ class CardAuthFrame:
                             self.status_label.config(text=f"⚠ 网络错误，离线验证（剩余{1-days_diff}天）", fg=COLORS["warning"])
                             self.result = True
                             self.card_info = saved
+                            # 更新本地缓存的last_verify时间，使离线宽限持续有效
+                            save_card_info(card_code, saved)
                             self.root.after(1500, lambda: self.on_success(self.card_info))
                             return
                     except Exception:
                         pass
+                    # 有保存的卡密但离线验证失败（超过1天或解析异常），清除缓存并提示
+                    self.status_label.config(text="⚠ 网络错误且离线验证已过期，请重新输入", fg=COLORS["danger"])
+                    clear_saved_card()
+                else:
+                    # 没有保存的卡密或卡密不匹配，只提示网络错误，不清除缓存
+                    self.status_label.config(text="⚠ 网络错误，请检查网络后重试", fg=COLORS["warning"])
     
     def _verify_saved_card(self, saved):
         """在线验证保存的卡密状态（检查是否被封禁）"""
@@ -8786,6 +9498,8 @@ class CardAuthFrame:
                         self.status_label.config(text=f"⚠ 网络错误，离线验证（剩余{1-days_diff}天）", fg=COLORS["warning"])
                         self.result = True
                         self.card_info = saved
+                        # 更新本地缓存的last_verify时间，使离线宽限持续有效
+                        save_card_info(card_code, saved)
                         self.root.after(1500, lambda: self.on_success(self.card_info))
                         return
                 except Exception:
