@@ -89,7 +89,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.9.11"
+APP_VERSION = "v5.9.15"
 
 # ========== 任务信息缓存 ==========
 # 缓存已判定为"已领取"或"无剩余总量"的任务信息，避免重复查询API
@@ -1135,8 +1135,8 @@ def parse_stock_info(task_info, debug=False, _depth=0, _seen_ids=None):
     return 0, 0, {}, "not_found", award_total_stock, award_daily_limit, debug_log
 
 
-def receive_reward(task_id, task_info, cookies_dict, csrf):
-    """领取奖励"""
+def receive_reward(task_id, task_info, cookies_dict, csrf, session=None):
+    """领取奖励（session可选，复用预热连接）"""
     headers = {
         **HEADERS,
         "Referer": f"https://www.bilibili.com/blackboard/era/award-exchange.html?task_id={task_id}",
@@ -1229,7 +1229,10 @@ def receive_reward(task_id, task_info, cookies_dict, csrf):
     }
 
     try:
-        resp = requests.post(MISSION_RECEIVE_API, headers=headers, cookies=cookies_dict, data=data, timeout=10)
+        if session:
+            resp = session.post(MISSION_RECEIVE_API, headers=headers, cookies=cookies_dict, data=data, timeout=10)
+        else:
+            resp = requests.post(MISSION_RECEIVE_API, headers=headers, cookies=cookies_dict, data=data, timeout=10)
         result = resp.json()
         code = result.get("code")
         message = result.get("message", "")
@@ -1744,6 +1747,18 @@ class RushRewardFrame(tk.Frame):
         self.shutdown_stop_flag = {"stop": False}
         self.shutdown_remaining = 0  # 剩余秒数
 
+        # ========== 新模式精准抢码 ==========
+        self.new_mode_running = False
+        self.new_mode_thread = None
+        self.new_mode_stop_flag = {"stop": False}
+        self.rush_groups = self.load_rush_groups()
+        self.current_group_id = None
+        self.new_mode_mode_var = None
+        # 调度器：每个组独立的运行状态和线程
+        self.nm_group_threads = {}
+        self.nm_group_stop_flags = {}
+        self.nm_group_status = {}
+
         # 初始化日志文件
         self.log_file = None
         self.init_log_file()
@@ -1761,6 +1776,7 @@ class RushRewardFrame(tk.Frame):
         """保存配置（标签页模式下不需要销毁）"""
         self.save_rush_config()
         self.save_scheduled_tasks()
+        self.save_rush_groups()
         # 停止所有定时任务线程
         for task_id, stop_flag in self.scheduled_task_stop_flags.items():
             stop_flag["stop"] = True
@@ -1791,6 +1807,90 @@ class RushRewardFrame(tk.Frame):
                 tasks_to_save.append(task_copy)
             with open(tasks_file, "w", encoding="utf-8") as f:
                 json.dump(tasks_to_save, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def load_rush_groups(self):
+        """加载新模式任务组配置"""
+        groups_file = BASE_DIR / "rush_groups.json"
+        if groups_file.exists():
+            try:
+                with open(groups_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return []
+
+    def save_rush_groups(self):
+        """保存新模式任务组配置"""
+        try:
+            groups_file = BASE_DIR / "rush_groups.json"
+            with open(groups_file, "w", encoding="utf-8") as f:
+                json.dump(self.rush_groups, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def nm_save_ui_settings(self):
+        """保存新模式UI设置"""
+        try:
+            settings = {
+                "version": self.nm_version_var.get(),
+                "period": self.nm_period_var.get(),
+                "type": self.nm_type_var.get(),
+                "task": self.nm_task_var.get(),
+                "account": self.nm_account_var.get(),
+                "window": self.nm_window_entry.get(),
+                "group": self.nm_group_var.get(),
+                "current_group": self.nm_current_group_var.get(),
+                "target_hour": self.nm_hour_var.get(),
+                "target_minute": self.nm_minute_var.get(),
+                "target_second": self.nm_second_var.get(),
+                "target_ms": self.nm_ms_entry.get(),
+            }
+            settings_file = BASE_DIR / "rush_ui_settings.json"
+            with open(settings_file, "w", encoding="utf-8") as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def nm_load_ui_settings(self):
+        """加载新模式UI设置"""
+        try:
+            settings_file = BASE_DIR / "rush_ui_settings.json"
+            if not settings_file.exists():
+                return
+            with open(settings_file, "r", encoding="utf-8") as f:
+                settings = json.load(f)
+            if settings.get("version"):
+                self.nm_version_var.set(settings["version"])
+                self.nm_on_version_change()
+            if settings.get("period"):
+                self.nm_period_var.set(settings["period"])
+                self.nm_on_period_change()
+            if settings.get("type"):
+                self.nm_type_var.set(settings["type"])
+                self.nm_update_task_list()
+            if settings.get("task"):
+                self.nm_task_var.set(settings["task"])
+            if settings.get("account"):
+                self.nm_account_var.set(settings["account"])
+            if settings.get("window"):
+                self.nm_window_entry.delete(0, tk.END)
+                self.nm_window_entry.insert(0, settings["window"])
+            if settings.get("group"):
+                self.nm_group_var.set(settings["group"])
+            if settings.get("current_group"):
+                self.nm_current_group_var.set(settings["current_group"])
+                self.nm_on_group_change()
+            if settings.get("target_hour"):
+                self.nm_hour_var.set(settings["target_hour"])
+            if settings.get("target_minute"):
+                self.nm_minute_var.set(settings["target_minute"])
+            if settings.get("target_second"):
+                self.nm_second_var.set(settings["target_second"])
+            if settings.get("target_ms"):
+                self.nm_ms_entry.delete(0, tk.END)
+                self.nm_ms_entry.insert(0, settings["target_ms"])
         except Exception:
             pass
 
@@ -1984,9 +2084,28 @@ class RushRewardFrame(tk.Frame):
                                      fg=COLORS["text_muted"], font=("微软雅黑", 11))
         self.rush_status.pack(side=tk.RIGHT, padx=20)
 
-        # 主内容区
-        main = tk.Frame(self, bg=COLORS["bg_dark"])
-        main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        # 模式切换栏
+        mode_bar = tk.Frame(self, bg=COLORS["bg_card"], height=42)
+        mode_bar.pack(fill=tk.X)
+        mode_bar.pack_propagate(False)
+        self.new_mode_mode_var = tk.StringVar(value="old")
+        self.old_mode_btn = tk.Label(mode_bar, text="  旧模式  ", bg=COLORS["accent"], fg="#000000",
+                                     font=("微软雅黑", 11, "bold"), padx=20, pady=6, cursor="hand2")
+        self.old_mode_btn.pack(side=tk.LEFT, padx=(15, 5), pady=5)
+        self.old_mode_btn.bind("<Button-1>", lambda e: self.switch_rush_mode("old"))
+        self.new_mode_btn = tk.Label(mode_bar, text="  ✨ 新模式·精准抢码  ", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
+                                     font=("微软雅黑", 11), padx=20, pady=6, cursor="hand2")
+        self.new_mode_btn.pack(side=tk.LEFT, padx=(0, 15), pady=5)
+        self.new_mode_btn.bind("<Button-1>", lambda e: self.switch_rush_mode("new"))
+
+        # 旧模式内容区
+        self.old_mode_frame = tk.Frame(self, bg=COLORS["bg_dark"])
+        self.old_mode_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        main = self.old_mode_frame
+
+        # 新模式内容区（默认隐藏）
+        self.new_mode_frame = tk.Frame(self, bg=COLORS["bg_dark"])
+        self.build_new_mode_ui()
 
         # 上半部分：设置
         settings_card = tk.Frame(main, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
@@ -2639,7 +2758,7 @@ class RushRewardFrame(tk.Frame):
                         pass
 
                 try:
-                    ok, msg = self.do_receive_fast(task, task_info, account)
+                    ok, msg = self.do_receive_fast(task, task_info, account, session)
                 except Exception as e:
                     ok, msg = False, f"异常: {e}"
 
@@ -2859,8 +2978,959 @@ class RushRewardFrame(tk.Frame):
             self.ms_label.pack(side=tk.LEFT)
         self.save_rush_config()
 
+    def switch_rush_mode(self, mode):
+        """切换抢码模式"""
+        self.new_mode_mode_var.set(mode)
+        if mode == "old":
+            self.old_mode_btn.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 11, "bold"))
+            self.new_mode_btn.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 11))
+            self.new_mode_frame.pack_forget()
+            self.old_mode_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        else:
+            self.new_mode_btn.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 11, "bold"))
+            self.old_mode_btn.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 11))
+            self.old_mode_frame.pack_forget()
+            self.new_mode_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+            self.refresh_new_mode_group_list()
+            self.refresh_new_mode_task_list()
+
+    def build_new_mode_ui(self):
+        """构建新模式精准抢码UI"""
+        frame = self.new_mode_frame
+
+        # ===== 任务设置（添加任务）=====
+        add_card = tk.Frame(frame, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
+        add_card.pack(fill=tk.X, pady=(0, 8))
+        tk.Label(add_card, text="任务设置（添加任务到组）", bg=COLORS["bg_card"], fg=COLORS["accent"],
+                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 8))
+        add_inner = tk.Frame(add_card, bg=COLORS["bg_card"])
+        add_inner.pack(fill=tk.X, padx=15, pady=(0, 12))
+
+        # 第一行：版本+期数+类型
+        row1 = tk.Frame(add_inner, bg=COLORS["bg_card"])
+        row1.pack(fill=tk.X, pady=3)
+        tk.Label(row1, text="版本", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        self.nm_version_var = tk.StringVar(value="崩坏星穹铁道4.5")
+        self.nm_version_combo = ttk.Combobox(row1, textvariable=self.nm_version_var,
+                                             values=["鸣潮3.6", "原神7.0", "崩坏星穹铁道4.5", "绝区零3.2"],
+                                             state="readonly", width=14, font=("微软雅黑", 11))
+        self.nm_version_combo.pack(side=tk.LEFT, padx=(8, 15))
+        self.nm_version_combo.bind("<<ComboboxSelected>>", lambda e: self.nm_on_version_change())
+
+        tk.Label(row1, text="期数", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        self.nm_period_var = tk.StringVar()
+        self.nm_period_combo = ttk.Combobox(row1, textvariable=self.nm_period_var,
+                                            values=[],
+                                            state="readonly", width=12, font=("微软雅黑", 11))
+        self.nm_period_combo.pack(side=tk.LEFT, padx=(8, 15))
+        self.nm_period_combo.bind("<<ComboboxSelected>>", lambda e: self.nm_on_period_change())
+
+        tk.Label(row1, text="类型", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        self.nm_type_var = tk.StringVar()
+        self.nm_type_combo = ttk.Combobox(row1, textvariable=self.nm_type_var,
+                                          values=[],
+                                          state="readonly", width=12, font=("微软雅黑", 11))
+        self.nm_type_combo.pack(side=tk.LEFT, padx=(8, 15))
+        self.nm_type_combo.bind("<<ComboboxSelected>>", lambda e: self.nm_update_task_list())
+
+        # 第二行：任务+账户
+        row2 = tk.Frame(add_inner, bg=COLORS["bg_card"])
+        row2.pack(fill=tk.X, pady=3)
+        tk.Label(row2, text="任务", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        self.nm_task_var = tk.StringVar()
+        self.nm_task_combo = ttk.Combobox(row2, textvariable=self.nm_task_var, values=[],
+                                          state="readonly", width=35, font=("微软雅黑", 11))
+        self.nm_task_combo.pack(side=tk.LEFT, padx=(8, 15))
+
+        tk.Label(row2, text="账户", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        self.nm_account_var = tk.StringVar()
+        self.nm_account_combo = ttk.Combobox(row2, textvariable=self.nm_account_var, values=[],
+                                             state="readonly", width=14, font=("微软雅黑", 11))
+        self.nm_account_combo.pack(side=tk.LEFT, padx=(8, 15))
+
+        # 第三行：优先级+窗口期+基础间隔
+        row3 = tk.Frame(add_inner, bg=COLORS["bg_card"])
+        row3.pack(fill=tk.X, pady=3)
+        tk.Label(row3, text="优先级", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        self.nm_priority_var = tk.StringVar(value="自动")
+        self.nm_priority_entry = tk.Label(row3, text="自动(按添加顺序)", bg=COLORS["bg_input"],
+                                          fg=COLORS["text_muted"], font=("微软雅黑", 10),
+                                          width=14, anchor=tk.W)
+        self.nm_priority_entry.pack(side=tk.LEFT, padx=(8, 15))
+
+        tk.Label(row3, text="窗口期", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        self.nm_window_var = tk.StringVar(value="15")
+        self.nm_window_entry = DarkEntry(row3, width=5)
+        self.nm_window_entry.insert(0, "15")
+        self.nm_window_entry.pack(side=tk.LEFT, padx=(8, 4))
+        tk.Label(row3, text="秒", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT, padx=(0, 15))
+
+        tk.Label(row3, text="基础间隔", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        self.nm_base_interval_var = tk.StringVar(value="900")
+        self.nm_base_interval_entry = DarkEntry(row3, width=6)
+        self.nm_base_interval_entry.insert(0, "900")
+        self.nm_base_interval_entry.pack(side=tk.LEFT, padx=(8, 4))
+        tk.Label(row3, text="ms（风控后自动+20~40ms，上限1000ms）", bg=COLORS["bg_card"],
+                 fg=COLORS["text_muted"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+
+        # 第四行：任务组选择+添加按钮
+        row4 = tk.Frame(add_inner, bg=COLORS["bg_card"])
+        row4.pack(fill=tk.X, pady=3)
+        tk.Label(row4, text="任务组", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        self.nm_group_var = tk.StringVar()
+        self.nm_group_combo = ttk.Combobox(row4, textvariable=self.nm_group_var, values=[],
+                                           state="readonly", width=18, font=("微软雅黑", 11))
+        self.nm_group_combo.pack(side=tk.LEFT, padx=(8, 15))
+
+        self.nm_add_task_btn = tk.Button(row4, text="+ 添加到任务组", bg=COLORS["accent"], fg="#000000",
+                                         font=("微软雅黑", 10, "bold"), relief=tk.FLAT, cursor="hand2",
+                                         command=self.nm_add_task)
+        self.nm_add_task_btn.pack(side=tk.LEFT, padx=10, ipadx=15, ipady=4)
+
+        # ===== 任务组设置 =====
+        group_card = tk.Frame(frame, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
+        group_card.pack(fill=tk.X, pady=(0, 8))
+        tk.Label(group_card, text="任务组设置", bg=COLORS["bg_card"], fg=COLORS["accent"],
+                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 8))
+        group_inner = tk.Frame(group_card, bg=COLORS["bg_card"])
+        group_inner.pack(fill=tk.X, padx=15, pady=(0, 12))
+
+        grow1 = tk.Frame(group_inner, bg=COLORS["bg_card"])
+        grow1.pack(fill=tk.X, pady=3)
+        tk.Label(grow1, text="当前组", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        self.nm_current_group_var = tk.StringVar()
+        self.nm_current_group_combo = ttk.Combobox(grow1, textvariable=self.nm_current_group_var, values=[],
+                                                   state="readonly", width=18, font=("微软雅黑", 11))
+        self.nm_current_group_combo.pack(side=tk.LEFT, padx=(8, 15))
+        self.nm_current_group_combo.bind("<<ComboboxSelected>>", lambda e: self.nm_on_group_change())
+
+        self.nm_new_group_btn = tk.Button(grow1, text="新建组", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                                          font=("微软雅黑", 10), relief=tk.FLAT, cursor="hand2",
+                                          command=self.nm_new_group)
+        self.nm_new_group_btn.pack(side=tk.LEFT, padx=5, ipadx=10, ipady=3)
+        self.nm_del_group_btn = tk.Button(grow1, text="删除组", bg="#c0392b", fg="#ffffff",
+                                          font=("微软雅黑", 10), relief=tk.FLAT, cursor="hand2",
+                                          command=self.nm_del_group)
+        self.nm_del_group_btn.pack(side=tk.LEFT, padx=5, ipadx=10, ipady=3)
+
+        grow2 = tk.Frame(group_inner, bg=COLORS["bg_card"])
+        grow2.pack(fill=tk.X, pady=3)
+        tk.Label(grow2, text="目标时间", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        self.nm_hour_var = tk.StringVar(value="00")
+        self.nm_hour_combo = ttk.Combobox(grow2, textvariable=self.nm_hour_var,
+                                          values=[f"{h:02d}" for h in range(24)],
+                                          state="readonly", width=4, font=("微软雅黑", 11))
+        self.nm_hour_combo.pack(side=tk.LEFT, padx=(8, 2))
+        tk.Label(grow2, text=":", bg=COLORS["bg_card"], fg=COLORS["text_primary"],
+                 font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
+        self.nm_minute_var = tk.StringVar(value="00")
+        self.nm_minute_combo = ttk.Combobox(grow2, textvariable=self.nm_minute_var,
+                                            values=[f"{m:02d}" for m in range(60)],
+                                            state="readonly", width=4, font=("微软雅黑", 11))
+        self.nm_minute_combo.pack(side=tk.LEFT, padx=2)
+        tk.Label(grow2, text=":", bg=COLORS["bg_card"], fg=COLORS["text_primary"],
+                 font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
+        self.nm_second_var = tk.StringVar(value="00")
+        self.nm_second_combo = ttk.Combobox(grow2, textvariable=self.nm_second_var,
+                                            values=[f"{s:02d}" for s in range(60)],
+                                            state="readonly", width=4, font=("微软雅黑", 11))
+        self.nm_second_combo.pack(side=tk.LEFT, padx=2)
+        tk.Label(grow2, text=".", bg=COLORS["bg_card"], fg=COLORS["text_primary"],
+                 font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
+        self.nm_ms_var = tk.StringVar(value="000")
+        self.nm_ms_entry = DarkEntry(grow2, width=4)
+        self.nm_ms_entry.insert(0, "000")
+        self.nm_ms_entry.pack(side=tk.LEFT, padx=2)
+        tk.Label(grow2, text="（毫秒级，组内所有任务统一首发时间）", bg=COLORS["bg_card"],
+                 fg=COLORS["text_muted"], font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=(10, 0))
+
+        self.nm_save_group_btn = tk.Button(grow2, text="保存组设置", bg=COLORS["success"], fg="#ffffff",
+                                           font=("微软雅黑", 10), relief=tk.FLAT, cursor="hand2",
+                                           command=self.nm_save_group_settings)
+        self.nm_save_group_btn.pack(side=tk.RIGHT, padx=5, ipadx=10, ipady=3)
+
+        # ===== 任务组调度器 =====
+        scheduler_card = tk.Frame(frame, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
+        scheduler_card.pack(fill=tk.X, pady=(0, 8))
+        scheduler_header = tk.Frame(scheduler_card, bg=COLORS["bg_card"])
+        scheduler_header.pack(fill=tk.X, padx=15, pady=(10, 5))
+        tk.Label(scheduler_header, text="任务组调度器（多组独立运行）", bg=COLORS["bg_card"], fg=COLORS["accent"],
+                 font=("微软雅黑", 11, "bold")).pack(side=tk.LEFT)
+        self.nm_start_all_btn = tk.Button(scheduler_header, text="▶ 全部开始", bg=COLORS["success"], fg="#ffffff",
+                                          font=("微软雅黑", 10, "bold"), relief=tk.FLAT, cursor="hand2",
+                                          command=self.nm_start_all_groups)
+        self.nm_start_all_btn.pack(side=tk.RIGHT, padx=5, ipadx=10, ipady=2)
+        self.nm_stop_all_btn = tk.Button(scheduler_header, text="⏹ 全部停止", bg="#c0392b", fg="#ffffff",
+                                         font=("微软雅黑", 10, "bold"), relief=tk.FLAT, cursor="hand2",
+                                         command=self.nm_stop_all_groups)
+        self.nm_stop_all_btn.pack(side=tk.RIGHT, padx=5, ipadx=10, ipady=2)
+
+        # 调度器表头
+        sched_table_header = tk.Frame(scheduler_card, bg=COLORS["bg_input"])
+        sched_table_header.pack(fill=tk.X, padx=15)
+        sched_headers = [("任务组", 18), ("目标时间", 12), ("任务数", 6), ("状态", 10), ("操作", 16)]
+        for text, width in sched_headers:
+            tk.Label(sched_table_header, text=text, bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
+                     font=("微软雅黑", 9, "bold"), width=width, anchor=tk.W).pack(side=tk.LEFT, padx=5, pady=3)
+
+        # 调度器列表容器
+        sched_container = tk.Frame(scheduler_card, bg=COLORS["bg_card"])
+        sched_container.pack(fill=tk.X, padx=15, pady=(3, 10))
+        self.nm_scheduler_frame = tk.Frame(sched_container, bg=COLORS["bg_card"])
+        self.nm_scheduler_frame.pack(fill=tk.X)
+
+        # ===== 组内任务列表 =====
+        list_card = tk.Frame(frame, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
+        list_card.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+        tk.Label(list_card, text="组内任务（按优先级依次执行）", bg=COLORS["bg_card"], fg=COLORS["accent"],
+                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 8))
+
+        # 表头
+        list_header = tk.Frame(list_card, bg=COLORS["bg_input"])
+        list_header.pack(fill=tk.X, padx=15)
+        headers = [("优先级", 5), ("任务名称", 28), ("奖励", 14), ("窗口期", 6), ("账户", 12), ("操作(↑上移↓下移×删除)", 22)]
+        for text, width in headers:
+            tk.Label(list_header, text=text, bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
+                     font=("微软雅黑", 10, "bold"), width=width, anchor=tk.W).pack(side=tk.LEFT, padx=5, pady=5)
+
+        # 任务列表容器（可滚动）
+        list_container = tk.Frame(list_card, bg=COLORS["bg_card"])
+        list_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=(5, 10))
+        self.nm_task_list_frame = tk.Frame(list_container, bg=COLORS["bg_card"])
+        self.nm_task_list_frame.pack(fill=tk.BOTH, expand=True)
+
+        # ===== 启动控制 =====
+        ctrl_card = tk.Frame(frame, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
+        ctrl_card.pack(fill=tk.X, pady=(0, 8))
+        ctrl_inner = tk.Frame(ctrl_card, bg=COLORS["bg_card"])
+        ctrl_inner.pack(fill=tk.X, padx=15, pady=10)
+
+        self.nm_start_btn = tk.Button(ctrl_inner, text="🚀 启动精准抢码", bg=COLORS["accent"], fg="#000000",
+                                      font=("微软雅黑", 12, "bold"), relief=tk.FLAT, cursor="hand2",
+                                      command=self.nm_start_rush)
+        self.nm_start_btn.pack(side=tk.LEFT, padx=10, ipadx=20, ipady=6)
+        self.nm_stop_btn = tk.Button(ctrl_inner, text="⏹ 停止", bg="#c0392b", fg="#ffffff",
+                                     font=("微软雅黑", 12, "bold"), relief=tk.FLAT, cursor="hand2",
+                                     command=self.nm_stop_rush, state=tk.DISABLED)
+        self.nm_stop_btn.pack(side=tk.LEFT, padx=10, ipadx=20, ipady=6)
+        self.nm_status_label = tk.Label(ctrl_inner, text="● 未运行", bg=COLORS["bg_card"],
+                                        fg=COLORS["text_muted"], font=("微软雅黑", 11))
+        self.nm_status_label.pack(side=tk.LEFT, padx=20)
+
+        # ===== 日志 =====
+        log_card = tk.Frame(frame, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
+        log_card.pack(fill=tk.BOTH, expand=True)
+        tk.Label(log_card, text="抢码日志（详细模式）", bg=COLORS["bg_card"], fg=COLORS["accent"],
+                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 8))
+        log_inner = tk.Frame(log_card, bg=COLORS["bg_card"])
+        log_inner.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 10))
+        self.nm_log_text = tk.Text(log_inner, bg=COLORS["bg_dark"], fg=COLORS["text_primary"],
+                                   font=("Consolas", 10), wrap=tk.WORD, height=8)
+        nm_log_scroll = ttk.Scrollbar(log_inner, command=self.nm_log_text.yview)
+        self.nm_log_text.config(yscrollcommand=nm_log_scroll.set)
+        nm_log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.nm_log_text.pack(fill=tk.BOTH, expand=True)
+
+        # 初始化任务列表（动态加载期数/类型/任务）
+        self.nm_on_version_change()
+        # 加载保存的UI设置
+        self.nm_load_ui_settings()
+
+    def nm_log(self, msg):
+        """新模式日志输出（毫秒级时间戳）"""
+        now = time.time()
+        timestamp = time.strftime("%H:%M:%S", time.localtime(now)) + f".{int((now % 1) * 1000):03d}"
+        line = f"[{timestamp}] {msg}\n"
+        try:
+            self.nm_log_text.insert(tk.END, line)
+            self.nm_log_text.see(tk.END)
+        except Exception:
+            pass
+        # 同时写主日志文件
+        self.log(msg)
+
+    # ========== 新模式·任务组管理 ==========
+    def refresh_new_mode_group_list(self):
+        """刷新任务组下拉列表"""
+        group_names = [g["group_name"] for g in self.rush_groups]
+        self.nm_group_combo.config(values=group_names)
+        self.nm_current_group_combo.config(values=group_names)
+        if self.rush_groups and not self.current_group_id:
+            self.current_group_id = self.rush_groups[0]["group_id"]
+        if self.current_group_id:
+            current = next((g for g in self.rush_groups if g["group_id"] == self.current_group_id), None)
+            if current:
+                self.nm_group_var.set(current["group_name"])
+                self.nm_current_group_var.set(current["group_name"])
+        # 同时刷新调度器
+        if hasattr(self, 'nm_scheduler_frame'):
+            self.nm_refresh_scheduler()
+
+    def refresh_new_mode_task_list(self):
+        """刷新组内任务列表"""
+        # 清空现有列表
+        for widget in self.nm_task_list_frame.winfo_children():
+            widget.destroy()
+        if not self.current_group_id:
+            return
+        group = next((g for g in self.rush_groups if g["group_id"] == self.current_group_id), None)
+        if not group:
+            return
+        tasks = sorted(group.get("tasks", []), key=lambda t: t.get("priority", 99))
+        for i, task in enumerate(tasks):
+            row = tk.Frame(self.nm_task_list_frame, bg=COLORS["bg_card"])
+            row.pack(fill=tk.X, pady=2)
+            tk.Label(row, text=str(task.get("priority", i+1)), bg=COLORS["bg_card"],
+                     fg=COLORS["accent"], font=("微软雅黑", 10, "bold"), width=5, anchor=tk.W).pack(side=tk.LEFT, padx=5)
+            tk.Label(row, text=task.get("name", "")[:30], bg=COLORS["bg_card"],
+                     fg=COLORS["text_primary"], font=("微软雅黑", 10), width=28, anchor=tk.W).pack(side=tk.LEFT, padx=5)
+            tk.Label(row, text=task.get("award", "")[:14], bg=COLORS["bg_card"],
+                     fg=COLORS["success"], font=("微软雅黑", 10), width=14, anchor=tk.W).pack(side=tk.LEFT, padx=5)
+            tk.Label(row, text=f"{task.get('window_seconds', 15)}秒", bg=COLORS["bg_card"],
+                     fg=COLORS["text_secondary"], font=("微软雅黑", 10), width=6, anchor=tk.W).pack(side=tk.LEFT, padx=5)
+            tk.Label(row, text=task.get("account_name", "")[:12], bg=COLORS["bg_card"],
+                     fg=COLORS["text_secondary"], font=("微软雅黑", 10), width=12, anchor=tk.W).pack(side=tk.LEFT, padx=5)
+            # 操作按钮
+            btn_frame = tk.Frame(row, bg=COLORS["bg_card"])
+            btn_frame.pack(side=tk.LEFT, padx=5)
+            tk.Button(btn_frame, text="↑", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                      font=("微软雅黑", 9), relief=tk.FLAT, cursor="hand2", width=2,
+                      command=lambda tid=task["task_id"]: self.nm_move_task(tid, -1)).pack(side=tk.LEFT, padx=1)
+            tk.Button(btn_frame, text="↓", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                      font=("微软雅黑", 9), relief=tk.FLAT, cursor="hand2", width=2,
+                      command=lambda tid=task["task_id"]: self.nm_move_task(tid, 1)).pack(side=tk.LEFT, padx=1)
+            tk.Button(btn_frame, text="×", bg="#c0392b", fg="#ffffff",
+                      font=("微软雅黑", 9, "bold"), relief=tk.FLAT, cursor="hand2", width=2,
+                      command=lambda tid=task["task_id"]: self.nm_remove_task(tid)).pack(side=tk.LEFT, padx=1)
+
+    def nm_on_version_change(self):
+        """版本切换：动态更新期数下拉框"""
+        version = self.nm_version_var.get()
+        periods = []
+        for t in ALL_TASKS:
+            if t["version"] == version and t["period"] not in periods:
+                periods.append(t["period"])
+        self.nm_period_combo.config(values=periods)
+        if periods:
+            self.nm_period_var.set(periods[0])
+        self.nm_on_period_change()
+
+    def nm_on_period_change(self):
+        """期数切换：动态更新类型下拉框"""
+        version = self.nm_version_var.get()
+        period = self.nm_period_var.get()
+        types = []
+        for t in ALL_TASKS:
+            if t["version"] == version and t["period"] == period and t["type"] not in types:
+                types.append(t["type"])
+        self.nm_type_combo.config(values=types)
+        if types:
+            self.nm_type_var.set(types[0])
+        self.nm_update_task_list()
+
+    def nm_update_task_list(self):
+        """更新新模式任务下拉列表"""
+        version = self.nm_version_var.get()
+        period = self.nm_period_var.get()
+        task_type = self.nm_type_var.get()
+        tasks = [t for t in ALL_TASKS if t["version"] == version and t["period"] == period and t["type"] == task_type]
+        task_names = [f"{t['name']} => {t['award']}" for t in tasks]
+        self.nm_task_combo.config(values=task_names)
+        if task_names:
+            self.nm_task_var.set(task_names[0])
+        elif hasattr(self, 'nm_task_var'):
+            self.nm_task_var.set('')
+        # 更新账户列表
+        accounts = self.account_mgr.accounts
+        account_names = [a["name"] for a in accounts]
+        self.nm_account_combo.config(values=account_names)
+        if account_names and not self.nm_account_var.get():
+            self.nm_account_var.set(account_names[0])
+
+    def nm_on_group_change(self):
+        """任务组切换"""
+        group_name = self.nm_current_group_var.get()
+        group = next((g for g in self.rush_groups if g["group_name"] == group_name), None)
+        if group:
+            self.current_group_id = group["group_id"]
+            self.nm_save_ui_settings()
+            target_str = group.get("target_time", "00:00:00.000")
+            try:
+                parts = target_str.split(":")
+                self.nm_hour_var.set(parts[0])
+                self.nm_minute_var.set(parts[1])
+                sec_parts = parts[2].split(".")
+                self.nm_second_var.set(sec_parts[0])
+                ms_val = sec_parts[1] if len(sec_parts) > 1 else "000"
+                self.nm_ms_var.set(ms_val)
+                self.nm_ms_entry.delete(0, tk.END)
+                self.nm_ms_entry.insert(0, ms_val)
+            except Exception:
+                self.nm_hour_var.set("00")
+                self.nm_minute_var.set("00")
+                self.nm_second_var.set("00")
+                self.nm_ms_var.set("000")
+                self.nm_ms_entry.delete(0, tk.END)
+                self.nm_ms_entry.insert(0, "000")
+            self.refresh_new_mode_task_list()
+
+    def nm_new_group(self):
+        """新建任务组"""
+        from tkinter import simpledialog
+        name = simpledialog.askstring("新建任务组", "请输入任务组名称:", parent=self)
+        if not name:
+            return
+        group_id = f"group_{int(time.time())}"
+        new_group = {
+            "group_id": group_id,
+            "group_name": name,
+            "target_time": "00:00:00.000",
+            "tasks": []
+        }
+        self.rush_groups.append(new_group)
+        self.current_group_id = group_id
+        self.save_rush_groups()
+        self.refresh_new_mode_group_list()
+        self.refresh_new_mode_task_list()
+        self.nm_log(f"新建任务组: {name}")
+
+    def nm_del_group(self):
+        """删除当前任务组"""
+        if not self.current_group_id:
+            return
+        group = next((g for g in self.rush_groups if g["group_id"] == self.current_group_id), None)
+        if not group:
+            return
+        from tkinter import messagebox
+        if not messagebox.askyesno("确认删除", f"确定删除任务组「{group['group_name']}」吗？"):
+            return
+        self.rush_groups = [g for g in self.rush_groups if g["group_id"] != self.current_group_id]
+        self.current_group_id = self.rush_groups[0]["group_id"] if self.rush_groups else None
+        self.save_rush_groups()
+        self.refresh_new_mode_group_list()
+        self.refresh_new_mode_task_list()
+        self.nm_log(f"删除任务组: {group['group_name']}")
+
+    def nm_add_task(self):
+        """添加任务到当前组"""
+        if not self.current_group_id:
+            self.nm_log("请先选择或创建任务组")
+            return
+        task_text = self.nm_task_var.get()
+        if not task_text:
+            self.nm_log("请选择任务")
+            return
+        account_name = self.nm_account_var.get()
+        if not account_name:
+            self.nm_log("请选择账户")
+            return
+        # 从ALL_TASKS找到对应任务
+        version = self.nm_version_var.get()
+        period = self.nm_period_var.get()
+        task_type = self.nm_type_var.get()
+        task = None
+        for t in ALL_TASKS:
+            if t["version"] == version and t["period"] == period and t["type"] == task_type and f"{t['name']} => {t['award']}" == task_text:
+                task = t
+                break
+        if not task:
+            self.nm_log("未找到对应任务")
+            return
+        try:
+            window_seconds = int(self.nm_window_entry.get())
+        except ValueError:
+            window_seconds = 15
+        try:
+            base_interval = int(self.nm_base_interval_entry.get()) / 1000.0
+            if base_interval < 0.3:
+                base_interval = 0.3
+            if base_interval > 2.0:
+                base_interval = 2.0
+        except ValueError:
+            base_interval = 0.9
+        group = next((g for g in self.rush_groups if g["group_id"] == self.current_group_id), None)
+        if group:
+            # 检查是否已存在
+            if any(t["task_id"] == task["task_id"] for t in group["tasks"]):
+                self.nm_log(f"任务已存在: {task['name']}")
+                return
+            # 优先级自动分配：当前组内最大优先级+1
+            existing_priorities = [t["priority"] for t in group["tasks"]]
+            priority = max(existing_priorities) + 1 if existing_priorities else 1
+            # 获取act_id并保存（添加任务时一次性获取，抢码时直接使用）
+            act_id = task.get("act_id", "")
+            try:
+                cookies = cookies_from_account(account)
+                info, msg = get_mission_info(task["task_id"], cookies)
+                if info and info.get("act_id"):
+                    act_id = info["act_id"]
+            except Exception:
+                pass
+            if not act_id:
+                act_id = VERSION_DEFAULT_ACT_ID.get(version, "")
+
+            group["tasks"].append({
+                "task_id": task["task_id"],
+                "name": task["name"],
+                "award": task["award"],
+                "period": task["period"],
+                "type": task["type"],
+                "version": task["version"],
+                "account_name": account_name,
+                "priority": priority,
+                "window_seconds": window_seconds,
+                "base_interval": base_interval,
+                "act_id": act_id
+            })
+            self.save_rush_groups()
+            self.nm_save_ui_settings()
+            self.refresh_new_mode_task_list()
+            self.nm_log(f"添加任务: {task['name']} (优先级{priority}, 窗口期{window_seconds}秒, 基础间隔{int(base_interval*1000)}ms)")
+
+    def nm_remove_task(self, task_id):
+        """从组中删除任务，删除后重新按1,2,3...分配优先级"""
+        group = next((g for g in self.rush_groups if g["group_id"] == self.current_group_id), None)
+        if group:
+            group["tasks"] = [t for t in group["tasks"] if t["task_id"] != task_id]
+            # 重新按顺序分配优先级
+            tasks = sorted(group["tasks"], key=lambda t: t.get("priority", 99))
+            for i, t in enumerate(tasks):
+                t["priority"] = i + 1
+            self.save_rush_groups()
+            self.refresh_new_mode_task_list()
+            self.nm_log(f"删除任务，优先级已重新分配")
+
+    def nm_move_task(self, task_id, direction):
+        """调整任务优先级（上移/下移）"""
+        group = next((g for g in self.rush_groups if g["group_id"] == self.current_group_id), None)
+        if not group:
+            return
+        tasks = sorted(group["tasks"], key=lambda t: t.get("priority", 99))
+        idx = next((i for i, t in enumerate(tasks) if t["task_id"] == task_id), -1)
+        if idx < 0:
+            return
+        swap_idx = idx + direction
+        if swap_idx < 0 or swap_idx >= len(tasks):
+            return
+        # 交换任务位置后重新按1,2,3...分配优先级
+        tasks[idx], tasks[swap_idx] = tasks[swap_idx], tasks[idx]
+        for i_task, t in enumerate(tasks):
+            t["priority"] = i_task + 1
+        self.save_rush_groups()
+        self.refresh_new_mode_task_list()
+        self.nm_log(f"任务顺序已调整，优先级重新分配")
+        self.refresh_new_mode_task_list()
+
+    def nm_save_group_settings(self):
+        """保存任务组设置"""
+        if not self.current_group_id:
+            return
+        group = next((g for g in self.rush_groups if g["group_id"] == self.current_group_id), None)
+        if group:
+            ms_val = self.nm_ms_entry.get().strip()
+            if not ms_val or not ms_val.isdigit():
+                ms_val = "000"
+            ms_val = ms_val.zfill(3)[:3]
+            group["target_time"] = f"{self.nm_hour_var.get()}:{self.nm_minute_var.get()}:{self.nm_second_var.get()}.{ms_val}"
+            self.save_rush_groups()
+            self.nm_save_ui_settings()
+            self.nm_log(f"任务组设置已保存: 目标时间={group['target_time']}")
+
+    # ========== 新模式·任务组调度器 ==========
+    def nm_refresh_scheduler(self):
+        """刷新调度器列表"""
+        for widget in self.nm_scheduler_frame.winfo_children():
+            widget.destroy()
+        for group in self.rush_groups:
+            gid = group["group_id"]
+            row = tk.Frame(self.nm_scheduler_frame, bg=COLORS["bg_card"])
+            row.pack(fill=tk.X, pady=1)
+            status = self.nm_group_status.get(gid, "等待中")
+            status_color = COLORS["success"] if status == "运行中" else COLORS["text_muted"]
+            tk.Label(row, text=group["group_name"], bg=COLORS["bg_card"],
+                     fg=COLORS["text_primary"], font=("微软雅黑", 9), width=18, anchor=tk.W).pack(side=tk.LEFT, padx=5)
+            tk.Label(row, text=group.get("target_time", "00:00:00.000"), bg=COLORS["bg_card"],
+                     fg=COLORS["accent"], font=("微软雅黑", 9, "bold"), width=12, anchor=tk.W).pack(side=tk.LEFT, padx=5)
+            tk.Label(row, text=str(len(group.get("tasks", []))), bg=COLORS["bg_card"],
+                     fg=COLORS["text_secondary"], font=("微软雅黑", 9), width=6, anchor=tk.W).pack(side=tk.LEFT, padx=5)
+            tk.Label(row, text=status, bg=COLORS["bg_card"],
+                     fg=status_color, font=("微软雅黑", 9, "bold"), width=10, anchor=tk.W).pack(side=tk.LEFT, padx=5)
+            # 操作按钮
+            btn_frame = tk.Frame(row, bg=COLORS["bg_card"])
+            btn_frame.pack(side=tk.LEFT, padx=5)
+            if status == "运行中":
+                tk.Button(btn_frame, text="停止", bg="#c0392b", fg="#ffffff",
+                          font=("微软雅黑", 8), relief=tk.FLAT, cursor="hand2", width=5,
+                          command=lambda g=gid: self.nm_stop_single_group(g)).pack(side=tk.LEFT, padx=2)
+            else:
+                tk.Button(btn_frame, text="开始", bg=COLORS["success"], fg="#ffffff",
+                          font=("微软雅黑", 8), relief=tk.FLAT, cursor="hand2", width=5,
+                          command=lambda g=gid: self.nm_start_single_group(g)).pack(side=tk.LEFT, padx=2)
+            tk.Button(btn_frame, text="切换", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                      font=("微软雅黑", 8), relief=tk.FLAT, cursor="hand2", width=5,
+                      command=lambda g=gid: self.nm_switch_to_group(g)).pack(side=tk.LEFT, padx=2)
+
+    def nm_switch_to_group(self, group_id):
+        """从调度器切换到指定组"""
+        group = next((g for g in self.rush_groups if g["group_id"] == group_id), None)
+        if group:
+            self.nm_current_group_var.set(group["group_name"])
+            self.nm_on_group_change()
+
+    def nm_start_single_group(self, group_id):
+        """启动单个任务组（独立线程）"""
+        group = next((g for g in self.rush_groups if g["group_id"] == group_id), None)
+        if not group:
+            return
+        if not group.get("tasks"):
+            self.nm_log(f"[{group['group_name']}] 任务组为空，无法启动")
+            return
+        if group_id in self.nm_group_threads and self.nm_group_threads[group_id].is_alive():
+            self.nm_log(f"[{group['group_name']}] 已在运行中")
+            return
+        # 启动前自动保存当前UI的目标时间（如果是当前选中的组）
+        if group_id == self.current_group_id:
+            try:
+                ms_val = self.nm_ms_entry.get().strip()
+                if not ms_val or not ms_val.isdigit():
+                    ms_val = "000"
+                ms_val = ms_val.zfill(3)[:3]
+                group["target_time"] = f"{self.nm_hour_var.get()}:{self.nm_minute_var.get()}:{self.nm_second_var.get()}.{ms_val}"
+                self.save_rush_groups()
+            except Exception:
+                pass
+        stop_flag = {"stop": False}
+        self.nm_group_stop_flags[group_id] = stop_flag
+        self.nm_group_status[group_id] = "运行中"
+        thread = threading.Thread(target=self.nm_rush_worker_for_group, args=(group, stop_flag), daemon=True)
+        self.nm_group_threads[group_id] = thread
+        thread.start()
+        self.nm_refresh_scheduler()
+        self.nm_log(f"[调度器] 启动任务组: {group['group_name']} (目标: {group['target_time']})")
+
+    def nm_stop_single_group(self, group_id):
+        """停止单个任务组"""
+        if group_id in self.nm_group_stop_flags:
+            self.nm_group_stop_flags[group_id]["stop"] = True
+            self.nm_group_status[group_id] = "已停止"
+            self.nm_refresh_scheduler()
+            group = next((g for g in self.rush_groups if g["group_id"] == group_id), None)
+            if group:
+                self.nm_log(f"[调度器] 停止任务组: {group['group_name']}")
+
+    def nm_start_all_groups(self):
+        """启动所有任务组"""
+        count = 0
+        for group in self.rush_groups:
+            if group.get("tasks"):
+                gid = group["group_id"]
+                if gid not in self.nm_group_threads or not self.nm_group_threads[gid].is_alive():
+                    self.nm_start_single_group(gid)
+                    count += 1
+        self.nm_log(f"[调度器] 全部开始: 启动了 {count} 个任务组")
+
+    def nm_stop_all_groups(self):
+        """停止所有任务组"""
+        for group_id in list(self.nm_group_stop_flags.keys()):
+            self.nm_stop_single_group(group_id)
+        self.nm_log("[调度器] 全部停止")
+
+    def nm_rush_worker_for_group(self, group, stop_flag):
+        """单个任务组的抢码线程（调度器版本，使用独立stop_flag）"""
+        original_stop = self.new_mode_stop_flag
+        self.new_mode_stop_flag = stop_flag
+        try:
+            self.nm_rush_worker(group)
+        finally:
+            self.new_mode_stop_flag = original_stop
+            gid = group["group_id"]
+            if stop_flag.get("stop"):
+                self.nm_group_status[gid] = "已停止"
+            else:
+                self.nm_group_status[gid] = "已完成"
+            self.nm_refresh_scheduler()
+
+    # ========== 新模式·精准抢码核心逻辑 ==========
+    def nm_start_rush(self):
+        """启动精准抢码"""
+        if not self.current_group_id:
+            self.nm_log("请先选择任务组")
+            return
+        group = next((g for g in self.rush_groups if g["group_id"] == self.current_group_id), None)
+        if not group or not group.get("tasks"):
+            self.nm_log("任务组为空，请先添加任务")
+            return
+        if self.new_mode_running:
+            self.nm_log("抢码已在运行中")
+            return
+        self.new_mode_running = True
+        self.new_mode_stop_flag = {"stop": False}
+        # 启动前自动保存当前UI的目标时间到group
+        try:
+            ms_val = self.nm_ms_entry.get().strip()
+            if not ms_val or not ms_val.isdigit():
+                ms_val = "000"
+            ms_val = ms_val.zfill(3)[:3]
+            group["target_time"] = f"{self.nm_hour_var.get()}:{self.nm_minute_var.get()}:{self.nm_second_var.get()}.{ms_val}"
+            self.save_rush_groups()
+        except Exception:
+            pass
+        self.nm_start_btn.config(state=tk.DISABLED)
+        self.nm_stop_btn.config(state=tk.NORMAL)
+        self.nm_status_label.config(text="● 运行中", fg=COLORS["success"])
+        self.nm_log("=" * 50)
+        self.nm_log(f"启动精准抢码: {group['group_name']}")
+        self.nm_log(f"目标时间: {group['target_time']}")
+        self.nm_log(f"任务数量: {len(group['tasks'])}")
+        self.new_mode_thread = threading.Thread(target=self.nm_rush_worker, args=(group,), daemon=True)
+        self.new_mode_thread.start()
+
+    def nm_stop_rush(self):
+        """停止精准抢码"""
+        self.new_mode_stop_flag["stop"] = True
+        self.nm_log("收到停止指令，等待当前请求完成后停止...")
+
+    def nm_rush_worker(self, group):
+        """精准抢码核心线程"""
+        try:
+            target_time_str = group.get("target_time", "00:00:00.000")
+            # 解析目标时间（支持毫秒）
+            parts = target_time_str.split(":")
+            hour = int(parts[0])
+            minute = int(parts[1])
+            sec_parts = parts[2].split(".")
+            second = int(sec_parts[0])
+            millisecond = int(sec_parts[1]) if len(sec_parts) > 1 else 0
+
+            now = time.localtime()
+            target_timestamp = time.mktime((now.tm_year, now.tm_mon, now.tm_mday, hour, minute, second, 0, 0, -1)) + millisecond / 1000.0
+            if target_timestamp < time.time():
+                target_timestamp += 86400  # 等到明天
+
+            wait_seconds = target_timestamp - time.time()
+            self.nm_log(f"等待 {wait_seconds:.1f} 秒后开始（目标: {time.strftime('%H:%M:%S', time.localtime(target_timestamp))}）")
+
+            # ===== 阶段1: NTP同步（抢码前1分钟或立即）=====
+            if wait_seconds > 60:
+                # 等到抢码前1分钟再同步
+                sync_time = target_timestamp - 60
+                while time.time() < sync_time and not self.new_mode_stop_flag["stop"]:
+                    time.sleep(1)
+                if not self.new_mode_stop_flag["stop"]:
+                    self.nm_ntp_sync()
+            else:
+                self.nm_ntp_sync()
+
+            # ===== 阶段2: 等待到目标时间前3秒，连接预热 =====
+            prewarm_time = target_timestamp - 3
+            while time.time() < prewarm_time and not self.new_mode_stop_flag["stop"]:
+                remaining = target_timestamp - time.time()
+                if int(remaining) % 10 == 0 and int(remaining) > 0:
+                    self.nm_log(f"  还剩 {int(remaining)} 秒...")
+                time.sleep(0.5)
+
+            if self.new_mode_stop_flag["stop"]:
+                self.nm_log("抢码已取消")
+                return
+
+            # 连接预热：提前3秒建立连接（轻量请求，不再调用任务信息API）
+            self.nm_log("[连接预热] 提前3秒建立TCP连接（act_id已在添加任务时获取）...")
+            sessions = {}
+            task_infos = {}
+            prewarm_rtts = []
+            for task in sorted(group["tasks"], key=lambda t: t.get("priority", 99)):
+                account = self.account_mgr.get_account(task["account_name"])
+                if not account:
+                    self.nm_log(f"  ⚠ 账户不存在: {task['account_name']}")
+                    continue
+                session = requests.Session()
+                session.headers.update(HEADERS)
+                sessions[task["task_id"]] = session
+                # 轻量连接建立：访问B站首页，只建立TCP+TLS连接，不调用任务API
+                try:
+                    _t0 = time.time()
+                    session.get("https://www.bilibili.com", timeout=5)
+                    _rtt = (time.time() - _t0) * 1000
+                    prewarm_rtts.append(_rtt)
+                    # 【重要】清除预热时自动获取的cookie（buvid3/b_nut等），
+                    # 避免与用户cookie合并导致B站反作弊返回[-351]错误
+                    session.cookies.clear()
+                    # 直接使用任务配置中保存的act_id构造task_info
+                    task_info = self.build_task_info_from_task(task)
+                    task_infos[task["task_id"]] = task_info
+                    self.nm_log(f"  ✓ {task['name']}: 连接已建立, RTT={_rtt:.0f}ms, act_id={task_info.get('act_id', '')}")
+                except Exception as e:
+                    task_info = self.build_task_info_from_task(task)
+                    task_infos[task["task_id"]] = task_info
+                    self.nm_log(f"  ⚠ {task['name']}: 连接预热异常: {e}, 使用保存的act_id={task_info.get('act_id', '')}")
+                # 轻量请求间隔300ms
+                time.sleep(0.3)
+
+            # 计算动态提前量：使用固定值，确保请求延后到达目标时间
+            # 优化说明：预热RTT包含TCP+TLS握手时间（约500ms），与实际请求耗时（100-150ms）差异很大
+            # 使用预热RTT/2计算会导致提前量偏大，请求提前到达，第一次请求无效（返回"未到领取时间"）
+            # 优化策略：使用固定提前量50ms，请求会在目标时间后50-100ms到达，确保第一次请求有效
+            if prewarm_rtts:
+                avg_rtt = sum(prewarm_rtts) / len(prewarm_rtts)
+            else:
+                avg_rtt = 0
+            dynamic_advance = 100  # 固定提前量100ms，确保延后到达（22次测试最快请求125.2ms，仍延后25.2ms）
+            self.nm_log(f"[动态提前量] 预热RTT={avg_rtt:.0f}ms(参考), 固定提前量={dynamic_advance:.0f}ms(确保延后到达)")
+
+            # ===== 阶段3: 精准首发（自旋等待到目标时间-动态提前量）=====
+            fire_time = target_timestamp - dynamic_advance / 1000.0
+            self.nm_log(f"[精准首发] 目标 {target_time_str}，动态提前{dynamic_advance:.0f}ms发送，自旋等待中...")
+
+            while time.time() < fire_time and not self.new_mode_stop_flag["stop"]:
+                remaining = fire_time - time.time()
+                if remaining > 0.1:
+                    time.sleep(remaining / 2)
+                elif remaining > 0.01:
+                    time.sleep(0.001)
+                # 小于10ms时自旋，不sleep
+
+            if self.new_mode_stop_flag["stop"]:
+                self.nm_log("抢码已取消")
+                return
+
+            actual_fire = time.time()
+            self.nm_log(f"[精准首发] 发送！目标偏差: {(actual_fire - target_timestamp)*1000:.1f}ms")
+
+            # ===== 阶段4: 按优先级依次执行任务 =====
+            tasks_sorted = sorted(group["tasks"], key=lambda t: t.get("priority", 99))
+            for task in tasks_sorted:
+                if self.new_mode_stop_flag["stop"]:
+                    break
+
+                task_deadline = target_timestamp + task.get("window_seconds", 15)
+                if time.time() > task_deadline:
+                    self.nm_log(f"[优先级{task.get('priority', '?')}] {task['name']} 已过窗口期，跳过")
+                    continue
+
+                self.nm_log(f"[优先级{task.get('priority', '?')}] 开始: {task['name']} => {task['award']} (窗口期{task.get('window_seconds', 15)}秒)")
+
+                success = self.nm_execute_task(task, task_infos.get(task["task_id"]),
+                                               sessions.get(task["task_id"]), task_deadline)
+
+                if success:
+                    self.nm_log(f"[优先级{task.get('priority', '?')}] ✓ 领取成功，立即启动下一个优先级")
+                else:
+                    self.nm_log(f"[优先级{task.get('priority', '?')}] ✗ 未成功，启动下一个优先级")
+
+            self.nm_log("=" * 50)
+            self.nm_log("精准抢码全部结束")
+
+        except Exception as e:
+            self.nm_log(f"抢码异常: {e}")
+            import traceback
+            self.nm_log(traceback.format_exc())
+        finally:
+            self.new_mode_running = False
+            try:
+                self.after(0, lambda: self.nm_start_btn.config(state=tk.NORMAL))
+                self.after(0, lambda: self.nm_stop_btn.config(state=tk.DISABLED))
+                self.after(0, lambda: self.nm_status_label.config(text="● 未运行", fg=COLORS["text_muted"]))
+            except Exception:
+                pass
+
+    def nm_ntp_sync(self):
+        """NTP时间同步"""
+        try:
+            import ntplib
+            client = ntplib.NTPClient()
+            # 尝试多个NTP服务器
+            for server in ["ntp.aliyun.com", "ntp.tencent.com", "cn.pool.ntp.org"]:
+                try:
+                    response = client.request(server, version=3, timeout=3)
+                    offset = response.offset
+                    self.nm_log(f"[NTP同步] 服务器={server}, 偏差={offset*1000:.1f}ms")
+                    if abs(offset) > 0.5:
+                        self.nm_log(f"[NTP同步] 偏差较大，建议手动同步系统时间")
+                    return offset
+                except Exception:
+                    continue
+            self.nm_log("[NTP同步] 所有NTP服务器均不可用，使用本地时间")
+        except ImportError:
+            self.nm_log("[NTP同步] ntplib未安装，跳过同步")
+        except Exception as e:
+            self.nm_log(f"[NTP同步] 异常: {e}")
+        return 0
+
+    def nm_execute_task(self, task, task_info, session, deadline):
+        """执行单个任务的抢码（带风控递增延迟）"""
+        account = self.account_mgr.get_account(task["account_name"])
+        if not account:
+            self.nm_log(f"  账户不存在: {task['account_name']}")
+            return False
+
+        cookies = cookies_from_account(account)
+        if not task_info:
+            task_info = self.build_task_info_from_task(task)
+
+        # 预生成随机延迟增量（风控后递增用）
+        import random
+        random_increments = [random.randint(20, 40) for _ in range(50)]
+
+        base_interval = task.get("base_interval", 0.9)  # 从任务配置读取，默认900ms
+        current_interval = base_interval
+        attempt = 0
+        success = False
+
+        while time.time() < deadline and not self.new_mode_stop_flag["stop"]:
+            attempt += 1
+            try:
+                ok, msg = self.do_receive_fast(task, task_info, account, session)
+            except Exception as e:
+                ok, msg = False, f"异常: {e}"
+
+            if ok:
+                success = True
+                self.nm_log(f"  🎉 第{attempt}次: 领取成功！({task['account_name']})")
+                self.nm_log(f"  💡 提示: 兑换码请在「兑换码」页面点击「从领取记录导入」获取")
+                break
+            else:
+                # 判断是否是未到领奖时间（202120），这种情况不切下一个优先级
+                if "202120" in msg or "未到领取时间" in msg or "未到领奖时间" in msg:
+                    self.nm_log(f"  第{attempt}次: 未到领取时间，继续等待... ({msg[:30]})")
+                elif "75255" in msg or "库存已经使用完" in msg or "库存已使用完" in msg:
+                    self.nm_log(f"  第{attempt}次: 库存已使用完，切下一个优先级")
+                    break
+                elif "-705" in msg or "-509" in msg or "-702" in msg or "请求过于频繁" in msg or "请求频率过高" in msg:
+                    # 风控，递增延迟
+                    increment = random_increments[min(attempt - 1, len(random_increments) - 1)] / 1000.0
+                    current_interval = min(current_interval + increment, 1.0)  # 上限1000ms
+                    self.nm_log(f"  第{attempt}次: 风控 {msg[:25]}，下次间隔 {current_interval*1000:.0f}ms")
+                else:
+                    # 无风控（未成功但也没被风控），恢复基础间隔
+                    if current_interval != base_interval:
+                        current_interval = base_interval
+                        self.nm_log(f"  第{attempt}次: {msg[:40]}（风控已过，恢复基础间隔{base_interval*1000:.0f}ms）")
+                    else:
+                        self.nm_log(f"  第{attempt}次: {msg[:40]}")
+
+            # 等待到下次尝试（窗口期结束时等当前请求返回后停止）
+            next_time = time.time() + current_interval
+            while time.time() < next_time and time.time() < deadline and not self.new_mode_stop_flag["stop"]:
+                time.sleep(0.001)
+
+        if not success and time.time() >= deadline:
+            self.nm_log(f"  窗口期结束，共尝试{attempt}次")
+        return success
+
     def on_version_change(self):
-        """版本切换时更新期数下拉框选项，并自动重置期数为该版本的第一个可用期数"""
+        """版本切换时更新期数下拉框选项"""
         version = self.version_var.get()
         # 获取该版本所有可用的期数
         version_periods = []
@@ -3611,7 +4681,7 @@ class RushRewardFrame(tk.Frame):
                     pass
 
             try:
-                ok, msg = self.do_receive_fast(task, task_info, account)
+                ok, msg = self.do_receive_fast(task, task_info, account, session)
             except Exception as e:
                 ok, msg = False, f"异常: {e}"
 
@@ -3757,11 +4827,11 @@ class RushRewardFrame(tk.Frame):
             "reward_info": {"award_name": task["award"]},
         }
 
-    def do_receive_fast(self, task, task_info, account):
-        """快速领取：直接尝试领取"""
+    def do_receive_fast(self, task, task_info, account, session=None):
+        """快速领取：直接尝试领取（session可选，复用预热连接）"""
         cookies = cookies_from_account(account)
         csrf = account["bili_jct"]
-        ok, result, data = receive_reward(task["task_id"], task_info, cookies, csrf)
+        ok, result, data = receive_reward(task["task_id"], task_info, cookies, csrf, session)
         if ok:
             return True, "领取成功"
         return False, result
@@ -3866,7 +4936,7 @@ class RushRewardFrame(tk.Frame):
                     pass
 
             try:
-                ok, msg = self.do_receive_fast(task, task_info, account)
+                ok, msg = self.do_receive_fast(task, task_info, account, session)
             except Exception as e:
                 ok, msg = False, f"异常: {e}"
 
