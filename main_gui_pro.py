@@ -14,10 +14,23 @@ import hashlib
 import urllib.parse
 import struct
 import re
+import os
+import sys
+import ctypes
 from datetime import datetime, timedelta
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from pathlib import Path
+
+# ========== 修复PyInstaller打包后certifi证书路径问题 ==========
+try:
+    import certifi
+    _cert_path = certifi.where()
+    if os.path.exists(_cert_path):
+        os.environ['REQUESTS_CA_BUNDLE'] = _cert_path
+        os.environ['CURL_CA_BUNDLE'] = _cert_path
+except Exception:
+    pass
 
 import requests
 
@@ -89,7 +102,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.9.31"
+APP_VERSION = "v5.9.39"
 
 # ========== 任务信息缓存 ==========
 # 缓存已判定为"已领取"或"无剩余总量"的任务信息，避免重复查询API
@@ -386,21 +399,28 @@ ALL_TASKS = [
     {"version": "鸣潮3.6", "period": "全版本", "type": "新人开播", "name": "累计7天开播", "task_id": "18ERA1wloghvbkm00", "award": "星声*180"},
     {"version": "鸣潮3.6", "period": "全版本", "type": "新人开播", "name": "累计14天开播", "task_id": "18ERA1wloghvb6w00", "award": "唤声涡纹*2"},
 
-    # ===== 原神7.0（只保留直播里程碑和看播里程碑）=====
-    # 直播里程碑任务（累计直播天数）
-    {"version": "原神7.0", "period": "全版本", "type": "直播里程碑", "name": "累计直播1天", "task_id": "18ERA2wloghvipp00", "award": "原石*200"},
-    {"version": "原神7.0", "period": "全版本", "type": "直播里程碑", "name": "累计直播5天", "task_id": "18ERA2wloghvi9y00", "award": "原石*600"},
-    {"version": "原神7.0", "period": "全版本", "type": "直播里程碑", "name": "累计直播10天", "task_id": "18ERA1wloghvbk100", "award": "原石*1000"},
-    {"version": "原神7.0", "period": "全版本", "type": "直播里程碑", "name": "累计直播20天", "task_id": "18ERA1wloghvbxf00", "award": "原石*1000"},
-    {"version": "原神7.0", "period": "全版本", "type": "直播里程碑", "name": "累计直播30天", "task_id": "18ERA2wloghvi1c00", "award": "原石*1000"},
-    {"version": "原神7.0", "period": "全版本", "type": "直播里程碑", "name": "累计直播40天", "task_id": "18ERA2wloghvixf00", "award": "原石*1000"},
-    # 看播里程碑任务（累计看播天数）
-    {"version": "原神7.0", "period": "全版本", "type": "看播里程碑", "name": "累计看播1天", "task_id": "18ERA2wloghvi2800", "award": "原石*50"},
-    {"version": "原神7.0", "period": "全版本", "type": "看播里程碑", "name": "累计看播5天", "task_id": "18ERA1wloghvbce00", "award": "原石*50"},
-    {"version": "原神7.0", "period": "全版本", "type": "看播里程碑", "name": "累计看播10天", "task_id": "18ERA1wloghvbz900", "award": "原石*100"},
-    {"version": "原神7.0", "period": "全版本", "type": "看播里程碑", "name": "累计看播20天", "task_id": "18ERA2wloghvi6p00", "award": "原石*100"},
-    {"version": "原神7.0", "period": "全版本", "type": "看播里程碑", "name": "累计看播30天", "task_id": "18ERA2wloghvibn00", "award": "原石*200"},
-    {"version": "原神7.0", "period": "全版本", "type": "看播里程碑", "name": "累计看播40天", "task_id": "18ERA1wloghvbke00", "award": "原石*200"},
+
+    # ===== 原神7.1 =====
+    # 直播任务
+    {"version": "原神7.1", "period": "全版本", "type": "直播", "name": "当日开播满60分钟", "task_id": "6ERAcwloghvatw00", "award": "精锻用魔矿*5"},
+    {"version": "原神7.1", "period": "全版本", "type": "直播里程碑", "name": "分区开播满60分钟且直播间发送弹幕2人", "task_id": "6ERAcwloghvofk00", "award": "原石*50"},
+    {"version": "原神7.1", "period": "全版本", "type": "直播", "name": "当日直播间累计收到≥10电池价值的礼物", "task_id": "6ERAcwloghvpil00", "award": "大英雄的经验*2"},
+    {"version": "原神7.1", "period": "全版本", "type": "直播", "name": "当日直播间弹幕数满6条", "task_id": "6ERAcwloghvofj00", "award": "冒险家的经验*6"},
+    {"version": "原神7.1", "period": "全版本", "type": "直播", "name": "当日直播间至少有1名用户观看满10分钟", "task_id": "6ERAcwloghvp7k00", "award": "摩拉*11111"},
+    # 直播里程碑任务
+    {"version": "原神7.1", "period": "全版本", "type": "直播里程碑", "name": "累积1天开播", "task_id": "18ERA1wloghvcxd00", "award": "原石*200"},
+    {"version": "原神7.1", "period": "全版本", "type": "直播里程碑", "name": "累积5天开播", "task_id": "18ERA1wloghvvzn00", "award": "原石*600"},
+    {"version": "原神7.1", "period": "全版本", "type": "直播里程碑", "name": "累积10天开播", "task_id": "18ERA1wloghvcdt00", "award": "原石*1000"},
+    {"version": "原神7.1", "period": "全版本", "type": "直播里程碑", "name": "累积20天开播", "task_id": "18ERA1wloghv1b900", "award": "原石*1000"},
+    {"version": "原神7.1", "period": "全版本", "type": "直播里程碑", "name": "累积30天开播", "task_id": "18ERA1wloghvcty00", "award": "原石*1000"},
+    {"version": "原神7.1", "period": "全版本", "type": "直播里程碑", "name": "累积40天开播", "task_id": "18ERA1wloghvckw00", "award": "原石*1000"},
+    # 看播里程碑任务
+    {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积1天看播", "task_id": "18ERA1wloghvcxf00", "award": "原石*50"},
+    {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积5天看播", "task_id": "18ERA1wloghvcv400", "award": "原石*50"},
+    {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积10天看播", "task_id": "18ERA1wloghvvcp00", "award": "原石*100"},
+    {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积20天看播", "task_id": "18ERA1wloghv12p00", "award": "原石*100"},
+    {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积30天看播", "task_id": "18ERA1wloghv1ng00", "award": "原石*200"},
+    {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积40天看播", "task_id": "18ERA1wloghv1me00", "award": "原石*200"},
 
     # ===== 崩坏星穹铁道4.5（限时投稿任务）=====
     # 限时任务1（8月26日-9月10日）- 投稿任务
@@ -474,7 +494,7 @@ TASK_ACT_ID_CACHE = {}
 # 版本默认act_id（同一版本的所有任务共享同一个act_id）
 VERSION_DEFAULT_ACT_ID = {
     "鸣潮3.6": "1ERAzwloghvn7l00",
-    "原神7.0": "1ERAzwloghvcpc00",
+    "原神7.1": "1ERA3wloghv6q200",
     "崩坏星穹铁道4.5": "1ERAzwloghvb5600",
     "绝区零3.2": "1ERAzwloghvbmi00",
 }
@@ -1793,16 +1813,27 @@ class RushRewardFrame(tk.Frame):
             stop_flag["stop"] = True
 
     def load_scheduled_tasks(self):
-        """加载定时任务列表"""
+        """加载定时任务列表，自动过滤掉已从ALL_TASKS中删除的任务"""
         tasks_file = BASE_DIR / "scheduled_tasks.json"
         if tasks_file.exists():
             try:
                 with open(tasks_file, "r", encoding="utf-8") as f:
                     tasks = json.load(f)
-                    # 重置所有任务状态为等待中
-                    for task in tasks:
-                        task["status"] = "等待中"
-                    return tasks
+                # 过滤掉已从ALL_TASKS中删除的任务
+                valid_task_ids = {t["task_id"] for t in ALL_TASKS}
+                original_count = len(tasks)
+                tasks = [t for t in tasks if t.get("task_id") in valid_task_ids]
+                # 重置所有任务状态为等待中
+                for task in tasks:
+                    task["status"] = "等待中"
+                # 如果有任务被清理，保存清理后的结果
+                if len(tasks) != original_count:
+                    try:
+                        with open(tasks_file, "w", encoding="utf-8") as f:
+                            json.dump(tasks, f, ensure_ascii=False, indent=2)
+                    except Exception:
+                        pass
+                return tasks
             except Exception:
                 pass
         return []
@@ -1822,12 +1853,33 @@ class RushRewardFrame(tk.Frame):
             pass
 
     def load_rush_groups(self):
-        """加载新模式任务组配置"""
+        """加载新模式任务组配置，自动过滤掉已从ALL_TASKS中删除的任务"""
         groups_file = BASE_DIR / "rush_groups.json"
         if groups_file.exists():
             try:
                 with open(groups_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    groups = json.load(f)
+                # 过滤掉已从ALL_TASKS中删除的任务（防止更新exe后旧任务重新出现）
+                valid_task_ids = {t["task_id"] for t in ALL_TASKS}
+                cleaned = False
+                for group in groups:
+                    original_count = len(group.get("tasks", []))
+                    group["tasks"] = [t for t in group.get("tasks", []) if t.get("task_id") in valid_task_ids]
+                    # 重新分配优先级
+                    for i, t in enumerate(sorted(group["tasks"], key=lambda x: x.get("priority", 99))):
+                        t["priority"] = i + 1
+                    if len(group["tasks"]) != original_count:
+                        cleaned = True
+                # 删除空任务组
+                groups = [g for g in groups if g.get("tasks")]
+                if cleaned:
+                    # 保存清理后的结果
+                    try:
+                        with open(groups_file, "w", encoding="utf-8") as f:
+                            json.dump(groups, f, ensure_ascii=False, indent=2)
+                    except Exception:
+                        pass
+                return groups
             except Exception:
                 pass
         return []
@@ -1838,8 +1890,8 @@ class RushRewardFrame(tk.Frame):
             groups_file = BASE_DIR / "rush_groups.json"
             with open(groups_file, "w", encoding="utf-8") as f:
                 json.dump(self.rush_groups, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except Exception as e:
+            self.nm_log(f"⚠ 保存任务组失败: {e}")
 
     def nm_save_ui_settings(self):
         """保存新模式UI设置"""
@@ -2134,7 +2186,7 @@ class RushRewardFrame(tk.Frame):
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
         self.version_var = tk.StringVar(value="鸣潮3.6")
         self.version_combo = ttk.Combobox(row1, textvariable=self.version_var,
-                                           values=["鸣潮3.6", "原神7.0", "崩坏星穹铁道4.5", "绝区零3.2"], state="readonly",
+                                           values=["鸣潮3.6", "原神7.1", "崩坏星穹铁道4.5", "绝区零3.2"], state="readonly",
                                            width=14, font=("微软雅黑", 11))
         self.version_combo.pack(side=tk.LEFT, padx=(8, 15))
         self.version_combo.bind("<<ComboboxSelected>>", lambda e: self.on_version_change())
@@ -3092,7 +3144,7 @@ class RushRewardFrame(tk.Frame):
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
         self.nm_version_var = tk.StringVar(value="崩坏星穹铁道4.5")
         self.nm_version_combo = ttk.Combobox(row1, textvariable=self.nm_version_var,
-                                             values=["鸣潮3.6", "原神7.0", "崩坏星穹铁道4.5", "绝区零3.2"],
+                                             values=["鸣潮3.6", "原神7.1", "崩坏星穹铁道4.5", "绝区零3.2"],
                                              state="readonly", width=14, font=("微软雅黑", 11))
         self.nm_version_combo.pack(side=tk.LEFT, padx=(8, 15))
         self.nm_version_combo.bind("<<ComboboxSelected>>", lambda e: self.nm_on_version_change())
@@ -3212,6 +3264,12 @@ class RushRewardFrame(tk.Frame):
                                      height=44, bg_color="#c0392b", text_color="#ffffff")
         self.nm_stop_btn.pack(side=tk.LEFT, padx=6)
         self.nm_stop_btn.set_state("disabled")
+        self.nm_sync_time_btn = DarkButton(ctrl_inner, text="🕐 同步系统时间", command=self.nm_sync_system_time,
+                                           height=44, bg_color=COLORS["accent_hover"], text_color="#000000")
+        self.nm_sync_time_btn.pack(side=tk.LEFT, padx=6)
+        self.nm_query_time_btn = DarkButton(ctrl_inner, text="📊 查询时间状态", command=self.nm_query_time_status,
+                                            height=44, bg_color="#2d3436", text_color=COLORS["text_primary"])
+        self.nm_query_time_btn.pack(side=tk.LEFT, padx=6)
         self.nm_status_label = tk.Label(ctrl_inner, text="● 未运行", bg=COLORS["bg_card"],
                                         fg=COLORS["text_muted"], font=("微软雅黑", 11))
         self.nm_status_label.pack(side=tk.LEFT, padx=20)
@@ -3318,17 +3376,26 @@ class RushRewardFrame(tk.Frame):
         self.nm_load_ui_settings()
 
     def nm_log(self, msg):
-        """新模式日志输出（毫秒级时间戳）"""
+        """新模式日志输出（毫秒级时间戳）- 线程安全"""
         now = time.time()
         timestamp = time.strftime("%H:%M:%S", time.localtime(now)) + f".{int((now % 1) * 1000):03d}"
         line = f"[{timestamp}] {msg}\n"
+        # UI操作必须在主线程执行
+        def _append_log():
+            try:
+                self.nm_log_text.insert(tk.END, line)
+                self.nm_log_text.see(tk.END)
+            except Exception:
+                pass
         try:
-            self.nm_log_text.insert(tk.END, line)
-            self.nm_log_text.see(tk.END)
+            self.after(0, _append_log)
         except Exception:
             pass
-        # 同时写主日志文件
-        self.log(msg)
+        # 同时写主日志文件（文件IO是线程安全的）
+        try:
+            self.log(msg)
+        except Exception:
+            pass
 
     # ========== 新模式·任务组管理 ==========
     def refresh_new_mode_group_list(self):
@@ -3341,6 +3408,10 @@ class RushRewardFrame(tk.Frame):
             current = next((g for g in self.rush_groups if g["group_id"] == self.current_group_id), None)
             if current:
                 self.nm_group_var.set(current["group_name"])
+            else:
+                self.nm_group_var.set("")
+        elif not self.rush_groups:
+            self.nm_group_var.set("")
         # 同时刷新调度器
         if hasattr(self, 'nm_scheduler_frame'):
             if hasattr(self, 'nm_update_scheduler'):
@@ -3515,15 +3586,30 @@ class RushRewardFrame(tk.Frame):
         from tkinter import messagebox
         if not messagebox.askyesno("确认删除", f"确定删除任务组「{group['group_name']}」吗？"):
             return
+        deleted_name = group['group_name']
         self.rush_groups = [g for g in self.rush_groups if g["group_id"] != self.current_group_id]
         self.current_group_id = self.rush_groups[0]["group_id"] if self.rush_groups else None
+        # 保存后立即验证，确保数据真正写入文件
         self.save_rush_groups()
+        try:
+            groups_file = BASE_DIR / "rush_groups.json"
+            with open(groups_file, "r", encoding="utf-8") as f:
+                verify_data = json.load(f)
+            if any(g.get("group_name") == deleted_name for g in verify_data):
+                self.nm_log(f"⚠ 删除验证失败：文件中仍存在任务组「{deleted_name}」，重试保存...")
+                self.save_rush_groups()
+        except Exception as e:
+            self.nm_log(f"⚠ 删除验证异常: {e}")
+        # 如果没有组了，清空下拉框
+        if not self.rush_groups:
+            self.nm_group_var.set("")
+            self.nm_group_combo.config(values=[])
         self.refresh_new_mode_group_list()
         self.refresh_new_mode_task_list()
         # 刷新调度器显示
         if hasattr(self, 'nm_update_scheduler'):
             self.nm_update_scheduler()
-        self.nm_log(f"删除任务组: {group['group_name']}")
+        self.nm_log(f"删除任务组: {deleted_name}")
 
     def nm_add_task(self):
         """添加任务到当前组"""
@@ -3576,8 +3662,22 @@ class RushRewardFrame(tk.Frame):
             try:
                 cookies = cookies_from_account(account)
                 info, msg = get_mission_info(task["task_id"], cookies)
-                if info and info.get("act_id"):
-                    act_id = info["act_id"]
+                if info:
+                    # 尝试多种字段名和层级
+                    for key in ["act_id", "activity_id", "ActivityId", "id"]:
+                        if info.get(key):
+                            act_id = str(info[key])
+                            break
+                    if not act_id:
+                        for sub_key in ["act_info", "activity_info", "mission_info", "data"]:
+                            sub = info.get(sub_key, {})
+                            if isinstance(sub, dict):
+                                for key in ["act_id", "activity_id", "ActivityId", "id"]:
+                                    if sub.get(key):
+                                        act_id = str(sub[key])
+                                        break
+                            if act_id:
+                                break
             except Exception:
                 pass
             if not act_id:
@@ -4018,17 +4118,8 @@ class RushRewardFrame(tk.Frame):
         if group_id in self.nm_group_threads and self.nm_group_threads[group_id].is_alive():
             self.nm_log(f"[{group['group_name']}] 已在运行中")
             return
-        # 启动前自动保存当前UI的目标时间（如果是当前选中的组）
-        if group_id == self.current_group_id:
-            try:
-                ms_val = self.nm_ms_entry.get().strip()
-                if not ms_val or not ms_val.isdigit():
-                    ms_val = "000"
-                ms_val = ms_val.zfill(3)[:3]
-                group["target_time"] = f"{self.nm_hour_var.get()}:{self.nm_minute_var.get()}:{self.nm_second_var.get()}.{ms_val}"
-                self.save_rush_groups()
-            except Exception:
-                pass
+        # 启动时不再从界面读取时间覆盖group
+        # 时间修改由自动保存（nm_auto_save_group）负责
         stop_flag = {"stop": False}
         self.nm_group_stop_flags[group_id] = stop_flag
         self.nm_group_status[group_id] = "running"
@@ -4067,20 +4158,19 @@ class RushRewardFrame(tk.Frame):
 
     def nm_rush_worker_for_group(self, group, stop_flag):
         """单个任务组的抢码线程（调度器版本，使用独立stop_flag）"""
-        original_stop = self.new_mode_stop_flag
-        self.new_mode_stop_flag = stop_flag
+        gid = group["group_id"]
         try:
             self.nm_rush_worker(group)
         finally:
-            self.new_mode_stop_flag = original_stop
-            gid = group["group_id"]
             if stop_flag.get("stop"):
                 self.nm_group_status[gid] = "stopped"
             else:
                 self.nm_group_status[gid] = "finished"
-            self.nm_refresh_scheduler()
-
-    # ========== 新模式·精准抢码核心逻辑 ==========
+            # UI更新必须在主线程执行
+            try:
+                self.after(0, self.nm_refresh_scheduler)
+            except Exception:
+                pass
     def nm_start_rush(self):
         """启动精准抢码（支持多组同时运行）"""
         if not self.current_group_id:
@@ -4098,15 +4188,8 @@ class RushRewardFrame(tk.Frame):
             self.nm_log(f"任务组「{group_name}」已在运行中")
             return
         
-        try:
-            ms_val = self.nm_ms_entry.get().strip()
-            if not ms_val or not ms_val.isdigit():
-                ms_val = "000"
-            ms_val = ms_val.zfill(3)[:3]
-            group["target_time"] = f"{self.nm_hour_var.get()}:{self.nm_minute_var.get()}:{self.nm_second_var.get()}.{ms_val}"
-            self.save_rush_groups()
-        except Exception:
-            pass
+        # 启动时不再从界面读取时间覆盖group
+        # 时间修改由自动保存（nm_auto_save_group）负责，确保组的target_time是最新的
         
         self.nm_group_stop_flags[group_id] = {"stop": False}
         self.nm_group_status[group_id] = "running"
@@ -4138,6 +4221,78 @@ class RushRewardFrame(tk.Frame):
             self.nm_log("没有正在运行的任务组")
         else:
             self.nm_log(f"已向 {running_count} 个任务组发送停止指令，等待当前请求完成后停止...")
+
+
+    def nm_sync_system_time(self):
+        """同步系统时间（需要管理员权限）"""
+        import subprocess
+        try:
+            self.nm_log("正在请求管理员权限同步系统时间...")
+            # 以管理员权限运行w32tm命令
+            ret = ctypes.windll.shell32.ShellExecuteW(
+                None,
+                "runas",
+                "w32tm",
+                "/resync /force",
+                None,
+                0  # SW_HIDE
+            )
+            if ret > 32:
+                self.nm_log("✓ 已发送同步请求，请在UAC弹窗中点击「是」")
+                # 等待几秒后显示结果
+                def check_sync():
+                    try:
+                        result = subprocess.run(
+                            ["w32tm", "/query", "/status"],
+                            capture_output=True, text=True, timeout=10
+                        )
+                        if "来源" in result.stdout or "Source" in result.stdout:
+                            self.nm_log("✓ 系统时间同步完成")
+                        else:
+                            self.nm_log("✓ 同步请求已发送，请等待几秒后查看NTP偏差")
+                    except Exception:
+                        self.nm_log("✓ 同步请求已发送，请等待几秒后查看NTP偏差")
+                self.after(5000, check_sync)
+            else:
+                self.nm_log(f"✗ 同步失败，错误码: {ret}")
+                if ret == 1223:
+                    self.nm_log("  用户取消了UAC授权")
+        except Exception as e:
+            self.nm_log(f"✗ 同步系统时间失败: {e}")
+
+
+    def nm_query_time_status(self):
+        """查询系统时间同步状态"""
+        import subprocess
+        try:
+            self.nm_log("正在查询系统时间同步状态...")
+            # 查询W32Time服务状态
+            result = subprocess.run(
+                ["w32tm", "/query", "/status"],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                self.nm_log("=" * 40)
+                self.nm_log("📊 系统时间同步状态")
+                for line in result.stdout.strip().split('\n'):
+                    line = line.strip()
+                    if line:
+                        self.nm_log(f"  {line}")
+                self.nm_log("=" * 40)
+            else:
+                # 可能服务没启动，尝试启动
+                self.nm_log("查询失败，尝试启动W32Time服务...")
+                start_result = subprocess.run(
+                    ["net", "start", "w32time"],
+                    capture_output=True, text=True, timeout=10
+                )
+                if "已经启动" in start_result.stdout or "started" in start_result.stdout.lower():
+                    self.nm_log("W32Time服务已启动，请重新查询")
+                else:
+                    self.nm_log(f"查询失败: {result.stderr}")
+                    self.nm_log("提示: 请先点击「同步系统时间」按钮，通过UAC授权后再查询")
+        except Exception as e:
+            self.nm_log(f"查询失败: {e}")
 
 
     def nm_update_ui_state(self):
@@ -4360,6 +4515,9 @@ class RushRewardFrame(tk.Frame):
         else:
             # 启动
             self.current_group_id = group_id
+            # 同步界面显示：更新任务组选择和时间输入框，避免启动时覆盖错误时间
+            self.nm_group_var.set(group_name)
+            self.nm_on_group_change()
             self.nm_start_rush()
     
     def nm_scheduler_start_selected(self):
@@ -4378,6 +4536,9 @@ class RushRewardFrame(tk.Frame):
             return
         
         self.current_group_id = group["group_id"]
+        # 同步界面显示：更新任务组选择和时间输入框，避免启动时覆盖错误时间
+        self.nm_group_var.set(group_name)
+        self.nm_on_group_change()
         self.nm_start_rush()
     
     def nm_scheduler_stop_selected(self):
@@ -4412,7 +4573,7 @@ class RushRewardFrame(tk.Frame):
         stop_flag = self.nm_group_stop_flags[group_id]
         group_name = group.get("group_name", "未知")
         try:
-            self.nm_last_request_time = 0  # 初始化最后一次请求时间
+            stop_flag["last_request_time"] = 0  # 每个任务组独立维护最后请求时间
             target_time_str = group.get("target_time", "00:00:00.000")
             # 解析目标时间（支持毫秒）
             parts = target_time_str.split(":")
@@ -4569,7 +4730,7 @@ class RushRewardFrame(tk.Frame):
                 task_index = tasks_sorted.index(task)
                 if task_index < len(tasks_sorted) - 1 and not stop_flag["stop"]:
                     switch_interval = task.get("base_interval", 0.9)
-                    elapsed = time.time() - getattr(self, 'nm_last_request_time', 0)
+                    elapsed = time.time() - stop_flag.get("last_request_time", 0)
                     wait_time = switch_interval - elapsed
                     if wait_time > 0:
                         self.nm_log(f"  距上次请求 {elapsed*1000:.0f}ms，补足 {wait_time*1000:.0f}ms 后切换...")
@@ -4603,6 +4764,7 @@ class RushRewardFrame(tk.Frame):
         import socket
         ntp_servers = ["ntp.aliyun.com", "ntp.tencent.com", "cn.pool.ntp.org", "time.windows.com"]
         for server in ntp_servers:
+            client = None
             try:
                 client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 client.settimeout(3)
@@ -4612,7 +4774,6 @@ class RushRewardFrame(tk.Frame):
                 client.sendto(data, (server, 123))
                 data, address = client.recvfrom(1024)
                 t4 = time.time()
-                client.close()
                 if data:
                     # 解析NTP响应
                     unpacked = struct.unpack('!12I', data[0:48])
@@ -4627,6 +4788,12 @@ class RushRewardFrame(tk.Frame):
                     return offset
             except Exception:
                 continue
+            finally:
+                if client:
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
         self.nm_log("[NTP同步] 所有NTP服务器均不可用，使用本地时间")
         return 0
 
@@ -4641,9 +4808,9 @@ class RushRewardFrame(tk.Frame):
         if not task_info:
             task_info = self.build_task_info_from_task(task)
 
-        # 预生成随机延迟增量（风控后递增用）
+        # 预生成随机波动数列（±30ms），提前计算好避免运行时随机开销
         import random
-        random_increments = [random.randint(1, 5) for _ in range(50)]
+        random_fluctuations = [random.randint(-30, 30) for _ in range(100)]
 
         base_interval = task.get("base_interval", 0.9)  # 从任务配置读取，默认900ms
         current_interval = base_interval
@@ -4653,17 +4820,19 @@ class RushRewardFrame(tk.Frame):
         while time.time() < deadline and not stop_flag["stop"]:
             attempt += 1
             try:
-                self.nm_last_request_time = time.time()  # 记录请求发出时间
+                stop_flag["last_request_time"] = time.time()  # 记录请求发出时间（每组独立）
                 ok, msg = self.do_receive_fast(task, task_info, account, session)
                 recv_time = time.time()
-                rtt_ms = (recv_time - self.nm_last_request_time) * 1000
-                send_str = time.strftime("%H:%M:%S", time.localtime(self.nm_last_request_time)) + "." + str(int((self.nm_last_request_time % 1) * 1000)).zfill(3)
+                last_req = stop_flag.get("last_request_time", 0)
+                rtt_ms = (recv_time - last_req) * 1000
+                send_str = time.strftime("%H:%M:%S", time.localtime(last_req)) + "." + str(int((last_req % 1) * 1000)).zfill(3)
                 recv_str = time.strftime("%H:%M:%S", time.localtime(recv_time)) + "." + str(int((recv_time % 1) * 1000)).zfill(3)
             except Exception as e:
                 ok, msg = False, f"异常: {e}"
                 recv_time = time.time()
-                rtt_ms = (recv_time - self.nm_last_request_time) * 1000 if hasattr(self, 'nm_last_request_time') else 0
-                send_str = time.strftime("%H:%M:%S", time.localtime(self.nm_last_request_time)) + "." + str(int((self.nm_last_request_time % 1) * 1000)).zfill(3) if hasattr(self, 'nm_last_request_time') else "??:??:??.???"
+                last_req = stop_flag.get("last_request_time", 0)
+                rtt_ms = (recv_time - last_req) * 1000 if last_req > 0 else 0
+                send_str = time.strftime("%H:%M:%S", time.localtime(last_req)) + "." + str(int((last_req % 1) * 1000)).zfill(3) if last_req > 0 else "??:??:??.???"
                 recv_str = time.strftime("%H:%M:%S", time.localtime(recv_time)) + "." + str(int((recv_time % 1) * 1000)).zfill(3)
 
             if ok:
@@ -4679,9 +4848,7 @@ class RushRewardFrame(tk.Frame):
                     self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 库存已使用完，切下一个优先级")
                     break
                 elif "-705" in msg or "-509" in msg or "-702" in msg or "请求过于频繁" in msg or "请求频率过高" in msg:
-                    # 风控，递增延迟
-                    increment = random_increments[min(attempt - 1, len(random_increments) - 1)] / 1000.0
-                    current_interval = min(current_interval + increment, 1.0)  # 上限1000ms
+                    # 风控，间隔保持基础间隔不变（靠±30ms波动）
                     self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 风控 {msg[:25]}，下次间隔 {current_interval*1000:.0f}ms")
                 else:
                     # 无风控（未成功但也没被风控），恢复基础间隔
@@ -4691,8 +4858,9 @@ class RushRewardFrame(tk.Frame):
                     else:
                         self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: {msg[:40]}")
 
-            # 等待到下次尝试（从请求发出时间开始计算，确保发出间隔固定）
-            next_time = self.nm_last_request_time + current_interval
+            # 等待到下次尝试（从请求发出时间开始计算，叠加±30ms随机波动）
+            fluctuation = random_fluctuations[min(attempt - 1, len(random_fluctuations) - 1)] / 1000.0
+            next_time = stop_flag.get("last_request_time", time.time()) + current_interval + fluctuation
             while time.time() < next_time and time.time() < deadline and not stop_flag["stop"]:
                 time.sleep(0.001)
 
@@ -5583,7 +5751,9 @@ class RushRewardFrame(tk.Frame):
     def build_task_info_from_task(self, task):
         """从任务列表数据构造task_info，根据版本设置正确的活动名称和act_id"""
         version = task.get("version", "")
-        if "原神" in version:
+        if version == "原神7.1":
+            act_name = "原神7.1版本UP主激励计划"
+        elif "原神" in version:
             act_name = "原神7.0版本创作激励计划"
         elif "崩坏" in version or "星穹" in version:
             act_name = "崩坏星穹铁道4.5版本创作激励计划"
@@ -7952,6 +8122,20 @@ class WatchLiveFrame(tk.Frame):
         # 检查次数
         if max_count <= 0:
             self.log("✗ 送礼次数必须大于0，请先设置送礼次数")
+            return
+        # 计算总消耗电池数（牛蛙牛蛙1电池/个）
+        total_battery = len(selected_accounts) * max_count * gift_num
+        # 确认弹窗，防止误触
+        confirm = messagebox.askyesno("送礼确认",
+            f"当前操作共计消耗 {total_battery} 电池\n\n"
+            f"账户数: {len(selected_accounts)} 个\n"
+            f"送礼次数: {max_count} 次\n"
+            f"每次数量: 牛蛙牛蛙x{gift_num}\n"
+            f"单个价格: 1电池/个\n\n"
+            f"是否继续？",
+            icon="warning")
+        if not confirm:
+            self.log("⏹ 已取消送礼操作")
             return
         self.save_gift_config()
         self.gift_running = True
@@ -11213,19 +11397,17 @@ class CardAuthFrame:
         btn_frame = tk.Frame(self.root, bg=COLORS["bg_dark"])
         btn_frame.pack(fill=tk.X, padx=40, pady=(20, 0))
         
-        self.verify_btn = tk.Button(btn_frame, text="验证激活", 
-                              bg=COLORS["accent"], fg="#000000",
-                              font=("微软雅黑", 11, "bold"),
-                              relief=tk.FLAT, cursor="hand2",
+        self.verify_btn = DarkButton(btn_frame, text="验证激活",
+                              width=160, height=44,
+                              bg_color=COLORS["accent"], text_color="#000000",
                               command=self._verify)
-        self.verify_btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5), ipady=8)
+        self.verify_btn.pack(side=tk.LEFT, padx=(0, 10), pady=0)
         
-        cancel_btn = tk.Button(btn_frame, text="退出", 
-                             bg=COLORS["danger"], fg="#ffffff",
-                             font=("微软雅黑", 11, "bold"),
-                             relief=tk.FLAT, cursor="hand2",
+        cancel_btn = DarkButton(btn_frame, text="退出",
+                             width=160, height=44,
+                             bg_color=COLORS["danger"], text_color="#ffffff",
                              command=self._cancel)
-        cancel_btn.pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=(5, 0), ipady=8)
+        cancel_btn.pack(side=tk.RIGHT, padx=(10, 0), pady=0)
         
         # 机器码显示
         machine_code = get_machine_code()
