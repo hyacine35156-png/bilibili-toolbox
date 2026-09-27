@@ -2843,6 +2843,11 @@ class RushRewardFrame(tk.Frame):
                 else:
                     self.log(f"  第{attempt}次: {msg} ({account['name']})")
 
+                # 检测奖励是否已结束（202129），直接停止
+                if "202129" in msg or "奖励领取已结束" in msg:
+                    self.log(f"  ⚠ 奖励领取已结束，自动停止领取")
+                    break
+
                 # 检测库存是否为空（错误码75255或消息包含"库存已经使用完"）
                 if "库存已经使用完" in msg or "75255" in msg:
                     if max_stock_seen > 0:
@@ -4847,6 +4852,9 @@ class RushRewardFrame(tk.Frame):
                 elif "75255" in msg or "库存已经使用完" in msg or "库存已使用完" in msg:
                     self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 库存已使用完，切下一个优先级")
                     break
+                elif "202129" in msg or "奖励领取已结束" in msg:
+                    self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 奖励领取已结束，切下一个优先级")
+                    break
                 elif "-705" in msg or "-509" in msg or "-702" in msg or "请求过于频繁" in msg or "请求频率过高" in msg:
                     # 风控，间隔保持基础间隔不变（靠±30ms波动）
                     self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 风控 {msg[:25]}，下次间隔 {current_interval*1000:.0f}ms")
@@ -5633,6 +5641,11 @@ class RushRewardFrame(tk.Frame):
             else:
                 self.log(f"  第{attempt}次: {msg} ({account['name']})")
 
+            # 检测奖励是否已结束（202129），直接停止
+            if "202129" in msg or "奖励领取已结束" in msg:
+                self.log(f"  ⚠ 奖励领取已结束，自动停止领取")
+                break
+
             # 检测库存是否为空
             if "库存已经使用完" in msg or "75255" in msg:
                 if max_stock_seen > 0:
@@ -5889,6 +5902,11 @@ class RushRewardFrame(tk.Frame):
                 break
             else:
                 self.log(f"  第{attempt}次: {msg} ({account['name']})")
+
+            # 检测奖励是否已结束（202129），直接停止
+            if "202129" in msg or "奖励领取已结束" in msg:
+                self.log(f"  ⚠ 奖励领取已结束，自动停止领取")
+                break
 
             # 检测库存是否为空（错误码75255或消息包含"库存已经使用完"）
             if "库存已经使用完" in msg or "75255" in msg:
