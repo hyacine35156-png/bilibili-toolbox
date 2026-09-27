@@ -102,7 +102,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.9.39"
+APP_VERSION = "v5.9.40"
 
 # ========== 任务信息缓存 ==========
 # 缓存已判定为"已领取"或"无剩余总量"的任务信息，避免重复查询API
@@ -6679,12 +6679,502 @@ class WatchLiveFrame(tk.Frame):
         self.gift_id_cache = None  # 缓存牛蛙牛蛙的gift_id
         self.gift_account_var = tk.StringVar(value="")  # 送礼账户下拉选择
         self.gift_account_battery = {}  # 送礼账户电池余额缓存
+        # 看播历史记录
+        self.watch_history = self.load_watch_history()
+        self.current_watch_record = None  # 当前进行中的看播记录
+        self.watch_snapshot_timer = None  # 快照定时器
         self.build_ui()
+        # 启动时检查是否有异常中断的快照
+        self.after(500, self.check_watch_snapshot)
         self.refresh_account_list()
         self.apply_watch_config()
         self.apply_gift_config()
         self.bind_auto_save()
         self.log("看播任务工具已启动，勾选账户和直播间后点击「开始看播」")
+
+
+    # ========== 看播历史记录功能 ==========
+    def load_watch_history(self):
+        """加载看播历史记录"""
+        history_file = BASE_DIR / "watch_history.json"
+        if history_file.exists():
+            try:
+                with open(history_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return []
+
+    def save_watch_history(self):
+        """保存看播历史记录"""
+        try:
+            history_file = BASE_DIR / "watch_history.json"
+            with open(history_file, "w", encoding="utf-8") as f:
+                json.dump(self.watch_history, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            self.log(f"⚠ 保存看播历史失败: {e}")
+
+    def start_watch_record(self, room_ids, selected_accounts):
+        """开始一条新的看播记录"""
+        import uuid
+        self.current_watch_record = {
+            "id": str(uuid.uuid4())[:8],
+            "start_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "start_timestamp": time.time(),
+            "end_time": None,
+            "duration_seconds": 0,
+            "target_minutes": self.duration_var.get(),
+            "room_ids": room_ids,
+            "accounts": [],
+            "status": "进行中",
+            "anomalies": [],
+            "heartbeat_interval": self.interval_var.get()
+        }
+        for acc in selected_accounts:
+            name = acc.get("name", "未知")
+            self.current_watch_record["accounts"].append({
+                "account_name": name,
+                "watch_seconds": 0,
+                "heartbeat_count": 0,
+                "status": "进入中",
+                "anomalies": []
+            })
+        self.log(f"[历史记录] 开始记录: {len(room_ids)}个直播间, {len(selected_accounts)}个账户")
+
+    def update_watch_record_stats(self):
+        """更新当前看播记录的统计数据"""
+        if not self.current_watch_record:
+            return
+        total_seconds = 0
+        for acc_rec in self.current_watch_record["accounts"]:
+            name = acc_rec["account_name"]
+            if name in self.account_stats:
+                stats = self.account_stats[name]
+                acc_rec["watch_seconds"] = stats.get("watch_seconds", 0)
+                acc_rec["heartbeat_count"] = stats.get("heartbeat_count", 0)
+                acc_rec["status"] = stats.get("status", "未知")
+                total_seconds = max(total_seconds, acc_rec["watch_seconds"])
+        self.current_watch_record["duration_seconds"] = total_seconds
+
+    def add_watch_anomaly(self, anomaly_type, message, account_name=None, room_id=None):
+        """添加异常事件到当前看播记录"""
+        if not self.current_watch_record:
+            return
+        anomaly = {
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "type": anomaly_type,
+            "message": message,
+            "account": account_name,
+            "room": room_id
+        }
+        self.current_watch_record["anomalies"].append(anomaly)
+        # 如果指定了账户，也添加到账户的异常列表
+        if account_name:
+            for acc_rec in self.current_watch_record["accounts"]:
+                if acc_rec["account_name"] == account_name:
+                    acc_rec["anomalies"].append(anomaly)
+                    break
+        self.log(f"[异常] {anomaly_type}: {message}")
+
+    def finish_watch_record(self, status="已完成"):
+        """结束当前看播记录并保存到历史"""
+        if not self.current_watch_record:
+            return
+        self.update_watch_record_stats()
+        self.current_watch_record["end_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.current_watch_record["status"] = status
+        # 插入到历史记录最前面
+        self.watch_history.insert(0, self.current_watch_record)
+        self.save_watch_history()
+        self.log(f"[历史记录] 已保存: {status}, 时长{self.current_watch_record['duration_seconds']}秒, 异常{len(self.current_watch_record['anomalies'])}次")
+        self.current_watch_record = None
+        # 停止快照定时器
+        if self.watch_snapshot_timer:
+            try:
+                self.after_cancel(self.watch_snapshot_timer)
+            except Exception:
+                pass
+            self.watch_snapshot_timer = None
+        # 删除快照文件
+        try:
+            snapshot_file = BASE_DIR / "watch_snapshot.json"
+            if snapshot_file.exists():
+                snapshot_file.unlink()
+        except Exception:
+            pass
+
+    def save_watch_snapshot(self):
+        """保存看播快照（每5分钟一次，用于异常中断恢复）"""
+        if not self.current_watch_record:
+            return
+        try:
+            self.update_watch_record_stats()
+            snapshot = {
+                "record": self.current_watch_record,
+                "snapshot_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "account_stats": {}
+            }
+            for name, stats in self.account_stats.items():
+                snapshot["account_stats"][name] = {
+                    "watch_seconds": stats.get("watch_seconds", 0),
+                    "heartbeat_count": stats.get("heartbeat_count", 0),
+                    "status": stats.get("status", "未知")
+                }
+            snapshot_file = BASE_DIR / "watch_snapshot.json"
+            with open(snapshot_file, "w", encoding="utf-8") as f:
+                json.dump(snapshot, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            self.log(f"⚠ 保存看播快照失败: {e}")
+        # 安排下一次快照（5分钟后）
+        if self.running and self.current_watch_record:
+            self.watch_snapshot_timer = self.after(300000, self.save_watch_snapshot)
+
+    def check_watch_snapshot(self):
+        """启动时检查是否有异常中断的快照"""
+        try:
+            snapshot_file = BASE_DIR / "watch_snapshot.json"
+            if not snapshot_file.exists():
+                return
+            with open(snapshot_file, "r", encoding="utf-8") as f:
+                snapshot = json.load(f)
+            record = snapshot.get("record", {})
+            snapshot_time = snapshot.get("snapshot_time", "未知")
+            # 将快照作为异常中断记录保存到历史
+            record["end_time"] = snapshot_time
+            record["status"] = "异常中断"
+            record["anomalies"].append({
+                "time": snapshot_time,
+                "type": "程序异常中断",
+                "message": f"程序在{snapshot_time}异常退出，看播未正常结束",
+                "account": None,
+                "room": None
+            })
+            self.watch_history.insert(0, record)
+            self.save_watch_history()
+            # 删除快照文件
+            snapshot_file.unlink()
+            # 弹窗警告
+            from tkinter import messagebox
+            self.after(100, lambda: messagebox.showwarning(
+                "看播异常中断",
+                f"检测到上次看播在 {snapshot_time} 异常中断！\n\n"
+                f"直播间: {', '.join(record.get('room_ids', []))}\n"
+                f"账户数: {len(record.get('accounts', []))}\n"
+                f"已观看: {record.get('duration_seconds', 0)}秒\n\n"
+                f"该记录已保存到历史记录中（标记为异常中断）。"
+            ))
+        except Exception as e:
+            self.log(f"⚠ 检查看播快照失败: {e}")
+
+
+    def show_watch_history(self):
+        """显示看播历史记录弹窗"""
+        if not hasattr(self, 'history_window') or not self.history_window.winfo_exists():
+            self.history_window = tk.Toplevel(self)
+            self.history_window.title("看播历史记录")
+            self.history_window.geometry("1100x700")
+            self.history_window.configure(bg=COLORS["bg_dark"])
+            self.history_window.transient(self.winfo_toplevel())
+            self._build_history_ui()
+        else:
+            self.history_window.lift()
+            self.history_window.focus_force()
+
+    def _build_history_ui(self):
+        """构建历史记录UI"""
+        win = self.history_window
+        # 顶部统计栏
+        stats_frame = tk.Frame(win, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
+        stats_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
+        self._update_history_stats(stats_frame)
+
+        # 工具栏
+        toolbar = tk.Frame(win, bg=COLORS["bg_dark"])
+        toolbar.pack(fill=tk.X, padx=10, pady=5)
+        tk.Label(toolbar, text=f"共 {len(self.watch_history)} 条记录", bg=COLORS["bg_dark"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        DarkButton(toolbar, "导出Excel", command=self.export_watch_history_excel, width=100, height=32, bg_color=COLORS["success"], text_color="#ffffff").pack(side=tk.RIGHT, padx=(5, 0))
+        DarkButton(toolbar, "刷新", command=self._refresh_history_view, width=80, height=32, bg_color=COLORS["accent"], text_color="#000000").pack(side=tk.RIGHT)
+
+        # 表格区域
+        table_frame = tk.Frame(win, bg=COLORS["bg_dark"])
+        table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        # 表头
+        columns = ("开始时间", "结束时间", "时长", "直播间", "账户", "状态", "异常")
+        self.history_tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=15)
+        col_widths = [150, 150, 80, 180, 200, 80, 80]
+        for col, width in zip(columns, col_widths):
+            self.history_tree.heading(col, text=col)
+            self.history_tree.column(col, width=width, anchor=tk.CENTER)
+        # 样式
+        style = ttk.Style()
+        style.configure("History.Treeview", background=COLORS["bg_card"], fieldbackground=COLORS["bg_card"], foreground=COLORS["text_primary"], rowheight=28, font=("微软雅黑", 9))
+        style.configure("History.Treeview.Heading", background=COLORS["bg_input"], foreground=COLORS["accent"], font=("微软雅黑", 10, "bold"))
+        self.history_tree.configure(style="History.Treeview")
+        # 标签（标红）
+        self.history_tree.tag_configure("anomaly", foreground=COLORS["danger"])
+        self.history_tree.tag_configure("warning", foreground=COLORS["warning"])
+        self.history_tree.tag_configure("success", foreground=COLORS["success"])
+
+        scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.history_tree.yview)
+        self.history_tree.configure(yscrollcommand=scrollbar.set)
+        self.history_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # 双击查看详情
+        self.history_tree.bind("<Double-1>", self._show_history_detail)
+
+        # 分页
+        self.history_page = 0
+        self.history_page_size = 20
+        page_frame = tk.Frame(win, bg=COLORS["bg_dark"])
+        page_frame.pack(fill=tk.X, padx=10, pady=(5, 10))
+        self.history_page_label = tk.Label(page_frame, text="", bg=COLORS["bg_dark"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
+        self.history_page_label.pack(side=tk.LEFT)
+        DarkButton(page_frame, "上一页", command=lambda: self._history_prev_page(), width=80, height=30, bg_color=COLORS["bg_input"], text_color=COLORS["text_primary"]).pack(side=tk.RIGHT, padx=(5, 0))
+        DarkButton(page_frame, "下一页", command=lambda: self._history_next_page(), width=80, height=30, bg_color=COLORS["bg_input"], text_color=COLORS["text_primary"]).pack(side=tk.RIGHT)
+
+        self._refresh_history_view()
+
+    def _update_history_stats(self, parent):
+        """更新统计信息"""
+        for widget in parent.winfo_children():
+            widget.destroy()
+        total = len(self.watch_history)
+        total_seconds = sum(r.get("duration_seconds", 0) for r in self.watch_history)
+        total_hours = total_seconds / 3600
+        anomaly_count = sum(len(r.get("anomalies", [])) for r in self.watch_history)
+        completed = sum(1 for r in self.watch_history if r.get("status") == "已完成")
+        interrupted = sum(1 for r in self.watch_history if r.get("status") == "异常中断")
+
+        stats = [
+            ("总记录数", f"{total} 次"),
+            ("总观看时长", f"{total_hours:.1f} 小时"),
+            ("已完成", f"{completed} 次"),
+            ("异常中断", f"{interrupted} 次"),
+            ("异常事件", f"{anomaly_count} 次"),
+        ]
+        for i, (label, value) in enumerate(stats):
+            frame = tk.Frame(parent, bg=COLORS["bg_card"])
+            frame.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=10, pady=8)
+            tk.Label(frame, text=label, bg=COLORS["bg_card"], fg=COLORS["text_muted"], font=("微软雅黑", 9)).pack()
+            color = COLORS["danger"] if "异常" in label else COLORS["accent"]
+            tk.Label(frame, text=value, bg=COLORS["bg_card"], fg=color, font=("微软雅黑", 13, "bold")).pack()
+
+    def _refresh_history_view(self):
+        """刷新历史记录表格"""
+        # 重新加载
+        self.watch_history = self.load_watch_history()
+        # 更新统计
+        stats_parent = self.history_window.winfo_children()[0]
+        self._update_history_stats(stats_parent)
+        # 清空表格
+        for item in self.history_tree.get_children():
+            self.history_tree.delete(item)
+        # 计算分页
+        total_pages = max(1, (len(self.watch_history) + self.history_page_size - 1) // self.history_page_size)
+        if self.history_page >= total_pages:
+            self.history_page = total_pages - 1
+        start = self.history_page * self.history_page_size
+        end = start + self.history_page_size
+        page_records = self.watch_history[start:end]
+
+        for record in page_records:
+            start_time = record.get("start_time", "-")
+            end_time = record.get("end_time", "-")
+            duration = f"{record.get('duration_seconds', 0)}秒"
+            rooms = ", ".join(record.get("room_ids", []))
+            if len(rooms) > 20:
+                rooms = rooms[:20] + "..."
+            accounts = ", ".join(a.get("account_name", "") for a in record.get("accounts", []))
+            if len(accounts) > 25:
+                accounts = accounts[:25] + "..."
+            status = record.get("status", "-")
+            anomaly_count = len(record.get("anomalies", []))
+            anomaly_text = f"{anomaly_count}次" if anomaly_count > 0 else "无"
+
+            # 确定标签
+            tags = ()
+            if anomaly_count > 0:
+                tags = ("anomaly",)
+            elif status == "已完成":
+                tags = ("success",)
+            elif status == "异常中断":
+                tags = ("anomaly",)
+            elif status == "已停止":
+                tags = ("warning",)
+
+            self.history_tree.insert("", tk.END, values=(start_time, end_time, duration, rooms, accounts, status, anomaly_text), tags=tags)
+
+        self.history_page_label.config(text=f"第 {self.history_page + 1}/{total_pages} 页（每页{self.history_page_size}条）")
+
+    def _history_prev_page(self):
+        if self.history_page > 0:
+            self.history_page -= 1
+            self._refresh_history_view()
+
+    def _history_next_page(self):
+        total_pages = max(1, (len(self.watch_history) + self.history_page_size - 1) // self.history_page_size)
+        if self.history_page < total_pages - 1:
+            self.history_page += 1
+            self._refresh_history_view()
+
+    def _show_history_detail(self, event):
+        """双击显示记录详情"""
+        selection = self.history_tree.selection()
+        if not selection:
+            return
+        item = selection[0]
+        values = self.history_tree.item(item, "values")
+        start_time = values[0]
+        # 找到对应的记录
+        record = None
+        for r in self.watch_history:
+            if r.get("start_time") == start_time:
+                record = r
+                break
+        if not record:
+            return
+
+        detail_win = tk.Toplevel(self.history_window)
+        detail_win.title(f"看播详情 - {start_time}")
+        detail_win.geometry("700x550")
+        detail_win.configure(bg=COLORS["bg_dark"])
+        detail_win.transient(self.history_window)
+
+        # 基本信息
+        info_frame = tk.Frame(detail_win, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
+        info_frame.pack(fill=tk.X, padx=10, pady=10)
+        tk.Label(info_frame, text="基本信息", bg=COLORS["bg_card"], fg=COLORS["accent"], font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=10, pady=(8, 4))
+        info_text = (
+            f"开始时间: {record.get('start_time', '-')}\n"
+            f"结束时间: {record.get('end_time', '-')}\n"
+            f"观看时长: {record.get('duration_seconds', 0)}秒（目标{record.get('target_minutes', 0)}分钟）\n"
+            f"直播间: {', '.join(record.get('room_ids', []))}\n"
+            f"状态: {record.get('status', '-')}\n"
+            f"心跳间隔: {record.get('heartbeat_interval', '-')}秒"
+        )
+        tk.Label(info_frame, text=info_text, bg=COLORS["bg_card"], fg=COLORS["text_primary"], font=("微软雅黑", 10), justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=(0, 10))
+
+        # 账户统计
+        acc_frame = tk.Frame(detail_win, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
+        acc_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        tk.Label(acc_frame, text="账户统计", bg=COLORS["bg_card"], fg=COLORS["accent"], font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=10, pady=(8, 4))
+        for acc in record.get("accounts", []):
+            acc_text = f"  {acc.get('account_name', '-')}: 观看{acc.get('watch_seconds', 0)}秒, 心跳{acc.get('heartbeat_count', 0)}次, 状态{acc.get('status', '-')}"
+            color = COLORS["danger"] if acc.get("anomalies") else COLORS["text_primary"]
+            tk.Label(acc_frame, text=acc_text, bg=COLORS["bg_card"], fg=color, font=("微软雅黑", 10), justify=tk.LEFT).pack(anchor=tk.W, padx=15)
+
+        # 异常事件
+        anom_frame = tk.Frame(detail_win, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
+        anom_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        tk.Label(anom_frame, text=f"异常事件（{len(record.get('anomalies', []))}次）", bg=COLORS["bg_card"], fg=COLORS["danger"], font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=10, pady=(8, 4))
+        if record.get("anomalies"):
+            text_widget = tk.Text(anom_frame, bg=COLORS["bg_dark"], fg=COLORS["text_primary"], font=("微软雅黑", 9), height=8, wrap=tk.WORD)
+            text_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+            for anom in record["anomalies"]:
+                line = f"[{anom.get('time', '-')}] {anom.get('type', '-')}: {anom.get('message', '-')}"
+                if anom.get("account"):
+                    line += f"（账户: {anom['account']}）"
+                if anom.get("room"):
+                    line += f"（直播间: {anom['room']}）"
+                text_widget.insert(tk.END, line + "\n")
+            text_widget.config(state=tk.DISABLED)
+        else:
+            tk.Label(anom_frame, text="  无异常事件", bg=COLORS["bg_card"], fg=COLORS["success"], font=("微软雅黑", 10)).pack(anchor=tk.W, padx=15, pady=(0, 10))
+
+    def export_watch_history_excel(self):
+        """导出看播历史记录为Excel"""
+        try:
+            from tkinter import filedialog
+            default_name = f"看播历史记录_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Excel文件", "*.xlsx")],
+                initialfile=default_name,
+                title="导出看播历史记录"
+            )
+            if not file_path:
+                return
+
+            try:
+                import openpyxl
+                from openpyxl.styles import Font, PatternFill, Alignment
+            except ImportError:
+                self.log("⚠ 未安装openpyxl，尝试使用csv格式导出")
+                # 降级为CSV
+                csv_path = file_path.replace(".xlsx", ".csv")
+                with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
+                    import csv
+                    writer = csv.writer(f)
+                    writer.writerow(["开始时间", "结束时间", "观看时长(秒)", "目标时长(分钟)", "直播间", "账户", "状态", "异常次数", "异常详情"])
+                    for r in self.watch_history:
+                        anom_details = "; ".join(f"[{a.get('time','')}]{a.get('type','')}:{a.get('message','')}" for a in r.get("anomalies", []))
+                        writer.writerow([
+                            r.get("start_time", ""),
+                            r.get("end_time", ""),
+                            r.get("duration_seconds", 0),
+                            r.get("target_minutes", 0),
+                            ", ".join(r.get("room_ids", [])),
+                            ", ".join(a.get("account_name", "") for a in r.get("accounts", [])),
+                            r.get("status", ""),
+                            len(r.get("anomalies", [])),
+                            anom_details
+                        ])
+                self.log(f"✓ 已导出CSV: {csv_path}")
+                return
+
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "看播历史记录"
+
+            # 表头
+            headers = ["开始时间", "结束时间", "观看时长(秒)", "目标时长(分钟)", "直播间", "账户", "状态", "异常次数", "异常详情"]
+            header_fill = PatternFill(start_color="16213e", end_color="16213e", fill_type="solid")
+            header_font = Font(color="00d9ff", bold=True, size=11)
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col, value=header)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+
+            # 数据
+            danger_fill = PatternFill(start_color="2d1b1b", end_color="2d1b1b", fill_type="solid")
+            for row_idx, r in enumerate(self.watch_history, 2):
+                anom_details = "; ".join(f"[{a.get('time','')}]{a.get('type','')}:{a.get('message','')}" for a in r.get("anomalies", []))
+                values = [
+                    r.get("start_time", ""),
+                    r.get("end_time", ""),
+                    r.get("duration_seconds", 0),
+                    r.get("target_minutes", 0),
+                    ", ".join(r.get("room_ids", [])),
+                    ", ".join(a.get("account_name", "") for a in r.get("accounts", [])),
+                    r.get("status", ""),
+                    len(r.get("anomalies", [])),
+                    anom_details
+                ]
+                for col, value in enumerate(values, 1):
+                    cell = ws.cell(row=row_idx, column=col, value=value)
+                    cell.alignment = Alignment(vertical="center", wrap_text=True)
+                    if len(r.get("anomalies", [])) > 0:
+                        cell.fill = danger_fill
+                        cell.font = Font(color="ff4757")
+
+            # 列宽
+            widths = [18, 18, 12, 14, 25, 30, 10, 10, 50]
+            for col, width in enumerate(widths, 1):
+                ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = width
+
+            wb.save(file_path)
+            self.log(f"✓ 已导出Excel: {file_path}")
+            from tkinter import messagebox
+            messagebox.showinfo("导出成功", f"看播历史记录已导出到:\n{file_path}")
+        except Exception as e:
+            import traceback
+            self.log(f"[错误] 导出Excel失败: {e}")
+            self.log(traceback.format_exc())
+            from tkinter import messagebox
+            messagebox.showerror("导出失败", f"导出Excel失败: {e}")
 
     def load_watch_config(self):
         default = {"room_id": "1791983148", "daily_minutes": 30, "heartbeat_interval": 60, "selected_accounts": [], "room_history": []}
@@ -6995,6 +7485,8 @@ class WatchLiveFrame(tk.Frame):
         self.stop_btn = DarkButton(row2, "■ 停止看播", command=self.stop_watch, width=160, height=40, bg_color=COLORS["danger"], text_color="#ffffff")
         self.stop_btn.pack(side=tk.LEFT)
         self.stop_btn.config(state=tk.DISABLED)
+        self.history_btn = DarkButton(row2, "📋 历史记录", command=self.show_watch_history, width=120, height=40, bg_color=COLORS["accent"], text_color="#000000")
+        self.history_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         # 送礼设置卡片
         gift_card = tk.Frame(right, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
@@ -7797,6 +8289,10 @@ class WatchLiveFrame(tk.Frame):
             room_display = ", ".join(room_ids)
             self.log(f"开始看播，直播间: {room_display}（共{len(room_ids)}个），账户: {len(selected_accounts)}个")
             self.log(f"目标时长: {self.duration_var.get()} 分钟，心跳间隔: {self.interval_var.get()} 秒")
+            # 开始历史记录
+            self.start_watch_record(room_ids, selected_accounts)
+            # 启动快照定时器（5分钟后第一次）
+            self.watch_snapshot_timer = self.after(300000, self.save_watch_snapshot)
             self.watch_thread = threading.Thread(target=self._watch_loop, args=(room_ids, selected_accounts), daemon=True)
             self.watch_thread.start()
         except Exception as e:
@@ -7843,6 +8339,9 @@ class WatchLiveFrame(tk.Frame):
             self.account_stats[name]["status"] = "已停止"
         self.refresh_status_tree()
         self.log("已停止看播")
+        # 结束历史记录
+        if self.current_watch_record:
+            self.finish_watch_record(status="已停止")
 
     def _watch_loop(self, room_ids, selected_accounts):
         import random
@@ -7864,6 +8363,7 @@ class WatchLiveFrame(tk.Frame):
                     self.log(f"  [{name}] ✓ 直播间 {rid} {msg}")
                 else:
                     self.log(f"  [{name}] ✗ 直播间 {rid} {msg}")
+                    self.add_watch_anomaly("进入直播间失败", msg, account_name=name, room_id=rid)
                 time.sleep(random.uniform(0.5, 1.5))
             if entered_count > 0:
                 self.account_stats[name]["status"] = "观看中"
@@ -7953,6 +8453,7 @@ class WatchLiveFrame(tk.Frame):
                     stats["last_heartbeat"] = datetime.now()
                     if not success:
                         self.log(f"  [{name}] 直播间{rid} 心跳失败: {msg}")
+                        self.add_watch_anomaly("心跳失败", msg, account_name=name, room_id=rid)
                     time.sleep(random.uniform(0.3, 0.8))
                 # 播放模拟在独立线程中持续执行
                 if stats["heartbeat_count"] % (5 * len(room_ids)) < len(room_ids):
@@ -7965,6 +8466,9 @@ class WatchLiveFrame(tk.Frame):
 
     def _on_watch_finished(self):
         self.stop_flag["stop"] = True
+        # 结束历史记录（已完成状态）
+        if self.current_watch_record:
+            self.finish_watch_record(status="已完成")
         for name in self.x25kn_stop:
             self.x25kn_stop[name] = True
         self.x25kn_threads = {}
@@ -11595,6 +12099,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
