@@ -6872,7 +6872,7 @@ class WatchLiveFrame(tk.Frame):
         if not hasattr(self, 'history_window') or not self.history_window.winfo_exists():
             self.history_window = tk.Toplevel(self)
             self.history_window.title("看播历史记录")
-            self.history_window.geometry("1100x700")
+            self.history_window.geometry("1300x750")
             self.history_window.configure(bg=COLORS["bg_dark"])
             self.history_window.transient(self.winfo_toplevel())
             self._build_history_ui()
@@ -6902,7 +6902,7 @@ class WatchLiveFrame(tk.Frame):
         # 表头
         columns = ("开始时间", "结束时间", "时长", "直播间", "账户", "状态", "异常")
         self.history_tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=15)
-        col_widths = [150, 150, 80, 180, 200, 80, 80]
+        col_widths = [160, 160, 90, 260, 300, 90, 100]
         for col, width in zip(columns, col_widths):
             self.history_tree.heading(col, text=col)
             self.history_tree.column(col, width=width, anchor=tk.CENTER)
@@ -7485,7 +7485,7 @@ class WatchLiveFrame(tk.Frame):
         self.stop_btn = DarkButton(row2, "■ 停止看播", command=self.stop_watch, width=160, height=40, bg_color=COLORS["danger"], text_color="#ffffff")
         self.stop_btn.pack(side=tk.LEFT)
         self.stop_btn.config(state=tk.DISABLED)
-        self.history_btn = DarkButton(row2, "📋 历史记录", command=self.show_watch_history, width=120, height=40, bg_color=COLORS["accent"], text_color="#000000")
+        self.history_btn = DarkButton(row2, "📋 历史记录", command=self.show_watch_history, width=160, height=40, bg_color=COLORS["accent"], text_color="#000000")
         self.history_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         # 送礼设置卡片
@@ -12099,6 +12099,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
 
 
 
