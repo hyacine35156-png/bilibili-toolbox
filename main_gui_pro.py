@@ -809,13 +809,15 @@ def get_wbi_keys(cookies_dict):
     try:
         resp = requests.get(USER_INFO_API, headers=headers, cookies=cookies_dict, timeout=10)
         data = resp.json()
-        if data.get("code") == 0:
-            wbi_img = data["data"]["wbi_img"]
+        # wbi_img在登录和未登录时都会返回，不限制code==0
+        wbi_img = data.get("data", {}).get("wbi_img")
+        if wbi_img and wbi_img.get("img_url") and wbi_img.get("sub_url"):
             img_key = wbi_img["img_url"].rsplit("/", 1)[1].split(".")[0]
             sub_key = wbi_img["sub_url"].rsplit("/", 1)[1].split(".")[0]
-            # 存入缓存
-            _WBI_KEY_CACHE[cookie_hash] = (img_key, sub_key, now + _WBI_CACHE_TTL)
-            return img_key, sub_key
+            if img_key and sub_key:
+                # 存入缓存
+                _WBI_KEY_CACHE[cookie_hash] = (img_key, sub_key, now + _WBI_CACHE_TTL)
+                return img_key, sub_key
     except Exception:
         pass
     return None, None
