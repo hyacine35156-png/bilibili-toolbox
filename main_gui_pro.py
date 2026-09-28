@@ -422,6 +422,19 @@ ALL_TASKS = [
     {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积30天看播", "task_id": "18ERA1wloghv1ng00", "award": "原石*200"},
     {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积40天看播", "task_id": "18ERA1wloghv1me00", "award": "原石*200"},
 
+
+    # ===== 崩坏星穹铁道4.6（投稿任务）=====
+    # 上半 - 投稿任务
+    {"version": "崩坏星穹铁道4.6", "period": "上半", "type": "投稿", "name": "累计1天投稿", "task_id": "6ERAcwloghvp2600", "award": "星琼*50"},
+    {"version": "崩坏星穹铁道4.6", "period": "上半", "type": "投稿", "name": "累计5天投稿，总播≥1000且收到三连10", "task_id": "6ERAcwloghvp6y00", "award": "星琼*300"},
+    {"version": "崩坏星穹铁道4.6", "period": "上半", "type": "投稿", "name": "累计7天投稿，总播≥2000且收到三连30", "task_id": "6ERAcwloghvp2500", "award": "星琼*500"},
+    # 下半 - 投稿任务
+    {"version": "崩坏星穹铁道4.6", "period": "下半", "type": "投稿", "name": "累计1天投稿", "task_id": "6ERAcwloghvpt100", "award": "星琼*50"},
+    {"version": "崩坏星穹铁道4.6", "period": "下半", "type": "投稿", "name": "累计5天投稿，总播≥1000且收到三连10", "task_id": "6ERAcwloghvpii00", "award": "星琼*300"},
+    {"version": "崩坏星穹铁道4.6", "period": "下半", "type": "投稿", "name": "累计7天投稿，总播≥2000且收到三连30", "task_id": "6ERAcwloghvayj00", "award": "星琼*500"},
+    # 特殊投稿任务
+    {"version": "崩坏星穹铁道4.6", "period": "全版本", "type": "投稿", "name": "累计播放量5万", "task_id": "6ERAcwloghvolz00", "award": "星琼*600"},
+
     # ===== 绝区零3.2 =====
     # 全版本 - 直播里程碑任务
     {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计3天完成开播及互动任务", "task_id": "18ERA1wloghvv9m00", "award": "菲林*360"},
@@ -463,6 +476,7 @@ TASK_ACT_ID_CACHE = {}
 VERSION_DEFAULT_ACT_ID = {
     "鸣潮3.6": "1ERAzwloghvn7l00",
     "原神7.1": "1ERA3wloghv6q200",
+    "崩坏星穹铁道4.6": "1ERAzwloghv3q100",
     "绝区零3.2": "1ERAzwloghvbmi00",
 }
 
@@ -2153,7 +2167,7 @@ class RushRewardFrame(tk.Frame):
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
         self.version_var = tk.StringVar(value="鸣潮3.6")
         self.version_combo = ttk.Combobox(row1, textvariable=self.version_var,
-                                           values=["鸣潮3.6", "原神7.1", "绝区零3.2"], state="readonly",
+                                           values=["鸣潮3.6", "原神7.1", "崩坏星穹铁道4.6", "绝区零3.2"], state="readonly",
                                            width=14, font=("微软雅黑", 11))
         self.version_combo.pack(side=tk.LEFT, padx=(8, 15))
         self.version_combo.bind("<<ComboboxSelected>>", lambda e: self.on_version_change())
@@ -3116,7 +3130,7 @@ class RushRewardFrame(tk.Frame):
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
         self.nm_version_var = tk.StringVar(value="鸣潮3.6")
         self.nm_version_combo = ttk.Combobox(row1, textvariable=self.nm_version_var,
-                                             values=["鸣潮3.6", "原神7.1", "绝区零3.2"],
+                                             values=["鸣潮3.6", "原神7.1", "崩坏星穹铁道4.6", "绝区零3.2"],
                                              state="readonly", width=14, font=("微软雅黑", 11))
         self.nm_version_combo.pack(side=tk.LEFT, padx=(8, 15))
         self.nm_version_combo.bind("<<ComboboxSelected>>", lambda e: self.nm_on_version_change())
