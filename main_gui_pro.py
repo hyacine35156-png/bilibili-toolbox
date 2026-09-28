@@ -435,7 +435,15 @@ ALL_TASKS = [
     {"version": "崩坏星穹铁道4.6", "period": "下半", "type": "投稿", "name": "累计5天投稿，总播≥1000且收到三连10", "task_id": "6ERAcwloghvpii00", "award": "星琼*300"},
     {"version": "崩坏星穹铁道4.6", "period": "下半", "type": "投稿", "name": "累计7天投稿，总播≥2000且收到三连30", "task_id": "6ERAcwloghvayj00", "award": "星琼*500"},
     # 特殊投稿任务
+    {"version": "崩坏星穹铁道4.6", "period": "全版本", "type": "投稿", "name": "累计播放量3万", "task_id": "6ERAcwloghvozs00", "award": "星琼*300"},
     {"version": "崩坏星穹铁道4.6", "period": "全版本", "type": "投稿", "name": "累计播放量5万", "task_id": "6ERAcwloghvolz00", "award": "星琼*600"},
+    {"version": "崩坏星穹铁道4.6", "period": "全版本", "type": "投稿", "name": "累计播放量10万", "task_id": "6ERAcwloghvpga00", "award": "星琼*1000"},
+    {"version": "崩坏星穹铁道4.6", "period": "全版本", "type": "投稿", "name": "累计播放量30万", "task_id": "6ERAcwloghvpnt00", "award": "星轨通票*10"},
+    # 新人限定 - 直播任务
+    {"version": "崩坏星穹铁道4.6", "period": "新人限定", "type": "直播", "name": "【新人】累积1天开播", "task_id": "18ERA1wloghvcjw00", "award": "星轨通票*1"},
+    {"version": "崩坏星穹铁道4.6", "period": "新人限定", "type": "直播", "name": "【新人】累积3天开播", "task_id": "18ERA1wloghv18w00", "award": "星琼*50"},
+    {"version": "崩坏星穹铁道4.6", "period": "新人限定", "type": "直播", "name": "【新人】累积5天开播", "task_id": "18ERA1wloghvctt00", "award": "星轨通票*2"},
+    {"version": "崩坏星穹铁道4.6", "period": "新人限定", "type": "直播", "name": "【新人】累积10天开播", "task_id": "18ERA1wloghv1cn00", "award": "星琼*200"},
 
     # ===== 绝区零3.2 =====
     # 全版本 - 直播里程碑任务
@@ -12100,6 +12108,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
