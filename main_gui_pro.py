@@ -422,38 +422,6 @@ ALL_TASKS = [
     {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积30天看播", "task_id": "18ERA1wloghv1ng00", "award": "原石*200"},
     {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积40天看播", "task_id": "18ERA1wloghv1me00", "award": "原石*200"},
 
-    # ===== 崩坏星穹铁道4.5（限时投稿任务）=====
-    # 限时任务1（8月26日-9月10日）- 投稿任务
-    {"version": "崩坏星穹铁道4.5", "period": "限时任务1", "type": "投稿", "name": "累计1天投稿", "task_id": "6ERAcwloghvsaz00", "award": "星琼*50"},
-    {"version": "崩坏星穹铁道4.5", "period": "限时任务1", "type": "投稿", "name": "累计3天投稿三连×2", "task_id": "6ERAcwloghvsrw00", "award": "星轨通票*1"},
-    {"version": "崩坏星穹铁道4.5", "period": "限时任务1", "type": "投稿", "name": "累计5天投稿三连≥5且播放≥1000", "task_id": "6ERAcwloghvsry00", "award": "星琼*300"},
-    # 限时任务2（9月11日-9月27日）- 投稿任务
-    {"version": "崩坏星穹铁道4.5", "period": "限时任务2", "type": "投稿", "name": "累计1天投稿", "task_id": "6ERAcwloghvyud00", "award": "星琼*50"},
-    {"version": "崩坏星穹铁道4.5", "period": "限时任务2", "type": "投稿", "name": "累计3天投稿三连×2", "task_id": "6ERAcwloghvybs00", "award": "星轨通票*1"},
-    {"version": "崩坏星穹铁道4.5", "period": "限时任务2", "type": "投稿", "name": "累计5天投稿三连×10且播放≥1000", "task_id": "6ERAcwloghvang00", "award": "星琼*300"},
-    # 限时直播任务
-    {"version": "崩坏星穹铁道4.5", "period": "限时直播", "type": "直播", "name": "8月26日-9月1日开播≥60分钟且弹幕人数≥4人", "task_id": "6ERAcwloghvymk00", "award": "星琼*50"},
-    {"version": "崩坏星穹铁道4.5", "period": "限时直播", "type": "直播", "name": "9月11日-9月17日开播≥60分钟且弹幕人数≥4人", "task_id": "6ERAcwloghvy6e00", "award": "星琼*50"},
-    # 新人限定任务
-    {"version": "崩坏星穹铁道4.5", "period": "新人限定", "type": "直播", "name": "累积1天开播", "task_id": "18ERA1wloghvv2w00", "award": "星轨通票*1"},
-    {"version": "崩坏星穹铁道4.5", "period": "新人限定", "type": "直播", "name": "累积3天开播", "task_id": "18ERA1wloghvbfe00", "award": "星琼*50"},
-    {"version": "崩坏星穹铁道4.5", "period": "新人限定", "type": "直播", "name": "累积7天开播", "task_id": "18ERA1wloghvbuc00", "award": "星轨通票*2"},
-    {"version": "崩坏星穹铁道4.5", "period": "新人限定", "type": "直播", "name": "累积14天开播", "task_id": "18ERA1wloghvbww00", "award": "星琼*200"},
-    # 限时任务1 - 高阶投稿任务
-    {"version": "崩坏星穹铁道4.5", "period": "限时任务1", "type": "投稿", "name": "累计7天投稿总播≥2000且三连≥30", "task_id": "6ERAcwloghvsal00", "award": "星琼*500"},
-    # 限时任务2 - 高阶投稿任务
-    {"version": "崩坏星穹铁道4.5", "period": "限时任务2", "type": "投稿", "name": "累计7天投稿总播≥2000且三连≥30", "task_id": "6ERAcwloghvudj00", "award": "星琼*500"},
-    # 直播里程碑任务（9月11日-9月27日）
-    {"version": "崩坏星穹铁道4.5", "period": "直播里程碑（下半）", "type": "直播", "name": "累计3天完成开播及互动任务", "task_id": "18ERA1wloghvbtg00", "award": "星轨通票*2"},
-    {"version": "崩坏星穹铁道4.5", "period": "直播里程碑（下半）", "type": "直播", "name": "累计5天完成开播及互动任务", "task_id": "18ERA1wloghvv0w00", "award": "星琼*600"},
-    {"version": "崩坏星穹铁道4.5", "period": "直播里程碑（下半）", "type": "直播", "name": "累计10天完成开播及互动任务", "task_id": "18ERA1wloghvbye00", "award": "星琼*800"},
-    {"version": "崩坏星穹铁道4.5", "period": "直播里程碑（下半）", "type": "直播", "name": "累计15天完成开播及互动任务", "task_id": "18ERA1wloghvbr900", "award": "星琼*1000"},
-    # 直播特殊任务
-    {"version": "崩坏星穹铁道4.5", "period": "直播里程碑（下半）", "type": "直播", "name": "直播间新增1名舰长", "task_id": "6ERAcwloghvymq00", "award": "星轨通票*3"},
-    # 每日直播任务
-    {"version": "崩坏星穹铁道4.5", "period": "每日直播", "type": "直播", "name": "【每日】开播满60分钟且有效观看≥15分钟", "task_id": "6ERAcwloghva5j00", "award": "冒险记录*6+遗失碎金*5"},
-    {"version": "崩坏星穹铁道4.5", "period": "每日直播", "type": "直播", "name": "【每日】获得礼物≥10电池且弹幕人数≥4人", "task_id": "6ERAcwloghvy4d00", "award": "漫游指南*2+信用点*11111"},
-
     # ===== 绝区零3.2 =====
     # 全版本 - 直播里程碑任务
     {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计3天完成开播及互动任务", "task_id": "18ERA1wloghvv9m00", "award": "菲林*360"},
@@ -495,7 +463,6 @@ TASK_ACT_ID_CACHE = {}
 VERSION_DEFAULT_ACT_ID = {
     "鸣潮3.6": "1ERAzwloghvn7l00",
     "原神7.1": "1ERA3wloghv6q200",
-    "崩坏星穹铁道4.5": "1ERAzwloghvb5600",
     "绝区零3.2": "1ERAzwloghvbmi00",
 }
 
@@ -2186,7 +2153,7 @@ class RushRewardFrame(tk.Frame):
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
         self.version_var = tk.StringVar(value="鸣潮3.6")
         self.version_combo = ttk.Combobox(row1, textvariable=self.version_var,
-                                           values=["鸣潮3.6", "原神7.1", "崩坏星穹铁道4.5", "绝区零3.2"], state="readonly",
+                                           values=["鸣潮3.6", "原神7.1", "绝区零3.2"], state="readonly",
                                            width=14, font=("微软雅黑", 11))
         self.version_combo.pack(side=tk.LEFT, padx=(8, 15))
         self.version_combo.bind("<<ComboboxSelected>>", lambda e: self.on_version_change())
@@ -3147,9 +3114,9 @@ class RushRewardFrame(tk.Frame):
         row1.pack(fill=tk.X, pady=3)
         tk.Label(row1, text="版本", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
-        self.nm_version_var = tk.StringVar(value="崩坏星穹铁道4.5")
+        self.nm_version_var = tk.StringVar(value="鸣潮3.6")
         self.nm_version_combo = ttk.Combobox(row1, textvariable=self.nm_version_var,
-                                             values=["鸣潮3.6", "原神7.1", "崩坏星穹铁道4.5", "绝区零3.2"],
+                                             values=["鸣潮3.6", "原神7.1", "绝区零3.2"],
                                              state="readonly", width=14, font=("微软雅黑", 11))
         self.nm_version_combo.pack(side=tk.LEFT, padx=(8, 15))
         self.nm_version_combo.bind("<<ComboboxSelected>>", lambda e: self.nm_on_version_change())
@@ -12117,6 +12084,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
 
 
 
