@@ -445,6 +445,26 @@ ALL_TASKS = [
     {"version": "崩坏星穹铁道4.6", "period": "新人限定", "type": "直播", "name": "【新人】累积5天开播", "task_id": "18ERA1wloghvctt00", "award": "星轨通票*2"},
     {"version": "崩坏星穹铁道4.6", "period": "新人限定", "type": "直播", "name": "【新人】累积10天开播", "task_id": "18ERA1wloghv1cn00", "award": "星琼*200"},
 
+
+    # 每日任务
+    {"version": "崩坏星穹铁道4.6", "period": "每日", "type": "直播", "name": "【每日】开播60分钟+观看15分钟", "task_id": "6ERAcwloghvalh00", "award": "冒险记录*6+遗失碎金*5"},
+    {"version": "崩坏星穹铁道4.6", "period": "每日", "type": "直播", "name": "【每日】礼物≥10电池+弹幕≥4人", "task_id": "6ERAcwloghvoaq00", "award": "漫游指南*2+信用点*11111"},
+    # 限时直播任务
+    {"version": "崩坏星穹铁道4.6", "period": "上半", "type": "直播", "name": "【限时】开播（9.28-10.4）", "task_id": "6ERAcwloghvpjz00", "award": "星琼*50"},
+    {"version": "崩坏星穹铁道4.6", "period": "下半", "type": "直播", "name": "【限时】开播（10.21-10.27）", "task_id": "6ERAcwloghvp4k00", "award": "星琼*50"},
+    # 直播里程碑 - 上半
+    {"version": "崩坏星穹铁道4.6", "period": "上半", "type": "直播", "name": "【里程碑】累积3天开播", "task_id": "18ERA1wloghvcg100", "award": "星轨通票*2"},
+    {"version": "崩坏星穹铁道4.6", "period": "上半", "type": "直播", "name": "【里程碑】累积5天开播", "task_id": "18ERA1wloghvczg00", "award": "星琼*600"},
+    {"version": "崩坏星穹铁道4.6", "period": "上半", "type": "直播", "name": "【里程碑】累积10天开播", "task_id": "18ERA1wloghvcer00", "award": "星琼*800"},
+    {"version": "崩坏星穹铁道4.6", "period": "上半", "type": "直播", "name": "【里程碑】累积15天开播", "task_id": "18ERA1wloghv16700", "award": "星琼*1000"},
+    {"version": "崩坏星穹铁道4.6", "period": "上半", "type": "直播", "name": "直播间新增1名舰长", "task_id": "6ERAcwloghvasy00", "award": "星轨通票*3"},
+    # 直播里程碑 - 下半
+    {"version": "崩坏星穹铁道4.6", "period": "下半", "type": "直播", "name": "【里程碑】累积3天开播", "task_id": "18ERA1wloghv1ch00", "award": "星轨通票*2"},
+    {"version": "崩坏星穹铁道4.6", "period": "下半", "type": "直播", "name": "【里程碑】累积5天开播", "task_id": "18ERA1wloghv1nd00", "award": "星琼*600"},
+    {"version": "崩坏星穹铁道4.6", "period": "下半", "type": "直播", "name": "【里程碑】累积10天开播", "task_id": "18ERA1wloghvcsq00", "award": "星琼*800"},
+    {"version": "崩坏星穹铁道4.6", "period": "下半", "type": "直播", "name": "【里程碑】累积15天开播", "task_id": "18ERA1wloghvcva00", "award": "星琼*1000"},
+    {"version": "崩坏星穹铁道4.6", "period": "下半", "type": "直播", "name": "直播间新增1名舰长", "task_id": "6ERAcwloghvp7x00", "award": "星轨通票*3"},
+
     # ===== 绝区零3.2 =====
     # 全版本 - 直播里程碑任务
     {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计3天完成开播及互动任务", "task_id": "18ERA1wloghvv9m00", "award": "菲林*360"},
@@ -12108,6 +12128,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
