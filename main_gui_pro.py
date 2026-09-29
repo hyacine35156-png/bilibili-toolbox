@@ -102,7 +102,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.9.42"
+APP_VERSION = "v5.9.43"
 
 # ========== 任务信息缓存 ==========
 # 缓存已判定为"已领取"或"无剩余总量"的任务信息，避免重复查询API
@@ -6070,22 +6070,25 @@ class RushRewardFrame(tk.Frame):
                 stock_parts.append(f"今日{day_stock}%")
                 stock_text = "/".join(stock_parts)
 
-                try:
-                    self.after(0, lambda: self.stock_label.config(
-                        text=f"库存：{stock_text} | 更新：{update_time}",
-                        fg=COLORS["success"] if day_stock > 0 else COLORS["warning"]
-                    ))
-                    # 更新任务完成情况
-                    if task_finished:
-                        self.after(0, lambda: self.task_finish_label.config(
-                            text="任务完成：已完成 ✓", fg=COLORS["success"]
-                        ))
-                    else:
-                        self.after(0, lambda: self.task_finish_label.config(
-                            text="任务完成：未完成", fg=COLORS["warning"]
-                        ))
-                except Exception:
-                    pass
+                # 安全更新UI（用默认参数捕获变量当前值，避免闭包延迟绑定问题）
+                def _update_ui(st=stock_text, ut=update_time, ds=day_stock, tf=task_finished, st_code=status, msg=info.get("message", "")):
+                    try:
+                        self.stock_label.config(
+                            text=f"库存：{st} | 更新：{ut}",
+                            fg=COLORS["success"] if ds > 0 else COLORS["warning"]
+                        )
+                        if tf:
+                            self.task_finish_label.config(text="任务完成：已完成 ✓", fg=COLORS["success"])
+                        else:
+                            self.task_finish_label.config(text="任务完成：未完成", fg=COLORS["warning"])
+                        # 更新领取资格
+                        if tf and st_code in [0, 1]:
+                            self.qualify_label.config(text="领取资格：已完成任务，可以领取", fg=COLORS["success"])
+                        else:
+                            self.qualify_label.config(text=f"领取资格：{msg} (状态:{st_code})", fg=COLORS["warning"])
+                    except Exception:
+                        pass
+                self.after(0, _update_ui)
 
                 if query_count % 10 == 0 or day_stock > 0:
                     self.log(f"[{query_count}] {account['name']} | 库存:{stock_text} | 来源:{stock_source} | 状态:{info.get('message','')} | 更新:{update_time}")
