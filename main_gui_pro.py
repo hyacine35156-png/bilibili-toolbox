@@ -102,7 +102,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.9.44"
+APP_VERSION = "v5.9.45"
 
 # ========== 任务信息缓存 ==========
 # 缓存已判定为"已领取"或"无剩余总量"的任务信息，避免重复查询API
@@ -3758,15 +3758,8 @@ class RushRewardFrame(tk.Frame):
             total_stock = stock_info.get("total_stock", 0)
             total_remain = stock_info.get("total_remain_num", 0)
             day_remain = stock_info.get("day_remain_num", 0)
-            # 有剩余总库存才算可抢
-            stock_available = (total_stock > 0)
-            # 也检查描述中的库存（如果API返回的库存为0，但描述中有库存）
-            reward_info = info.get("reward_info", {})
-            award_desc = reward_info.get("award_description", "")
-            import re as _re
-            desc_match = _re.search(r'共(\d+)份', award_desc)
-            if not stock_available and desc_match and total_stock == 0:
-                stock_available = int(desc_match.group(1)) > 0
+            # 有剩余总库存才算可抢（total_stock是剩余百分比，total_remain是剩余数量）
+            stock_available = (total_stock > 0) or (total_remain > 0)
             status = info.get("status", -1)
             status_map = {0: "可领取", 1: "可领取", 2: "已领取/每日上限", 6: "已领取过", 7: "无资格", 11: "未到时间"}
             status_text = status_map.get(status, f"状态{status}")
