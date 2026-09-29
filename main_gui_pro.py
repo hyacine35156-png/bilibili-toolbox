@@ -102,7 +102,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.9.45"
+APP_VERSION = "v5.9.46"
 
 # ========== 任务信息缓存 ==========
 # 缓存已判定为"已领取"或"无剩余总量"的任务信息，避免重复查询API
@@ -8172,6 +8172,8 @@ class WatchLiveFrame(tk.Frame):
         last_m3u8_refresh = 0
         current_ts_urls = []
         base_url = ""
+        consecutive_404 = 0  # 连续视频流404计数
+        stream_paused = False  # 播放流是否已暂停（连续404过多时暂停，心跳继续）
         self.log(f"  [{name}] 播放线程已启动")
         
         while not self.stop_flag["stop"] and self.running:
@@ -8193,8 +8195,30 @@ class WatchLiveFrame(tk.Frame):
                         if resp.status_code != 200:
                             self.log(f"  [{name}] 视频流连接失败: HTTP {resp.status_code}")
                             resp.close()
-                            time.sleep(5)
+                            # 连续404检测：直播间可能已关播
+                            if resp.status_code == 404:
+                                consecutive_404 += 1
+                                if consecutive_404 == 3:
+                                    self.add_watch_anomaly("直播间关播", f"视频流连续3次HTTP 404，直播间{room_id}可能已关播", account_name=name, room_id=str(room_id))
+                                    self.log(f"  [{name}] ⚠ 连续3次404，判定直播间可能关播，已记录异常，加大重试间隔")
+                                if consecutive_404 >= 10 and not stream_paused:
+                                    stream_paused = True
+                                    self.add_watch_anomaly("播放暂停", f"视频流连续{consecutive_404}次404，暂停播放线程（心跳继续）", account_name=name, room_id=str(room_id))
+                                    self.log(f"  [{name}] ⚠ 连续{consecutive_404}次404，暂停播放线程（心跳继续保持）")
+                            else:
+                                consecutive_404 = 0
+                            # 连续404时加大重试间隔：3次后30秒，暂停后60秒
+                            wait_time = 5
+                            if consecutive_404 >= 3:
+                                wait_time = 30
+                            if stream_paused:
+                                wait_time = 60
+                            time.sleep(wait_time)
                             continue
+                        consecutive_404 = 0
+                        if stream_paused:
+                            stream_paused = False
+                            self.log(f"  [{name}] ✓ 视频流恢复，解除暂停")
                         self.log(f"  [{name}] ✓ 视频流连接成功，开始播放...")
                         # 持续读取流数据，保持连接不断开
                         bytes_read = 0
