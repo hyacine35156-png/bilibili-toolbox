@@ -102,7 +102,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.9.43"
+APP_VERSION = "v5.9.44"
 
 # ========== 任务信息缓存 ==========
 # 缓存已判定为"已领取"或"无剩余总量"的任务信息，避免重复查询API
@@ -5067,10 +5067,10 @@ class RushRewardFrame(tk.Frame):
                     stock_parts_final.append(f"今日剩余{day_stock}%")
                     stock_text_final = " / ".join(stock_parts_final)
 
-                    if day_stock > 0:
+                    if day_stock > 0 and total_stock > 0:
                         self.stock_label.config(text=f"库存：{stock_text_final} ✓ | 更新：{update_time}", fg=COLORS["success"])
                     else:
-                        self.stock_label.config(text=f"库存：{stock_text_final} (今日已领完) | 更新：{update_time}", fg=COLORS["warning"])
+                        self.stock_label.config(text=f"库存：{stock_text_final} (今日已领完/总量不足) | 更新：{update_time}", fg=COLORS["warning"])
 
                     self.log(f"  库存: {stock_text_final} | 来源:{stock_source} | 更新:{update_time}")
                     self.log(f"  状态: {message} (status={status}, 任务完成={task_finished})")
@@ -6071,11 +6071,11 @@ class RushRewardFrame(tk.Frame):
                 stock_text = "/".join(stock_parts)
 
                 # 安全更新UI（用默认参数捕获变量当前值，避免闭包延迟绑定问题）
-                def _update_ui(st=stock_text, ut=update_time, ds=day_stock, tf=task_finished, st_code=status, msg=info.get("message", "")):
+                def _update_ui(st=stock_text, ut=update_time, ds=day_stock, ts=total_stock, tf=task_finished, st_code=status, msg=info.get("message", "")):
                     try:
                         self.stock_label.config(
                             text=f"库存：{st} | 更新：{ut}",
-                            fg=COLORS["success"] if ds > 0 else COLORS["warning"]
+                            fg=COLORS["success"] if (ds > 0 and ts > 0) else COLORS["warning"]
                         )
                         if tf:
                             self.task_finish_label.config(text="任务完成：已完成 ✓", fg=COLORS["success"])
