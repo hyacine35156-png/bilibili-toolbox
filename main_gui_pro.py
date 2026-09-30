@@ -102,7 +102,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.9.48"
+APP_VERSION = "v5.9.49"
 
 # ========== 任务信息缓存 ==========
 # 缓存已判定为"已领取"或"无剩余总量"的任务信息，避免重复查询API
@@ -503,7 +503,7 @@ TASK_ACT_ID_CACHE = {}
 
 # 版本默认act_id（同一版本的所有任务共享同一个act_id）
 VERSION_DEFAULT_ACT_ID = {
-    "鸣潮3.7": "",  # 添加任务时自动获取
+    "鸣潮3.7": "1ERAzwloghv32n00",
     "原神7.1": "1ERA3wloghv6q200",
     "崩坏星穹铁道4.6": "1ERAzwloghv3q100",
     "绝区零3.2": "1ERAzwloghvbmi00",
