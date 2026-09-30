@@ -102,7 +102,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.9.46"
+APP_VERSION = "v5.9.47"
 
 # ========== 任务信息缓存 ==========
 # 缓存已判定为"已领取"或"无剩余总量"的任务信息，避免重复查询API
@@ -361,43 +361,8 @@ MISSION_MYLIST_API = "https://api.bilibili.com/x/activity_components/mission/myl
 
 # 活动任务列表（按版本+期数+类型分类）
 ALL_TASKS = [
-    # ===== 鸣潮3.6 =====
-    # 上半（第一期）- 投稿任务
-    {"version": "鸣潮3.6", "period": "上半", "type": "投稿", "name": "累计1天投稿≥100播放", "task_id": "6ERAcwloghviah00", "award": "60星声"},
-    {"version": "鸣潮3.6", "period": "上半", "type": "投稿", "name": "累计2天投稿≥300播放≥3币", "task_id": "6ERAcwloghviiw00", "award": "120星声"},
-    {"version": "鸣潮3.6", "period": "上半", "type": "投稿", "name": "累计3天投稿≥1000播放≥10币", "task_id": "6ERAcwloghvim200", "award": "180星声"},
-    {"version": "鸣潮3.6", "period": "上半", "type": "投稿", "name": "累计7天投稿≥2000播放≥20币", "task_id": "6ERAcwloghviy100", "award": "300星声"},
-    {"version": "鸣潮3.6", "period": "上半", "type": "投稿", "name": "累计14天投稿≥3000播放≥40币", "task_id": "6ERAcwloghviag00", "award": "500星声"},
-    # 上半 - 直播任务
-    {"version": "鸣潮3.6", "period": "上半", "type": "直播", "name": "开播时长60min", "task_id": "6ERAcwloghvigp00", "award": "中级共鸣促剂*2"},
-    {"version": "鸣潮3.6", "period": "上半", "type": "直播", "name": "开播时长120min", "task_id": "6ERAcwloghvu0900", "award": "中级能源核心*2"},
-    {"version": "鸣潮3.6", "period": "上半", "type": "直播", "name": "直播间弹幕20条", "task_id": "6ERAcwloghvibr00", "award": "贝币*10000"},
-    {"version": "鸣潮3.6", "period": "上半", "type": "直播", "name": "观看人数≥5人", "task_id": "6ERAcwloghvord00", "award": "中级复苏吸雾*2"},
-    # 上半（第一期）- 直播里程碑
-    {"version": "鸣潮3.6", "period": "上半", "type": "直播里程碑", "name": "完成全部每日任务3天", "task_id": "18ERA1wloghvb6100", "award": "星声*180"},
-    {"version": "鸣潮3.6", "period": "上半", "type": "直播里程碑", "name": "完成全部每日任务5天", "task_id": "18ERA1wloghvb5v00", "award": "星声*300"},
-    {"version": "鸣潮3.6", "period": "上半", "type": "直播里程碑", "name": "完成全部每日任务10天", "task_id": "18ERA1wloghvny900", "award": "唤声涡纹*3"},
-    # 下半（第二期）- 投稿任务
-    {"version": "鸣潮3.6", "period": "下半", "type": "投稿", "name": "累计1天投稿≥100播放", "task_id": "6ERAcwloghvy7300", "award": "60星声"},
-    {"version": "鸣潮3.6", "period": "下半", "type": "投稿", "name": "累计2天投稿≥300播放≥3币", "task_id": "6ERAcwloghvu0800", "award": "120星声"},
-    {"version": "鸣潮3.6", "period": "下半", "type": "投稿", "name": "累计3天投稿≥1000播放≥10币", "task_id": "6ERAcwloghvigh00", "award": "180星声"},
-    {"version": "鸣潮3.6", "period": "下半", "type": "投稿", "name": "累计7天投稿≥2000播放≥20币", "task_id": "6ERAcwloghvipm00", "award": "300星声"},
-    {"version": "鸣潮3.6", "period": "下半", "type": "投稿", "name": "累计14天投稿≥3000播放≥40币", "task_id": "6ERAcwloghvicf00", "award": "500星声"},
-    # 下半 - 直播任务
-    {"version": "鸣潮3.6", "period": "下半", "type": "直播", "name": "开播时长60min", "task_id": "6ERAcwloghvu4d00", "award": "中级共鸣促剂*2"},
-    {"version": "鸣潮3.6", "period": "下半", "type": "直播", "name": "开播时长120min", "task_id": "6ERAcwloghvihz00", "award": "中级能源核心*2"},
-    {"version": "鸣潮3.6", "period": "下半", "type": "直播", "name": "直播间弹幕20条", "task_id": "6ERAcwloghvotr00", "award": "贝币*10000"},
-    {"version": "鸣潮3.6", "period": "下半", "type": "直播", "name": "观看人数≥5人", "task_id": "6ERAcwloghvip100", "award": "中级复苏吸雾*2"},
-    # 下半（第二期）- 直播里程碑
-    {"version": "鸣潮3.6", "period": "下半", "type": "直播里程碑", "name": "完成全部每日任务3天", "task_id": "18ERA2wloghvivx00", "award": "星声*180"},
-    {"version": "鸣潮3.6", "period": "下半", "type": "直播里程碑", "name": "完成全部每日任务5天", "task_id": "18ERA1wloghvnev00", "award": "星声*300"},
-    {"version": "鸣潮3.6", "period": "下半", "type": "直播里程碑", "name": "完成全部每日任务10天", "task_id": "18ERA2wloghvimi00", "award": "唤声涡纹*3"},
-    # 全版本（新人开播奖励等）
-    {"version": "鸣潮3.6", "period": "全版本", "type": "新人开播", "name": "累计1天开播", "task_id": "18ERA2wloghvimu00", "award": "星声*50"},
-    {"version": "鸣潮3.6", "period": "全版本", "type": "新人开播", "name": "累计2天开播", "task_id": "18ERA2wloghvik700", "award": "星声*80"},
-    {"version": "鸣潮3.6", "period": "全版本", "type": "新人开播", "name": "累计3天开播", "task_id": "18ERA2wloghvihn00", "award": "星声*120"},
-    {"version": "鸣潮3.6", "period": "全版本", "type": "新人开播", "name": "累计7天开播", "task_id": "18ERA1wloghvbkm00", "award": "星声*180"},
-    {"version": "鸣潮3.6", "period": "全版本", "type": "新人开播", "name": "累计14天开播", "task_id": "18ERA1wloghvb6w00", "award": "唤声涡纹*2"},
+    # ===== 鸣潮3.7 =====
+    # 任务通过应用内「添加任务」功能导入
 
 
     # ===== 原神7.1 =====
@@ -495,7 +460,7 @@ ALL_TASKS = [
 ]
 
 # 兼容旧代码
-MINGCHAO_TASKS = [t for t in ALL_TASKS if t["version"] == "鸣潮3.6"]
+MINGCHAO_TASKS = [t for t in ALL_TASKS if t["version"] == "鸣潮3.7"]
 
 # task_id到act_id的缓存字典（查询成功时自动保存，查询失败时使用）
 # 全局变量线程锁
@@ -504,7 +469,7 @@ TASK_ACT_ID_CACHE = {}
 
 # 版本默认act_id（同一版本的所有任务共享同一个act_id）
 VERSION_DEFAULT_ACT_ID = {
-    "鸣潮3.6": "1ERAzwloghvn7l00",
+    "鸣潮3.7": "",  # 添加任务时自动获取
     "原神7.1": "1ERA3wloghv6q200",
     "崩坏星穹铁道4.6": "1ERAzwloghv3q100",
     "绝区零3.2": "1ERAzwloghvbmi00",
@@ -1972,7 +1937,7 @@ class RushRewardFrame(tk.Frame):
     def load_rush_config(self):
         """加载抢码工具配置"""
         default = {
-            "version": "鸣潮3.6",
+            "version": "鸣潮3.7",
             "period": "上半",
             "task_type": "投稿",
             "interval": "3",
@@ -2197,9 +2162,9 @@ class RushRewardFrame(tk.Frame):
         row1.pack(fill=tk.X, pady=3)
         tk.Label(row1, text="版本", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
-        self.version_var = tk.StringVar(value="鸣潮3.6")
+        self.version_var = tk.StringVar(value="鸣潮3.7")
         self.version_combo = ttk.Combobox(row1, textvariable=self.version_var,
-                                           values=["鸣潮3.6", "原神7.1", "崩坏星穹铁道4.6", "绝区零3.2"], state="readonly",
+                                           values=["鸣潮3.7", "原神7.1", "崩坏星穹铁道4.6", "绝区零3.2"], state="readonly",
                                            width=14, font=("微软雅黑", 11))
         self.version_combo.pack(side=tk.LEFT, padx=(8, 15))
         self.version_combo.bind("<<ComboboxSelected>>", lambda e: self.on_version_change())
@@ -3160,9 +3125,9 @@ class RushRewardFrame(tk.Frame):
         row1.pack(fill=tk.X, pady=3)
         tk.Label(row1, text="版本", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
-        self.nm_version_var = tk.StringVar(value="鸣潮3.6")
+        self.nm_version_var = tk.StringVar(value="鸣潮3.7")
         self.nm_version_combo = ttk.Combobox(row1, textvariable=self.nm_version_var,
-                                             values=["鸣潮3.6", "原神7.1", "崩坏星穹铁道4.6", "绝区零3.2"],
+                                             values=["鸣潮3.7", "原神7.1", "崩坏星穹铁道4.6", "绝区零3.2"],
                                              state="readonly", width=14, font=("微软雅黑", 11))
         self.nm_version_combo.pack(side=tk.LEFT, padx=(8, 15))
         self.nm_version_combo.bind("<<ComboboxSelected>>", lambda e: self.nm_on_version_change())
@@ -5777,7 +5742,7 @@ class RushRewardFrame(tk.Frame):
         elif "崩坏" in version or "星穹" in version:
             act_name = "崩坏星穹铁道4.5版本创作激励计划"
         else:
-            act_name = "鸣潮3.6版本创作激励计划"
+            act_name = "鸣潮3.7版本创作激励计划"
         # 直接根据版本获取act_id（同一版本所有任务共享同一个act_id）
         act_id = VERSION_DEFAULT_ACT_ID.get(version, task.get("act_id", ""))
         return {
