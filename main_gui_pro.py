@@ -102,7 +102,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.9.49"
+APP_VERSION = "v5.9.50"
 
 # ========== 任务信息缓存 ==========
 # 缓存已判定为"已领取"或"无剩余总量"的任务信息，避免重复查询API
@@ -7747,6 +7747,12 @@ class WatchLiveFrame(tk.Frame):
                 token, host = self.get_danmu_token(account, room_id)
                 if not token:
                     self.log(f"  [{name}] ✗ 获取弹幕token失败")
+                    if client["running"]:
+                        client["reconnect_count"] += 1
+                        if client["reconnect_count"] <= 15:
+                            delay = min(5 * client["reconnect_count"], 30)
+                            self.log(f"  [{name}] {delay}秒后自动重连(第{client['reconnect_count']}次)")
+                            threading.Timer(delay, do_connect).start()
                     return False
 
                 def on_message(ws, message):
@@ -7776,25 +7782,30 @@ class WatchLiveFrame(tk.Frame):
                         pass
 
                 def on_error(ws, error):
-                    if client["running"] and client["connected"]:
+                    if client["running"]:
                         err_str = str(error)
-                        if "ping/pong" not in err_str and "Connection to remote host was lost" not in err_str:
-                            self.log(f"  [{name}] 弹幕连接错误: {error}")
+                        # 连接成功后过滤ping/pong等无关错误，初始连接失败时全部输出
+                        if client["connected"]:
+                            if "ping/pong" not in err_str and "Connection to remote host was lost" not in err_str:
+                                self.log(f"  [{name}] 弹幕连接错误: {error}")
+                        else:
+                            self.log(f"  [{name}] 弹幕初始连接错误: {error}")
 
                 def on_close(ws, *args):
                     was_connected = client["connected"]
                     client["connected"] = False
                     if name in self.account_stats:
                         self.account_stats[name]["ws_connected"] = False
-                    # 自动重连
-                    if client["running"] and was_connected:
+                    # 自动重连（包括初始连接失败的情况）
+                    if client["running"]:
                         client["reconnect_count"] += 1
-                        if client["reconnect_count"] <= 10:
+                        if client["reconnect_count"] <= 15:
                             delay = min(5 * client["reconnect_count"], 30)
-                            self.log(f"  [{name}] 弹幕连接断开，{delay}秒后自动重连(第{client['reconnect_count']}次)")
+                            reason = "断开" if was_connected else "初始连接失败"
+                            self.log(f"  [{name}] 弹幕连接{reason}，{delay}秒后自动重连(第{client['reconnect_count']}次)")
                             threading.Timer(delay, do_connect).start()
                         else:
-                            self.log(f"  [{name}] 弹幕重连次数过多，停止重连")
+                            self.log(f"  [{name}] 弹幕重连次数过多(15次)，停止重连")
 
                 def on_open(ws):
                     auth_data = {
@@ -7825,6 +7836,13 @@ class WatchLiveFrame(tk.Frame):
                 return True
             except Exception as e:
                 self.log(f"  [{name}] 弹幕连接异常: {e}")
+                # 异常时也安排重连
+                if client["running"]:
+                    client["reconnect_count"] += 1
+                    if client["reconnect_count"] <= 15:
+                        delay = min(5 * client["reconnect_count"], 30)
+                        self.log(f"  [{name}] {delay}秒后自动重连(第{client['reconnect_count']}次)")
+                        threading.Timer(delay, do_connect).start()
                 return False
 
         def heartbeat_loop():
