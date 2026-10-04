@@ -102,7 +102,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.9.50"
+APP_VERSION = "v5.9.51"
 
 # ========== 任务信息缓存 ==========
 # 缓存已判定为"已领取"或"无剩余总量"的任务信息，避免重复查询API
@@ -8215,7 +8215,10 @@ class WatchLiveFrame(tk.Frame):
                             # 连续404检测：直播间可能已关播
                             if resp.status_code == 404:
                                 consecutive_404 += 1
-                                if consecutive_404 == 3:
+                                # 第1次404就记录异常（避免用户看不到异常）
+                                if consecutive_404 == 1:
+                                    self.add_watch_anomaly("视频流404", f"视频流HTTP 404（第{consecutive_404}次），直播间{room_id}可能已关播或波动", account_name=name, room_id=str(room_id))
+                                elif consecutive_404 == 3:
                                     self.add_watch_anomaly("直播间关播", f"视频流连续3次HTTP 404，直播间{room_id}可能已关播", account_name=name, room_id=str(room_id))
                                     self.log(f"  [{name}] ⚠ 连续3次404，判定直播间可能关播，已记录异常，加大重试间隔")
                                 if consecutive_404 >= 10 and not stream_paused:
@@ -8438,13 +8441,24 @@ class WatchLiveFrame(tk.Frame):
                 self.account_stats[name]["heartbeat_count"] = entered_count
                 self.account_stats[name]["ws_connected"] = False
                 # 获取房间信息（浏览器加载页面时会调用）
-                self.get_room_info(acc, room_ids[0])
+                try:
+                    self.get_room_info(room_ids[0], acc)
+                except Exception as e:
+                    self.log(f"  [{name}] 获取房间信息异常: {e}")
                 # 建立WebSocket弹幕连接（对第一个直播间建立连接，让账户出现在在线观众列表）
                 if WEBSOCKET_AVAILABLE and room_ids:
                     self.log(f"  [{name}] 正在建立弹幕连接...")
-                    ws_client = self.connect_ws_danmaku(acc, room_ids[0])
-                    if ws_client:
-                        self.ws_clients[name] = ws_client
+                    try:
+                        ws_client = self.connect_ws_danmaku(acc, room_ids[0])
+                        if ws_client:
+                            self.ws_clients[name] = ws_client
+                            self.log(f"  [{name}] ✓ 弹幕连接线程已启动")
+                        else:
+                            self.log(f"  [{name}] ✗ 弹幕连接建立失败（返回None）")
+                    except Exception as e:
+                        self.log(f"  [{name}] ✗ 弹幕连接异常: {e}")
+                elif not WEBSOCKET_AVAILABLE:
+                    self.log(f"  [{name}] ⚠ websocket-client不可用，跳过弹幕连接")
             else:
                 self.account_stats[name]["status"] = "进入失败"
             self.refresh_status_tree()
