@@ -72,6 +72,25 @@ def atomic_write_json(path, data):
         os.fsync(f.fileno())
     os.replace(tmp, str(path))
 
+def safe_load_json(path, default=None):
+    """安全加载JSON：解析失败时备份为.corrupt并告警，不静默清空"""
+    if default is None:
+        default = []
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        # 备份损坏文件
+        try:
+            corrupt_path = str(path) + ".corrupt"
+            import shutil
+            shutil.copy2(path, corrupt_path)
+            print(f"⚠ 配置文件损坏已备份: {corrupt_path} ({e})")
+        except Exception:
+            pass
+    return default
+
 # 自动迁移旧配置文件（从exe同目录迁移到data子目录）
 def _migrate_old_files():
     old_files = [
@@ -596,12 +615,7 @@ class AccountManager:
         self.load()
 
     def load(self):
-        if ACCOUNTS_FILE.exists():
-            try:
-                with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
-                    self.accounts = json.load(f)
-            except Exception:
-                self.accounts = []
+        self.accounts = safe_load_json(ACCOUNTS_FILE, [])
 
     def save(self):
         atomic_write_json(ACCOUNTS_FILE, self.accounts)
@@ -683,13 +697,8 @@ class RoomManager:
 
     def load(self):
         config_file = BASE_DIR / "rooms_config.json"
-        if config_file.exists():
-            try:
-                with open(config_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    self.rooms = data.get("rooms", [])
-            except Exception:
-                self.rooms = []
+        data = safe_load_json(config_file, {})
+        self.rooms = data.get("rooms", []) if isinstance(data, dict) else []
 
     def save(self):
         config_file = BASE_DIR / "rooms_config.json"
@@ -1344,13 +1353,7 @@ def save_redeem_code(task_name, account_name, data, task_period="", task_type=""
             return False, "未提取到兑换码"
         
         # 读取已有记录
-        records = []
-        if os.path.exists(CODE_EXPORT_FILE):
-            try:
-                with open(CODE_EXPORT_FILE, "r", encoding="utf-8") as f:
-                    records = json.load(f)
-            except:
-                records = []
+        records = safe_load_json(CODE_EXPORT_FILE, [])
         
         # 构建已有兑换码集合（账户+兑换码 作为唯一键）
         existing_codes = set()
