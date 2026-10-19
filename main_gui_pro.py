@@ -1289,16 +1289,16 @@ def receive_reward(task_id, task_info, cookies_dict, csrf, session=None):
             global _last_claim_data_global, _last_claim_result_global
             _last_claim_data_global = result.get("data")
             _last_claim_result_global = result
-            return True, "领取成功", result.get("data")
+            return "success", "领取成功", result.get("data")
 
         # 识别已领取状态
         already_received_keywords = ["已领取", "已经领取", "重复领取", "已完成", "任务已完成", "不可重复领取"]
         if any(keyword in message for keyword in already_received_keywords):
-            return True, "已领取", result.get("data")
+            return "already", "已领取", result.get("data")
 
-        return False, f"[{code}] {message}", None
+        return "failed", f"[{code}] {message}", None
     except Exception as e:
-        return False, f"网络异常: {e}", None
+        return "failed", f"网络异常: {e}", None
 
 
 
@@ -5269,9 +5269,9 @@ pause
             if act_id:
                 self.log(f"  ✓ act_id: {act_id}")
         # 直接尝试领取，不先判断状态（避免状态判断错误导致无法领取）
-        ok, result, data = receive_reward(task["task_id"], info, cookies, csrf)
-        if ok:
-            return True, "领取成功", data
+        status, result, data = receive_reward(task["task_id"], info, cookies, csrf)
+        if status in ("success", "already"):
+            return True, result, data
         return False, result, None
 
     def check_claimable_tasks(self):
@@ -5954,9 +5954,9 @@ pause
         """快速领取：直接尝试领取（session可选，复用预热连接）"""
         cookies = cookies_from_account(account)
         csrf = account["bili_jct"]
-        ok, result, data = receive_reward(task["task_id"], task_info, cookies, csrf, session)
-        if ok:
-            return True, "领取成功"
+        status, result, data = receive_reward(task["task_id"], task_info, cookies, csrf, session)
+        if status in ("success", "already"):
+            return True, result
         return False, result
 
     def schedule_receive_loop(self, task, accounts, target_seconds, duration, min_interval, max_interval):
@@ -6258,8 +6258,8 @@ pause
 
                 if can_receive:
                     self.log(f"★ 发现可领取！库存={day_stock}，正在领取...")
-                    ok, result, data = receive_reward(task["task_id"], info, cookies, csrf)
-                    if ok:
+                    status, result, data = receive_reward(task["task_id"], info, cookies, csrf)
+                    if status in ("success", "already"):
                         self.log(f"🎉 领取成功：[{task['period']}][{task['type']}]{task['name']} -> {task['award']}")
                         self.log(f"  💡 提示: 兑换码请在「兑换码」页面点击「从领取记录导入」获取")
                         self.log(f"  账户：{account['name']}")
@@ -11654,7 +11654,8 @@ bili_jct: {jct_preview}
             messagebox.showinfo("提示", "当前没有运行中的关机任务")
             return
         for task in self.shutdown_tasks:
-            if task["status"] in ["等待中", "倒计时中"]:
+            # P1-J: 纳入"待确认"状态，避免确认弹窗未处理时任务继续运行
+            if task["status"] in ["等待中", "倒计时中", "待确认"]:
                 task["stop_flag"]["stop"] = True
                 task["status"] = "已取消"
                 if task["thread"] and task["thread"].is_alive():
