@@ -906,9 +906,13 @@ def check_all_tasks_finished(version, period, task_type, cookies):
         used_cache = False
 
         # 先检查缓存：已领取或无剩余总量的任务可以直接使用缓存
+        # P1-O/P1-P: 缓存键加账号(cookies哈希)+日期，避免跨账号污染和跨日缓存
         task_id = task["task_id"]
-        if task_id in _mission_info_cache:
-            cached = _mission_info_cache[task_id]
+        _today = time.strftime("%Y-%m-%d")
+        _account_hash = str(hash(str(sorted(cookies.items()))))[:8] if cookies else "unknown"
+        _cache_key = f"{task_id}_{_account_hash}_{_today}"
+        if _cache_key in _mission_info_cache:
+            cached = _mission_info_cache[_cache_key]
             cache_age = time.time() - cached.get("timestamp", 0)
             # 缓存有效条件：库存为0 或 已领取(status=6)，且缓存时间在24小时内
             # 注意：未完成但库存>0的任务不缓存（还有完成机会，需要每次扫一遍）
@@ -946,7 +950,7 @@ def check_all_tasks_finished(version, period, task_type, cookies):
                         # 注意：status=2每日库存上限且库存>0的任务不缓存（明日可能可领）
                         is_daily_limit = (status == 2 and ("每日库存" in message or "上限" in message or "今日" in message) and total_stock > 0)
                         if (total_stock == 0 or status == 6) and not is_daily_limit:
-                            _mission_info_cache[task_id] = {
+                            _mission_info_cache[_cache_key] = {
                                 "finished": task_finished,
                                 "status": status,
                                 "message": message,
