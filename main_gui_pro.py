@@ -8499,7 +8499,7 @@ class WatchLiveFrame(tk.Frame):
                 messagebox.showwarning("提示", "未找到选中的账户")
                 return
             self.running = True
-            self.stop_flag = {"stop": False}
+            self.stop_flag["stop"] = False  # P1-A: 不换对象，只改key，防止旧线程复活
             self.start_btn.config(state=tk.DISABLED)
             self.stop_btn.config(state=tk.NORMAL)
             for bar, combo, del_btn in self.watch_room_bars:
@@ -8531,13 +8531,23 @@ class WatchLiveFrame(tk.Frame):
             import traceback
             self.log(f"[错误] start_watch异常: {e}")
             self.log(traceback.format_exc())
-            # 恢复按钮状态
+            # P0-B: 完整回滚UI状态
             self.running = False
+            self.stop_flag["stop"] = True
+            # 取消快照定时器
             try:
-                self.start_btn.config(state=tk.NORMAL)
-                self.stop_btn.config(state=tk.DISABLED)
+                if hasattr(self, 'watch_snapshot_timer') and self.watch_snapshot_timer:
+                    self.after_cancel(self.watch_snapshot_timer)
             except Exception:
                 pass
+            # 结束记录（标记为启动失败）
+            try:
+                if self.current_watch_record:
+                    self.finish_watch_record(status="启动失败")
+                    self.current_watch_record = None
+            except Exception:
+                pass
+            self._reset_watch_ui()
             messagebox.showerror("错误", f"启动看播失败: {e}")
 
     def stop_watch(self):
@@ -8707,6 +8717,34 @@ class WatchLiveFrame(tk.Frame):
         self.running = False
         self.after(100, self._on_watch_finished)
 
+    def _reset_watch_ui(self):
+        """P0-B: 统一的UI复位逻辑，供正常结束和异常回滚共用"""
+        try:
+            self.start_btn.config(state=tk.NORMAL)
+            self.stop_btn.config(state=tk.DISABLED)
+        except Exception:
+            pass
+        try:
+            for bar, combo, del_btn in self.watch_room_bars:
+                combo.config(state="readonly")
+                if del_btn is not None:
+                    del_btn.config(state=tk.NORMAL)
+        except Exception:
+            pass
+        try:
+            self.add_room_bar_btn.config(state=tk.NORMAL)
+            self.duration_combo.config(state="readonly")
+            self.interval_combo.config(state="readonly")
+        except Exception:
+            pass
+        try:
+            for cb in self.account_checkbuttons:
+                cb.config(state=tk.NORMAL)
+            self.select_all_btn.config(state=tk.NORMAL)
+            self.deselect_all_btn.config(state=tk.NORMAL)
+        except Exception:
+            pass
+
     def _on_watch_finished(self):
         self.stop_flag["stop"] = True
         # 结束历史记录（已完成状态）
@@ -8717,21 +8755,7 @@ class WatchLiveFrame(tk.Frame):
         self.x25kn_threads = {}
         self.x25kn_state = {}
         self.close_all_ws()
-        self.start_btn.config(state=tk.NORMAL)
-        self.stop_btn.config(state=tk.DISABLED)
-        for bar, combo, del_btn in self.watch_room_bars:
-            combo.config(state="readonly")
-            if del_btn is not None:
-                del_btn.config(state=tk.NORMAL)
-        self.add_room_bar_btn.config(state=tk.NORMAL)
-        self.duration_combo.config(state="readonly")
-        self.interval_combo.config(state="readonly")
-        # 启用所有复选框和按钮
-        for cb in self.account_checkbuttons:
-            cb.config(state=tk.NORMAL)
-        self.select_all_btn.config(state=tk.NORMAL)
-        self.deselect_all_btn.config(state=tk.NORMAL)
-        self.interval_combo.config(state="readonly")
+        self._reset_watch_ui()
 
     # ========== 送礼功能 ==========
     def get_gift_id(self, account):
