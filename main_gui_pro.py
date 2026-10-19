@@ -12186,6 +12186,12 @@ bili_jct: {jct_preview}
                         self.log(f"✓ [{send_count}/{max_send_count if max_send_count > 0 else '∞'}] [{account['name']}] {msg}")
                     break
                 else:
+                    # P1-T: 区分瞬时错误和永久错误，永久错误不重试
+                    permanent_errors = ["-101", "账号未登录", "cookie", "房间不存在", "内容违规", "禁言", "黑名单"]
+                    is_permanent = any(err in result for err in permanent_errors)
+                    if is_permanent:
+                        self.log(f"  ✗ 永久错误({account['name']}): {result}，不重试")
+                        break
                     if retry < 2:
                         self.log(f"  重试{retry+1} ({account['name']}): {result}")
                         time.sleep(random.uniform(2, 4))
