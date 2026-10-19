@@ -7159,10 +7159,10 @@ class WatchLiveFrame(tk.Frame):
     def _build_history_ui(self):
         """构建历史记录UI"""
         win = self.history_window
-        # 顶部统计栏
-        stats_frame = tk.Frame(win, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
-        stats_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
-        self._update_history_stats(stats_frame)
+        # 顶部统计栏（P2-C: 保存为实例变量，避免winfo_children()[0]硬编码）
+        self.history_stats_frame = tk.Frame(win, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
+        self.history_stats_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
+        self._update_history_stats(self.history_stats_frame)
 
         # 工具栏
         toolbar = tk.Frame(win, bg=COLORS["bg_dark"])
@@ -7241,9 +7241,9 @@ class WatchLiveFrame(tk.Frame):
         """刷新历史记录表格"""
         # 重新加载
         self.watch_history = self.load_watch_history()
-        # 更新统计
-        stats_parent = self.history_window.winfo_children()[0]
-        self._update_history_stats(stats_parent)
+        # 更新统计（P2-C: 使用实例变量，避免winfo_children()[0]硬编码）
+        if hasattr(self, 'history_stats_frame') and self.history_stats_frame.winfo_exists():
+            self._update_history_stats(self.history_stats_frame)
         # 清空表格
         for item in self.history_tree.get_children():
             self.history_tree.delete(item)
