@@ -8106,22 +8106,6 @@ class WatchLiveFrame(tk.Frame):
         except Exception as e:
             return False, f"获取异常: {e}"
 
-    def get_room_info(self, account, room_id):
-        """获取房间信息（浏览器加载页面时会调用）"""
-        try:
-            cookie = self.get_cookie(account)
-            headers = {
-                **HEADERS,
-                "Cookie": cookie,
-                "Referer": f"https://live.bilibili.com/{room_id}",
-                "Origin": "https://live.bilibili.com",
-            }
-            url = f"https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByRoom?room_id={room_id}"
-            resp = requests.get(url, headers=headers, timeout=10)
-            return resp.status_code == 200
-        except Exception:
-            return False
-
     # ========== X25Kn 观看心跳上报协议（v4.0.0新增）==========
     X25KN_E_URL = "https://live-trace.bilibili.com/xlive/data-interface/v1/x25Kn/E"
     X25KN_X_URL = "https://live-trace.bilibili.com/xlive/data-interface/v1/x25Kn/X"
@@ -8949,7 +8933,6 @@ class WatchLiveFrame(tk.Frame):
         self.log("⏹ 正在停止所有送礼线程...")
         self.gift_start_btn.config(state=tk.NORMAL)
         self.gift_stop_btn.config(state=tk.DISABLED)
-        self.account_listbox.config(state=tk.NORMAL)
         self.refresh_status_tree()
         self.log("送礼任务结束")
 
@@ -9825,15 +9808,15 @@ class ScheduleFrame(tk.Frame):
         monitor_thread.start()
 
     def _mark_task_done_with_log(self, task, msg):
-        """标记任务完成并写日志"""
-        task["status"] = "已结束"
+        """标记任务完成并写日志，状态重置为等待中（次日继续执行）"""
+        task["status"] = "等待中"
         self.log(msg)
         self.sync_log_to_modules(msg)
         self.refresh_task_list()
         self.save_schedule()
 
     def _mark_task_done(self, task):
-        task["status"] = "已结束"
+        task["status"] = "等待中"
         self.refresh_task_list()
         self.save_schedule()
 
@@ -9895,8 +9878,6 @@ class ScheduleFrame(tk.Frame):
                         if task_minute == current_minute:
                             # 到点执行
                             self.app.root.after(0, lambda t=task: self.execute_task(t))
-                            # 重置状态为等待中（明天再执行）
-                            self.app.root.after(5000, lambda t=task: self._reset_task_status(t))
 
             except Exception as e:
                 self.log(f"调度器异常: {e}")
@@ -10969,13 +10950,13 @@ bili_jct: {jct_preview}
         acc = self.account_mgr.accounts[selection[0]]
         # 检查是否有任务正在运行
         running_tasks = []
-        if hasattr(self, 'danmaku_frame') and getattr(self.danmaku_frame, 'running', False):
+        if getattr(self, 'running', False):
             running_tasks.append('弹幕发送')
-        if hasattr(self, 'watch_frame') and getattr(self.watch_frame, 'running', False):
+        if getattr(self, 'watch_page', None) and getattr(self.watch_page, 'running', False):
             running_tasks.append('看播')
-        if hasattr(self, 'gift_frame') and getattr(self.gift_frame, 'gift_running', False):
+        if getattr(self, 'watch_page', None) and getattr(self.watch_page, 'gift_running', False):
             running_tasks.append('送礼')
-        if hasattr(self, 'rush_frame') and getattr(self.rush_frame, 'running', False):
+        if getattr(self, 'rush_page', None) and getattr(self.rush_page, 'running', False):
             running_tasks.append('抢码')
         if running_tasks:
             messagebox.showwarning("提示", f"以下任务正在运行，请先停止后再删除账户：\n{'、'.join(running_tasks)}")
@@ -11516,10 +11497,11 @@ bili_jct: {jct_preview}
 
                         self.root.wait_window(confirm_win)
                     except Exception as e:
-                        confirm_result["confirmed"] = True  # 弹窗失败则直接关机
+                        self.log(f"✗ 关机确认弹窗异常，已取消关机: {e}")
+                        confirm_result["confirmed"] = False
                         confirm_result["done"] = True
 
-                self.after(0, show_confirm_dialog)
+                self.root.after(0, show_confirm_dialog)
 
                 # 等待确认结果（最多等90秒）
                 wait_count = 0
@@ -11531,7 +11513,7 @@ bili_jct: {jct_preview}
 
                 if task["stop_flag"]["stop"]:
                     task["status"] = "已取消"
-                    self.after(0, self.refresh_shutdown_task_list)
+                    self.root.after(0, self.refresh_shutdown_task_list)
                     return
 
                 if confirm_result["confirmed"]:
