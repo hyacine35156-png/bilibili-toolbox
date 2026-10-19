@@ -6858,6 +6858,7 @@ class WatchLiveFrame(tk.Frame):
 
     def __init__(self, parent, account_mgr, room_mgr):
         super().__init__(parent, bg=COLORS["bg_dark"])
+        self.root = parent.winfo_toplevel()  # P0-D: worker线程通过root.after回主线程
         self.account_mgr = account_mgr
         self.room_mgr = room_mgr
         self.running = False
@@ -7035,11 +7036,12 @@ class WatchLiveFrame(tk.Frame):
                 return
             with open(snapshot_file, "r", encoding="utf-8") as f:
                 snapshot = json.load(f)
-            record = snapshot.get("record", {})
+            record = snapshot.get("record") or {}
             snapshot_time = snapshot.get("snapshot_time", "未知")
             # 将快照作为异常中断记录保存到历史
             record["end_time"] = snapshot_time
             record["status"] = "异常中断"
+            record["anomalies"] = list(record.get("anomalies") or [])
             record["anomalies"].append({
                 "time": snapshot_time,
                 "type": "程序异常中断",
@@ -7049,8 +7051,6 @@ class WatchLiveFrame(tk.Frame):
             })
             self.watch_history.insert(0, record)
             self.save_watch_history()
-            # 删除快照文件
-            snapshot_file.unlink()
             # 弹窗警告
             from tkinter import messagebox
             self.after(100, lambda: messagebox.showwarning(
@@ -7063,6 +7063,13 @@ class WatchLiveFrame(tk.Frame):
             ))
         except Exception as e:
             self.log(f"⚠ 检查看播快照失败: {e}")
+        finally:
+            # 删除快照文件（无论成功失败）
+            try:
+                if snapshot_file.exists():
+                    snapshot_file.unlink()
+            except Exception:
+                pass
 
 
     def show_watch_history(self):
@@ -11977,6 +11984,10 @@ bili_jct: {jct_preview}
 
     # ---------- 发送控制 ----------
     def start_sending(self):
+        # P1-Q: 运行中守卫，防止并发启动双倍发送
+        if self.running or (hasattr(self, 'send_thread') and self.send_thread and self.send_thread.is_alive()):
+            messagebox.showwarning("提示", "弹幕发送正在运行中，请先停止当前任务")
+            return
         # 从弹幕工具页面的账户多选复选框获取选中的账户
         accounts = self._get_danmaku_selected_accounts()
         if not accounts:
@@ -12097,6 +12108,7 @@ bili_jct: {jct_preview}
                 index += 1
 
             success = False
+            result = ""  # P1-7: 初始化result，防止循环提前break时NameError
             for retry in range(3):
                 if not self.running:
                     break
