@@ -102,7 +102,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v5.9.51"
+APP_VERSION = "v6.0.0"
 
 # ========== 任务信息缓存 ==========
 # 缓存已判定为"已领取"或"无剩余总量"的任务信息，避免重复查询API
@@ -3287,6 +3287,9 @@ class RushRewardFrame(tk.Frame):
         self.nm_query_time_btn = DarkButton(ctrl_inner, text="📊 查询时间状态", command=self.nm_query_time_status,
                                             height=44, bg_color="#2d3436", text_color=COLORS["text_primary"])
         self.nm_query_time_btn.pack(side=tk.LEFT, padx=6)
+        self.nm_fix_time_btn = DarkButton(ctrl_inner, text="🔧 修复时间服务", command=self.nm_fix_time_service,
+                                          height=44, bg_color="#e67e22", text_color="#ffffff")
+        self.nm_fix_time_btn.pack(side=tk.LEFT, padx=6)
         self.nm_status_label = tk.Label(ctrl_inner, text="● 未运行", bg=COLORS["bg_card"],
                                         fg=COLORS["text_muted"], font=("微软雅黑", 11))
         self.nm_status_label.pack(side=tk.LEFT, padx=20)
@@ -4234,41 +4237,70 @@ class RushRewardFrame(tk.Frame):
 
 
     def nm_sync_system_time(self):
-        """同步系统时间（需要管理员权限）"""
+        """同步系统时间（需要管理员权限，显示窗口+等待完成+弹结果）"""
         import subprocess
         try:
             self.nm_log("正在请求管理员权限同步系统时间...")
-            # 以管理员权限运行w32tm命令
-            ret = ctypes.windll.shell32.ShellExecuteW(
-                None,
-                "runas",
-                "w32tm",
-                "/resync /force",
-                None,
-                0  # SW_HIDE
-            )
-            if ret > 32:
-                self.nm_log("✓ 已发送同步请求，请在UAC弹窗中点击「是」")
-                # 等待几秒后显示结果
-                def check_sync():
-                    try:
-                        result = subprocess.run(
-                            ["w32tm", "/query", "/status"],
-                            capture_output=True, text=True, timeout=10
-                        )
-                        if "来源" in result.stdout or "Source" in result.stdout:
-                            self.nm_log("✓ 系统时间同步完成")
+
+            # 用ShellExecuteExW获取进程句柄，可等待结束
+            class SHELLEXECUTEINFOW(ctypes.Structure):
+                _fields_ = [
+                    ("cbSize", ctypes.c_ulong), ("fMask", ctypes.c_ulong),
+                    ("hwnd", ctypes.c_void_p), ("lpVerb", ctypes.c_wchar_p),
+                    ("lpFile", ctypes.c_wchar_p), ("lpParameters", ctypes.c_wchar_p),
+                    ("lpDirectory", ctypes.c_wchar_p), ("nShow", ctypes.c_int),
+                    ("hInstApp", ctypes.c_void_p), ("lpIDList", ctypes.c_void_p),
+                    ("lpClass", ctypes.c_wchar_p), ("hkeyClass", ctypes.c_void_p),
+                    ("dwHotKey", ctypes.c_ulong), ("hIcon", ctypes.c_void_p),
+                    ("hProcess", ctypes.c_void_p),
+                ]
+
+            see = SHELLEXECUTEINFOW()
+            see.cbSize = ctypes.sizeof(SHELLEXECUTEINFOW)
+            see.fMask = 0x00000040  # SEE_MASK_NOCLOSEPROCESS
+            see.lpVerb = "runas"
+            see.lpFile = "cmd.exe"
+            see.lpParameters = "/c w32tm /resync /force & echo. & echo 同步完成，按任意键关闭 & pause >nul"
+            see.nShow = 1  # SW_SHOWNORMAL，显示黑窗口
+
+            ok = ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(see))
+            if ok and see.hProcess:
+                self.nm_log("✓ UAC已授权，正在同步（黑窗口显示执行过程）...")
+                ctypes.windll.kernel32.WaitForSingleObject(see.hProcess, 30000)
+                ctypes.windll.kernel32.CloseHandle(see.hProcess)
+                # 同步后立即测NTP偏差
+                try:
+                    r = subprocess.run(
+                        ["w32tm", "/stripchart", "/computer:ntp.aliyun.com", "/samples:3", "/dataonly"],
+                        capture_output=True, text=True, timeout=15)
+                    offs = []
+                    for line in r.stdout.split('\n'):
+                        if ',' in line and ('s' in line):
+                            try:
+                                v = line.split(',')[1].strip().replace('s', '').replace('+', '')
+                                offs.append(abs(float(v) * 1000))
+                            except Exception:
+                                pass
+                    if offs:
+                        avg = sum(offs) / len(offs)
+                        if avg < 100:
+                            self.nm_log(f"✓ 同步成功，当前NTP偏差{avg:.0f}ms")
+                            messagebox.showinfo("同步成功", f"系统时间同步完成！\n\n当前NTP偏差: {avg:.0f}ms\n（安全阈值 100ms）")
                         else:
-                            self.nm_log("✓ 同步请求已发送，请等待几秒后查看NTP偏差")
-                    except Exception:
-                        self.nm_log("✓ 同步请求已发送，请等待几秒后查看NTP偏差")
-                self.after(5000, check_sync)
+                            self.nm_log(f"⚠ 同步完成但偏差仍有{avg:.0f}ms")
+                            messagebox.showwarning("同步完成", f"同步已执行，但偏差仍较大:\n\n当前NTP偏差: {avg:.0f}ms\n建议再次同步")
+                    else:
+                        self.nm_log("✓ 同步命令已执行")
+                        messagebox.showinfo("同步完成", "同步命令已执行，请查看抢码日志NTP偏差")
+                except Exception as e:
+                    self.nm_log(f"✓ 同步已执行（状态查询失败: {e}）")
+                    messagebox.showinfo("同步完成", "同步命令已执行完成")
             else:
-                self.nm_log(f"✗ 同步失败，错误码: {ret}")
-                if ret == 1223:
-                    self.nm_log("  用户取消了UAC授权")
+                self.nm_log("✗ 同步失败或用户取消UAC")
+                messagebox.showerror("同步失败", "同步失败或用户取消了UAC授权")
         except Exception as e:
             self.nm_log(f"✗ 同步系统时间失败: {e}")
+            messagebox.showerror("同步失败", f"同步系统时间失败:\n{e}")
 
 
     def nm_query_time_status(self):
@@ -4303,6 +4335,116 @@ class RushRewardFrame(tk.Frame):
                     self.nm_log("提示: 请先点击「同步系统时间」按钮，通过UAC授权后再查询")
         except Exception as e:
             self.nm_log(f"查询失败: {e}")
+
+
+    def nm_fix_time_service(self):
+        """一键修复时间服务：停止→注销→重注册→启动→配NTP→同步"""
+        import subprocess
+        try:
+            self.nm_log("=" * 50)
+            self.nm_log("🔧 开始修复时间服务（需要管理员权限）...")
+            self.nm_log("   步骤: 停止服务 → 注销 → 重注册 → 启动 → 配NTP → 同步")
+
+            # 写一个临时bat脚本执行完整修复流程
+            bat_content = """@echo off
+chcp 65001 >nul
+echo ========================================
+echo   时间服务修复工具
+echo ========================================
+echo.
+echo [1/6] 停止 W32Time 服务...
+net stop w32time
+echo.
+echo [2/6] 注销时间服务...
+w32tm /unregister
+echo.
+echo [3/6] 重新注册时间服务...
+w32tm /register
+echo.
+echo [4/6] 启动 W32Time 服务...
+net start w32time
+echo.
+echo [5/6] 配置NTP服务器(阿里云+微软)...
+w32tm /config /syncfromflags:manual /manualpeerlist:"ntp.aliyun.com time.windows.com ntp.tencent.com"
+w32tm /config /update
+echo.
+echo [6/6] 强制同步时间...
+w32tm /resync /force
+echo.
+echo ========================================
+echo   修复完成！
+echo ========================================
+echo.
+pause
+"""
+            bat_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fix_time_service.bat")
+            with open(bat_path, "w", encoding="gbk") as f:
+                f.write(bat_content)
+
+            # 用ShellExecuteExW以管理员权限运行bat，等待完成
+            class SHELLEXECUTEINFOW(ctypes.Structure):
+                _fields_ = [
+                    ("cbSize", ctypes.c_ulong), ("fMask", ctypes.c_ulong),
+                    ("hwnd", ctypes.c_void_p), ("lpVerb", ctypes.c_wchar_p),
+                    ("lpFile", ctypes.c_wchar_p), ("lpParameters", ctypes.c_wchar_p),
+                    ("lpDirectory", ctypes.c_wchar_p), ("nShow", ctypes.c_int),
+                    ("hInstApp", ctypes.c_void_p), ("lpIDList", ctypes.c_void_p),
+                    ("lpClass", ctypes.c_wchar_p), ("hkeyClass", ctypes.c_void_p),
+                    ("dwHotKey", ctypes.c_ulong), ("hIcon", ctypes.c_void_p),
+                    ("hProcess", ctypes.c_void_p),
+                ]
+
+            see = SHELLEXECUTEINFOW()
+            see.cbSize = ctypes.sizeof(SHELLEXECUTEINFOW)
+            see.fMask = 0x00000040
+            see.lpVerb = "runas"
+            see.lpFile = bat_path
+            see.nShow = 1
+
+            ok = ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(see))
+            if ok and see.hProcess:
+                self.nm_log("✓ UAC已授权，正在执行修复（黑窗口显示进度）...")
+                ctypes.windll.kernel32.WaitForSingleObject(see.hProcess, 60000)
+                ctypes.windll.kernel32.CloseHandle(see.hProcess)
+                # 清理临时bat
+                try:
+                    os.remove(bat_path)
+                except Exception:
+                    pass
+                # 修复后测偏差
+                try:
+                    r = subprocess.run(
+                        ["w32tm", "/stripchart", "/computer:ntp.aliyun.com", "/samples:5", "/dataonly"],
+                        capture_output=True, text=True, timeout=20)
+                    offs = []
+                    for line in r.stdout.split('\n'):
+                        if ',' in line and 's' in line:
+                            try:
+                                v = line.split(',')[1].strip().replace('s', '').replace('+', '')
+                                offs.append(abs(float(v) * 1000))
+                            except Exception:
+                                pass
+                    if offs:
+                        avg = sum(offs) / len(offs)
+                        if avg < 100:
+                            self.nm_log(f"✓ 修复成功！当前NTP偏差{avg:.0f}ms")
+                            messagebox.showinfo("修复成功", f"时间服务修复完成！\n\n当前NTP偏差: {avg:.0f}ms\n（已恢复正常）")
+                        else:
+                            self.nm_log(f"⚠ 修复完成但偏差仍有{avg:.0f}ms")
+                            messagebox.showwarning("修复完成", f"修复已执行，但偏差仍较大:\n\n当前NTP偏差: {avg:.0f}ms\n\n建议:\n1. 检查网络是否能访问NTP服务器\n2. 检查是否有其他软件修改系统时间\n3. 重启电脑后再试")
+                    else:
+                        self.nm_log("✓ 修复命令已执行")
+                        messagebox.showinfo("修复完成", "时间服务修复已执行，请查看抢码日志NTP偏差")
+                except Exception as e:
+                    self.nm_log(f"✓ 修复已执行（查询偏差失败: {e}）")
+                    messagebox.showinfo("修复完成", "时间服务修复已执行")
+            else:
+                self.nm_log("✗ 修复失败或用户取消UAC")
+                messagebox.showerror("修复失败", "修复失败或用户取消了UAC授权")
+            self.nm_log("=" * 50)
+        except Exception as e:
+            self.nm_log(f"✗ 修复时间服务失败: {e}")
+            messagebox.showerror("修复失败", f"修复时间服务失败:\n{e}")
 
 
     def nm_update_ui_state(self):
@@ -4680,13 +4822,26 @@ class RushRewardFrame(tk.Frame):
                 else:
                     self.nm_log(f"  ⚠ {task['name']}: 连接预热异常: {msg}, 使用保存的act_id={task_infos[task['task_id']].get('act_id', '')}")
 
-            # 计算提前量：基础200ms + NTP偏差修正（本地慢就加，本地快就减）
-            base_advance = 200  # 基础提前量200ms，首次请求到达B站时间约为目标后50ms（基于高峰期上行延迟250ms统计）
-            ntp_correction = ntp_offset * 1000  # NTP偏差转ms（正数表示本地慢，需要更多提前量）
+            # 计算提前量：基础提前量 + NTP偏差修正
+            # NTP offset = ((t2-t1)+(t3-t4))/2，正数=本地慢于服务器，需要更多提前量
+            base_advance = 100  # 基础提前量100ms（实测高峰期单向RTT约120ms，目标到达时间=目标后约20ms）
+            ntp_correction = ntp_offset * 1000  # NTP偏差转ms
             dynamic_advance = base_advance + ntp_correction
             # 限制范围：0ms ~ 1500ms，避免异常值
             dynamic_advance = max(0, min(1500, dynamic_advance))
-            if abs(ntp_correction) > 10:
+
+            # NTP偏差过大时强制警告（>100ms会显著影响首枪精度）
+            if abs(ntp_correction) > 100:
+                self.nm_log(f"[⚠️ NTP偏差警告] 当前偏差{ntp_correction:.0f}ms，超过100ms安全阈值！")
+                self.nm_log(f"[⚠️ NTP偏差警告] 首枪 timing 误差可能超过±100ms，建议立即同步系统时间后重试")
+                try:
+                    self.after(0, lambda: messagebox.showwarning("NTP时间偏差过大",
+                        f"当前系统时间与NTP服务器偏差 {ntp_correction:.0f}ms\n"
+                        f"超过100ms安全阈值，抢码 timing 可能失准！\n\n"
+                        f"建议：点击「同步系统时间」按钮或手动执行 w32tm /resync"))
+                except Exception:
+                    pass
+            elif abs(ntp_correction) > 10:
                 self.nm_log(f"[提前量修正] 基础{base_advance}ms + NTP偏差{ntp_correction:.0f}ms = {dynamic_advance:.0f}ms")
             else:
                 self.nm_log(f"[固定提前量] {dynamic_advance:.0f}ms (首次请求目标后约50ms到达)")
@@ -4855,8 +5010,18 @@ class RushRewardFrame(tk.Frame):
                 if "202120" in msg or "未到领取时间" in msg or "未到领奖时间" in msg:
                     self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 未到领取时间，继续等待... ({msg[:30]})")
                 elif "75255" in msg or "库存已经使用完" in msg or "库存已使用完" in msg:
-                    self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 库存已使用完，切下一个优先级")
-                    break
+                    # 从deadline反推目标时间，判断是否超过目标后5秒
+                    _window = task.get("window_seconds", 15)
+                    _target_time = deadline - _window
+                    _elapsed_after_target = time.time() - _target_time
+                    _over_5s = _elapsed_after_target > 5
+                    if not _over_5s:
+                        # 目标后5秒内：库存可能正在刷新，放慢间隔持续重试（不限时段）
+                        current_interval = max(current_interval, 2.0)
+                        self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 库存已使用完（目标后{_elapsed_after_target:.1f}s<5s，持续重试）")
+                    else:
+                        self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 库存已使用完（目标后{_elapsed_after_target:.1f}s），切下一个优先级")
+                        break
                 elif "202129" in msg or "奖励领取已结束" in msg:
                     self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 奖励领取已结束，切下一个优先级")
                     break
@@ -9968,6 +10133,42 @@ class DanmakuApp:
         self.log("程序启动，已加载 " + str(len(self.account_mgr.accounts)) + " 个账户，" + str(len(self.danmaku_list)) + " 条弹幕")
         self.log("数据目录: " + str(BASE_DIR))
         self.log("(配置文件已自动存到data子文件夹，不会铺满桌面)")
+        # 启动时后台验证所有账号登录状态
+        self._startup_check_accounts()
+
+    def _startup_check_accounts(self):
+        """启动时在后台线程验证所有账号登录状态，失效则弹窗报错"""
+        import threading
+        def _check():
+            try:
+                import requests
+                time.sleep(2)  # 等UI完全加载
+                failed = []
+                for acc in self.account_mgr.accounts:
+                    name = acc.get("name", "未知")
+                    try:
+                        cookies = cookies_from_account(acc)
+                        resp = requests.get("https://api.bilibili.com/x/web-interface/nav",
+                                            headers=HEADERS, cookies=cookies, timeout=8)
+                        data = resp.json()
+                        if data.get("code") != 0:
+                            failed.append(f"{name}（{data.get('message', '未知错误')}）")
+                    except Exception as e:
+                        failed.append(f"{name}（验证异常: {str(e)[:30]}）")
+                if failed:
+                    msg = "以下 " + str(len(failed)) + " 个账号登录已失效，请重新登录：\n\n" + "\n".join(failed)
+                    self.root.after(0, lambda: self._show_account_login_error(msg))
+                else:
+                    self.log(f"✓ 启动账号验证: 全部 {len(self.account_mgr.accounts)} 个账号登录有效")
+            except Exception as e:
+                self.log(f"⚠ 启动账号验证异常: {e}")
+        threading.Thread(target=_check, daemon=True).start()
+
+    def _show_account_login_error(self, msg):
+        """在主线程弹出账号登录失效错误"""
+        from tkinter import messagebox
+        self.log(f"⚠ {msg}")
+        messagebox.showerror("账号登录失效", msg)
 
     def restore_selected_account(self):
         """恢复上次选中的账户"""
