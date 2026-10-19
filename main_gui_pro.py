@@ -120,7 +120,10 @@ def _migrate_old_files():
             except Exception as e:
                 print(f"迁移 {dname} 失败: {e}")
 
-_migrate_old_files()
+try:
+    _migrate_old_files()
+except Exception as e:
+    print(f"配置文件迁移失败（不影响启动）: {e}")
 
 ACCOUNTS_FILE = BASE_DIR / "accounts.json"
 DANMAKU_FILE = BASE_DIR / "danmaku_list.txt"
@@ -7940,7 +7943,7 @@ class WatchLiveFrame(tk.Frame):
                     if client["running"]:
                         client["reconnect_count"] += 1
                         if client["reconnect_count"] <= 15:
-                            delay = min(5 * client["reconnect_count"], 30)
+                            delay = min(2 ** client["reconnect_count"], 30)  # P1-9: 指数退避
                             self.log(f"  [{name}] {delay}秒后自动重连(第{client['reconnect_count']}次)")
                             threading.Timer(delay, do_connect).start()
                     return False
@@ -7990,7 +7993,7 @@ class WatchLiveFrame(tk.Frame):
                     if client["running"]:
                         client["reconnect_count"] += 1
                         if client["reconnect_count"] <= 15:
-                            delay = min(5 * client["reconnect_count"], 30)
+                            delay = min(2 ** client["reconnect_count"], 30)  # P1-9: 指数退避
                             reason = "断开" if was_connected else "初始连接失败"
                             self.log(f"  [{name}] 弹幕连接{reason}，{delay}秒后自动重连(第{client['reconnect_count']}次)")
                             threading.Timer(delay, do_connect).start()
@@ -12164,6 +12167,11 @@ bili_jct: {jct_preview}
             csrf = account["bili_jct"]
 
             # 选择弹幕
+            # P1-8: 空列表保护，防止运行中弹幕被清空导致崩溃
+            if not self.danmaku_list:
+                self.log("⚠ 弹幕列表为空，等待10秒后重试...")
+                time.sleep(10)
+                continue
             if mode == "random":
                 msg = random.choice(self.danmaku_list)
             else:
