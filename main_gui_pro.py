@@ -1403,7 +1403,10 @@ def save_redeem_code(task_name, account_name, data, task_period="", task_type=""
             r["id"] = i + 1
         
         atomic_write_json(CODE_EXPORT_FILE, records)
-        
+
+        # P2-T: saved_count==0时返回False，避免把重复当作已导入
+        if saved_count == 0:
+            return False, f"全部 {skipped_count} 个兑换码均为重复，未保存"
         if skipped_count > 0:
             return True, f"已保存 {saved_count} 个兑换码，跳过 {skipped_count} 个重复"
         return True, f"已保存 {saved_count} 个兑换码"
@@ -1421,13 +1424,17 @@ def load_redeem_codes():
     return []
 
 def update_redeem_code_status(record_id, status):
-    """更新兑换码状态"""
+    """更新兑换码状态（P2-P: 找不到id时返回False，用.get()避免KeyError）"""
     try:
         records = load_redeem_codes()
+        found = False
         for r in records:
-            if r["id"] == record_id:
+            if r.get("id") == record_id:
                 r["status"] = status
+                found = True
                 break
+        if not found:
+            return False
         _ensure_code_dir()
         atomic_write_json(CODE_EXPORT_FILE, records)
         return True
@@ -4387,7 +4394,9 @@ echo ========================================
 echo.
 pause
 """
-            bat_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fix_time_service.bat")
+            # P2-12/13: 用系统临时目录，避免onefile打包后__file__在_MEIPASS导致UAC后无法访问
+            import tempfile
+            bat_path = os.path.join(tempfile.gettempdir(), "fix_time_service.bat")
             with open(bat_path, "w", encoding="gbk") as f:
                 f.write(bat_content)
 
@@ -7007,7 +7016,7 @@ class WatchLiveFrame(tk.Frame):
                 acc_rec["heartbeat_count"] = stats.get("heartbeat_count", 0)
                 acc_rec["status"] = stats.get("status", "未知")
                 total_seconds = max(total_seconds, acc_rec["watch_seconds"])
-        self.current_watch_record["duration_seconds"] = total_seconds
+        self.current_watch_record["duration_seconds"] = total_seconds  # P2-H: 多账户时为最长账户时长，非总和
 
     def add_watch_anomaly(self, anomaly_type, message, account_name=None, room_id=None):
         """添加异常事件到当前看播记录"""
