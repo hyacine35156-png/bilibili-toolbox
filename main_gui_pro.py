@@ -9933,6 +9933,9 @@ class ScheduleFrame(tk.Frame):
                 result["confirmed"] = False
                 confirm_win.destroy()
 
+            # P0-F修复: 窗口X按钮关闭也视为取消
+            confirm_win.protocol("WM_DELETE_WINDOW", cancel_shutdown)
+
             btn_frame = tk.Frame(confirm_win, bg=COLORS["bg_card"])
             btn_frame.pack()
             DarkButton(btn_frame, "确认关机", command=confirm_shutdown,
@@ -10001,13 +10004,13 @@ class ScheduleFrame(tk.Frame):
         monitor_thread.start()
 
     def _mark_rush_done(self, task, timeout=False):
-        """标记抢码任务完成"""
+        """标记抢码任务完成（修复P0-3回归：状态重置为等待中，避免永久显示已结束）"""
         if timeout:
-            task["status"] = "已结束(超时)"
-            self.log(f"⏰ 抢码任务「{task['name']}」监控超时(2小时)，标记为已结束")
+            task["status"] = "等待中"
+            self.log(f"⏰ 抢码任务「{task['name']}」监控超时(2小时)，重置为等待中")
         else:
-            task["status"] = "已结束"
-            self.log(f"✓ 抢码任务「{task['name']}」所有子任务已完成")
+            task["status"] = "等待中"
+            self.log(f"✓ 抢码任务「{task['name']}」所有子任务已完成，重置为等待中")
         self.refresh_task_list()
         self.save_schedule()
 
@@ -11806,6 +11809,9 @@ bili_jct: {jct_preview}
                             confirm_result["done"] = True
                             confirm_win.destroy()
 
+                        # P0-F修复: 窗口X按钮关闭也视为取消
+                        confirm_win.protocol("WM_DELETE_WINDOW", do_cancel)
+
                         btn_frame = tk.Frame(confirm_win, bg=COLORS["bg_card"])
                         btn_frame.pack()
                         DarkButton(btn_frame, "确认关机", command=do_confirm,
@@ -11825,7 +11831,7 @@ bili_jct: {jct_preview}
                                 confirm_win.destroy()
                         confirm_win.after(1000, tick)
 
-                        self.root.wait_window(confirm_win)
+                        # P0-F修复: 删除wait_window，避免阻塞主线程；由下方while循环等待confirm_result["done"]
                     except Exception as e:
                         self.log(f"✗ 关机确认弹窗异常，已取消关机: {e}")
                         confirm_result["confirmed"] = False
