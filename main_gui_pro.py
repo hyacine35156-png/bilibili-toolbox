@@ -4185,6 +4185,10 @@ class RushRewardFrame(tk.Frame):
                 pass
     def nm_start_rush(self):
         """启动精准抢码（支持多组同时运行）"""
+        # P1-6: 新旧抢码互斥闸门
+        if self.running:
+            self.nm_log("⚠ 监控抢码正在运行中，请先停止后再启动精准抢码")
+            return
         if not self.current_group_id:
             self.nm_log("请先选择任务组")
             return
@@ -6116,6 +6120,11 @@ pause
 
     def start_rush(self):
         """开始自动监控抢码"""
+        # P1-6: 新旧抢码互斥闸门
+        nm_running = any(t.is_alive() for t in self.nm_group_threads.values()) if hasattr(self, 'nm_group_threads') else False
+        if nm_running:
+            messagebox.showwarning("提示", "精准抢码正在运行中，请先停止后再启动监控抢码")
+            return
         task = self.get_current_task()
         if not task:
             messagebox.showwarning("提示", "请先选择任务")
