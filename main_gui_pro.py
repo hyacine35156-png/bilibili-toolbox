@@ -8298,8 +8298,12 @@ class WatchLiveFrame(tk.Frame):
         except Exception as e:
             return {"_error": True, "code": -1, "message": f"异常: {type(e).__name__}: {e}"}
 
-    def x25kn_thread_func(self, account, room_id, area_id, parent_id, up_id, name):
+    def x25kn_thread_func(self, account, room_id, area_id, parent_id, up_id, name, deadline=None):
         """X25Kn观看心跳线程：E接口进入后，按心跳间隔循环X接口"""
+        # P1-F: deadline检查，超过目标时长自动停止
+        if deadline and time.time() > deadline:
+            self.log(f"  [{name}] X25Kn已超过deadline，不启动")
+            return
         import uuid as uuid_lib
         buvid = self.x25kn_get_buvid(account)
         uuid_str = str(uuid_lib.uuid4())
@@ -8337,6 +8341,10 @@ class WatchLiveFrame(tk.Frame):
         # 循环X接口
         consecutive_fail = 0
         while not self.x25kn_stop.get(name, False) and not self.stop_flag["stop"]:
+            # P1-F: deadline检查，超过目标时长自动停止
+            if deadline and time.time() > deadline:
+                self.log(f"  [{name}] X25Kn已超过deadline，停止心跳")
+                break
             state = self.x25kn_state.get(name)
             if not state:
                 break
@@ -8696,8 +8704,10 @@ class WatchLiveFrame(tk.Frame):
             if not stats or stats["status"] != "观看中":
                 continue
             self.x25kn_stop[name] = False
+            # P1-F: 传入deadline，超过目标时长+60秒缓冲后自动停止
+            x25kn_deadline = time.time() + target_seconds + 60
             t = threading.Thread(target=self.x25kn_thread_func,
-                                 args=(acc, room_ids[0], area_id, parent_id, up_id, name),
+                                 args=(acc, room_ids[0], area_id, parent_id, up_id, name, x25kn_deadline),
                                  daemon=True)
             self.x25kn_threads[name] = t
             t.start()
