@@ -11780,7 +11780,6 @@ bili_jct: {jct_preview}
                     config = json.load(f)
                 if config.get("shutdown_mode"):
                     self.shutdown_mode_var.set(config["shutdown_mode"])
-                    self.on_shutdown_mode_change()
                 if config.get("shutdown_hour"):
                     self.shutdown_hour.delete(0, tk.END)
                     self.shutdown_hour.insert(0, config["shutdown_hour"])
@@ -11793,6 +11792,9 @@ bili_jct: {jct_preview}
                 if config.get("task_name"):
                     self.shutdown_task_name.delete(0, tk.END)
                     self.shutdown_task_name.insert(0, config["task_name"])
+                # P1-G: 所有字段恢复后再触发mode change，避免默认值覆盖配置
+                if config.get("shutdown_mode"):
+                    self.on_shutdown_mode_change()
         except Exception:
             pass
 
@@ -12017,7 +12019,13 @@ bili_jct: {jct_preview}
         if not accounts:
             messagebox.showwarning("提示", "请先勾选至少一个发送账户")
             return
-        account_mode = "multi" if len(accounts) > 1 else "single"
+        # P1-R: 从界面单选按钮读取account_mode，而不是根据账户数量推断
+        try:
+            account_mode = self.account_mode_var.get()
+            if account_mode not in ("single", "multi", "rotate"):
+                account_mode = "multi" if len(accounts) > 1 else "single"
+        except Exception:
+            account_mode = "multi" if len(accounts) > 1 else "single"
 
         room_id = self._get_danmaku_room_id()
         if not room_id:
