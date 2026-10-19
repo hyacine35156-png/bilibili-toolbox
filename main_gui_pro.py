@@ -8959,6 +8959,10 @@ class WatchLiveFrame(tk.Frame):
                     self.log(f"  [{name}] 第{count}次: ✓ {msg} (牛蛙牛蛙x{gift_num})")
                 else:
                     self.log(f"  [{name}] 第{count}次: ✗ {msg}")
+                    # P1-D/P1-10: 余额不足时立即停止该账户送礼，避免无效重试
+                    if "余额不足" in msg or "200013" in msg or "电池不够" in msg:
+                        self.log(f"  [{name}] ⚠ 电池余额不足，停止该账户送礼")
+                        break
                 # 等待间隔
                 for _ in range(int(interval * 10)):
                     if self.gift_stop.get(name, True) or not self.gift_running:
@@ -9899,11 +9903,20 @@ class ScheduleFrame(tk.Frame):
     def _scheduler_loop(self):
         """调度器主循环：每秒检查一次，到点执行任务"""
         last_minute = -1
+        last_check_time = time.time()  # P1-14: 用于检测休眠唤醒后的时间跳跃
         warned_tasks = set()  # 已提前1分钟写过日志的任务ID
         while not self.scheduler_stop["stop"]:
             try:
                 now = datetime.now()
                 current_minute = now.hour * 60 + now.minute
+                current_time = time.time()
+
+                # P1-14: 检测休眠唤醒——如果时间跳跃超过5分钟，说明电脑休眠过
+                time_jump = current_time - last_check_time
+                if time_jump > 300:
+                    self.log(f"⏰ 检测到系统休眠唤醒（跳过{time_jump:.0f}秒），立即检查待执行任务")
+                    last_minute = -1  # 强制重新检查所有任务
+                last_check_time = current_time
 
                 # 只在分钟变化时检查（避免同一分钟重复执行）
                 if current_minute != last_minute:
