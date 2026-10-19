@@ -11179,20 +11179,27 @@ bili_jct: {jct_preview}
             self.log(f"已删除账户: {acc['name']}")
 
     def _manager_verify_account(self):
-        """账户管理页面验证登录"""
+        """账户管理页面验证登录（P1-S: 异步执行，避免阻塞UI）"""
         selection = self.manager_account_listbox.curselection()
         if not selection:
             messagebox.showwarning("提示", "请先选择账户")
             return
         acc = self.account_mgr.accounts[selection[0]]
         cookie_str = self.account_mgr.get_cookie_string(acc["name"])
-        ok, msg = verify_login(cookie_str)
-        if ok:
-            messagebox.showinfo("验证成功", f"账户「{acc['name']}」登录有效\n当前用户: {msg}")
-            self.log(f"账户「{acc['name']}」验证成功，用户: {msg}")
-        else:
-            messagebox.showerror("验证失败", f"账户「{acc['name']}」验证失败: {msg}")
-            self.log(f"账户「{acc['name']}」验证失败: {msg}")
+        self.log(f"正在验证账户「{acc['name']}」登录状态...")
+
+        def _verify():
+            ok, msg = verify_login(cookie_str)
+            def _update_ui():
+                if ok:
+                    messagebox.showinfo("验证成功", f"账户「{acc['name']}」登录有效\n当前用户: {msg}")
+                    self.log(f"账户「{acc['name']}」验证成功，用户: {msg}")
+                else:
+                    messagebox.showerror("验证失败", f"账户「{acc['name']}」验证失败: {msg}")
+                    self.log(f"账户「{acc['name']}」验证失败: {msg}")
+            self.root.after(0, _update_ui)
+
+        threading.Thread(target=_verify, daemon=True).start()
 
     # ========== 弹幕工具页面账户多选 ==========
     def _refresh_danmaku_account_checkboxes(self):
@@ -11328,18 +11335,26 @@ bili_jct: {jct_preview}
             self.log(f"已删除账户: {acc['name']}")
 
     def verify_current_account(self):
+        """验证当前选中账户登录状态（P1-S: 异步执行，避免阻塞UI）"""
         acc = self.get_current_account()
         if not acc:
             messagebox.showwarning("提示", "请先选择账户")
             return
         cookie_str = self.account_mgr.get_cookie_string(acc["name"])
-        ok, msg = verify_login(cookie_str)
-        if ok:
-            messagebox.showinfo("验证成功", f"账户「{acc['name']}」登录有效\n当前用户: {msg}")
-            self.log(f"账户「{acc['name']}」验证成功，用户: {msg}")
-        else:
-            messagebox.showerror("验证失败", f"账户「{acc['name']}」验证失败: {msg}")
-            self.log(f"账户「{acc['name']}」验证失败: {msg}")
+        self.log(f"正在验证账户「{acc['name']}」登录状态...")
+
+        def _verify():
+            ok, msg = verify_login(cookie_str)
+            def _update_ui():
+                if ok:
+                    messagebox.showinfo("验证成功", f"账户「{acc['name']}」登录有效\n当前用户: {msg}")
+                    self.log(f"账户「{acc['name']}」验证成功，用户: {msg}")
+                else:
+                    messagebox.showerror("验证失败", f"账户「{acc['name']}」验证失败: {msg}")
+                    self.log(f"账户「{acc['name']}」验证失败: {msg}")
+            self.root.after(0, _update_ui)
+
+        threading.Thread(target=_verify, daemon=True).start()
 
     def _copy_machine_code(self):
         """复制设备码到剪贴板"""
