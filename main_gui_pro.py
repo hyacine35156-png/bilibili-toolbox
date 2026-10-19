@@ -1185,10 +1185,15 @@ def parse_stock_info(task_info, debug=False, _depth=0, _seen_ids=None):
                         debug_log.append(f"嵌套{nested_key}中找到库存: {s} = {d}/{t}")
                     return d, t, r, f"{nested_key}.{s}", award_total_stock, award_daily_limit, debug_log
 
-    # 尝试6: 查找包含stock/remain/left/count/num的任意字段
+    # 尝试6: 查找包含stock/remain/left/available的任意字段
+    # P2-J: 排除明显非库存字段（价格、比率、百分比等）
+    _stock_blacklist = ["price", "cost", "rate", "ratio", "percent", "discount", "value", "score", "level", "exp", "coin", "money", "amount"]
     for key, val in task_info.items():
         key_lower = key.lower()
         if any(kw in key_lower for kw in ["stock", "remain", "left", "available"]) and isinstance(val, (int, float)) and val > 0:
+            # 排除黑名单字段
+            if any(bl in key_lower for bl in _stock_blacklist):
+                continue
             if debug:
                 debug_log.append(f"自动找到字段: {key} = {val}")
             day_stock = int(val)
