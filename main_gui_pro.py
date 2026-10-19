@@ -7945,7 +7945,10 @@ class WatchLiveFrame(tk.Frame):
                         if client["reconnect_count"] <= 15:
                             delay = min(2 ** client["reconnect_count"], 30)  # P1-9: 指数退避
                             self.log(f"  [{name}] {delay}秒后自动重连(第{client['reconnect_count']}次)")
-                            threading.Timer(delay, do_connect).start()
+                            # P1-E: 保存Timer对象，关闭时可cancel
+                            client["reconnect_timer"] = threading.Timer(delay, do_connect)
+                            client["reconnect_timer"].daemon = True
+                            client["reconnect_timer"].start()
                     return False
 
                 def on_message(ws, message):
@@ -7996,7 +7999,10 @@ class WatchLiveFrame(tk.Frame):
                             delay = min(2 ** client["reconnect_count"], 30)  # P1-9: 指数退避
                             reason = "断开" if was_connected else "初始连接失败"
                             self.log(f"  [{name}] 弹幕连接{reason}，{delay}秒后自动重连(第{client['reconnect_count']}次)")
-                            threading.Timer(delay, do_connect).start()
+                            # P1-E: 保存Timer对象，关闭时可cancel
+                            client["reconnect_timer"] = threading.Timer(delay, do_connect)
+                            client["reconnect_timer"].daemon = True
+                            client["reconnect_timer"].start()
                         else:
                             self.log(f"  [{name}] 弹幕重连次数过多(15次)，停止重连")
 
@@ -8033,10 +8039,13 @@ class WatchLiveFrame(tk.Frame):
                 if client["running"]:
                     client["reconnect_count"] += 1
                     if client["reconnect_count"] <= 15:
-                        delay = min(5 * client["reconnect_count"], 30)
-                        self.log(f"  [{name}] {delay}秒后自动重连(第{client['reconnect_count']}次)")
-                        threading.Timer(delay, do_connect).start()
-                return False
+                            delay = min(2 ** client["reconnect_count"], 30)  # P1-9: 指数退避
+                            self.log(f"  [{name}] {delay}秒后自动重连(第{client['reconnect_count']}次)")
+                            # P1-E: 保存Timer对象，关闭时可cancel
+                            client["reconnect_timer"] = threading.Timer(delay, do_connect)
+                            client["reconnect_timer"].daemon = True
+                            client["reconnect_timer"].start()
+                    return False
 
         def heartbeat_loop():
             hb_count = 0
@@ -8068,6 +8077,12 @@ class WatchLiveFrame(tk.Frame):
         for name, client in self.ws_clients.items():
             if client:
                 client["running"] = False
+                # P1-E: 取消待触发的重连定时器，防止关闭后继续重连
+                try:
+                    if client.get("reconnect_timer"):
+                        client["reconnect_timer"].cancel()
+                except Exception:
+                    pass
                 if client.get("ws"):
                     try:
                         # 设置关闭超时，避免阻塞
