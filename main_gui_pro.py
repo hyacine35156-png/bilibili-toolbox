@@ -7280,7 +7280,9 @@ class WatchLiveFrame(tk.Frame):
             elif status == "已停止":
                 tags = ("warning",)
 
-            self.history_tree.insert("", tk.END, values=(start_time, end_time, duration, rooms, accounts, status, anomaly_text), tags=tags)
+            # P2-B: 用记录id作为item的iid，避免同一秒多条记录定位错误
+            record_id = record.get("id", "")
+            self.history_tree.insert("", tk.END, iid=record_id, values=(start_time, end_time, duration, rooms, accounts, status, anomaly_text), tags=tags)
 
         self.history_page_label.config(text=f"第 {self.history_page + 1}/{total_pages} 页（每页{self.history_page_size}条）")
 
@@ -7296,24 +7298,30 @@ class WatchLiveFrame(tk.Frame):
             self._refresh_history_view()
 
     def _show_history_detail(self, event):
-        """双击显示记录详情"""
+        """双击显示记录详情（P2-B: 用id定位而非时间戳）"""
         selection = self.history_tree.selection()
         if not selection:
             return
-        item = selection[0]
-        values = self.history_tree.item(item, "values")
-        start_time = values[0]
-        # 找到对应的记录
+        item_id = selection[0]
+        # P2-B: 用item的iid（记录id）定位，避免同一秒多条记录显示错误
         record = None
         for r in self.watch_history:
-            if r.get("start_time") == start_time:
+            if r.get("id") == item_id:
                 record = r
                 break
+        # 兼容旧记录（无id），回退到时间戳定位
+        if not record:
+            values = self.history_tree.item(item_id, "values")
+            start_time = values[0]
+            for r in self.watch_history:
+                if r.get("start_time") == start_time:
+                    record = r
+                    break
         if not record:
             return
 
         detail_win = tk.Toplevel(self.history_window)
-        detail_win.title(f"看播详情 - {start_time}")
+        detail_win.title(f"看播详情 - {record.get('start_time', '-')}")
         detail_win.geometry("700x550")
         detail_win.configure(bg=COLORS["bg_dark"])
         detail_win.transient(self.history_window)
@@ -7613,24 +7621,24 @@ class WatchLiveFrame(tk.Frame):
                 combo.set("")
 
     def _add_watch_room_bar(self):
-        """添加一个直播间选择栏"""
+        """添加一个直播间选择栏（P2-G: 所有栏都有删除按钮，只有一个栏时禁用）"""
         bar = tk.Frame(self.watch_room_container, bg=COLORS["bg_card"])
         bar.pack(side=tk.LEFT, padx=(0, 8))
         combo = ttk.Combobox(bar, width=20, values=[], state="readonly")
         combo.pack(side=tk.LEFT)
         combo.set("")
-        # 第一个栏不显示删除按钮，后面添加的栏才显示
-        is_first = len(self.watch_room_bars) == 0
-        del_btn = None
-        if not is_first:
-            del_btn = tk.Button(bar, text="✕", bg=COLORS["danger"], fg="#ffffff", font=("微软雅黑", 8),
-                                bd=0, padx=4, pady=1, cursor="hand2", command=lambda b=bar: self._remove_watch_room_bar(b))
-            del_btn.pack(side=tk.LEFT, padx=(4, 0))
+        # P2-G: 所有栏都创建删除按钮，避免删除第一栏后新第一栏无按钮
+        del_btn = tk.Button(bar, text="✕", bg=COLORS["danger"], fg="#ffffff", font=("微软雅黑", 8),
+                            bd=0, padx=4, pady=1, cursor="hand2", command=lambda b=bar: self._remove_watch_room_bar(b))
+        del_btn.pack(side=tk.LEFT, padx=(4, 0))
+        # 只有一个栏时禁用删除按钮
+        if len(self.watch_room_bars) == 0:
+            del_btn.config(state=tk.DISABLED)
         self.watch_room_bars.append((bar, combo, del_btn))
         self._refresh_room_combo_values()
 
     def _remove_watch_room_bar(self, bar):
-        """删除一个直播间选择栏"""
+        """删除一个直播间选择栏（P2-G: 删除后更新删除按钮状态）"""
         if len(self.watch_room_bars) <= 1:
             return
         for i, (b, c, d) in enumerate(self.watch_room_bars):
@@ -7638,10 +7646,13 @@ class WatchLiveFrame(tk.Frame):
                 b.destroy()
                 self.watch_room_bars.pop(i)
                 break
-        # 第一个栏没有删除按钮，后面的栏保持正常状态
+        # P2-G: 只剩一个栏时禁用其删除按钮，否则全部启用
         for idx, (b, c, d) in enumerate(self.watch_room_bars):
-            if d is not None and idx > 0:
-                d.config(state=tk.NORMAL)
+            if d is not None:
+                if len(self.watch_room_bars) == 1:
+                    d.config(state=tk.DISABLED)
+                else:
+                    d.config(state=tk.NORMAL)
 
     def _get_watch_room_ids(self):
         """获取所有选中的直播间号"""
