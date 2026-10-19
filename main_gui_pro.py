@@ -883,9 +883,10 @@ def get_mission_info(task_id, cookies_dict):
         "task_id": task_id,
         "web_location": "888.126558",
     }
-    signed_params = wbi_sign(params, img_key, sub_key)
 
     try:
+        # P2-Q: wbi_sign移到try内，避免签名异常导致函数崩溃
+        signed_params = wbi_sign(params, img_key, sub_key)
         resp = requests.get(MISSION_INFO_API, headers=headers, cookies=cookies_dict, params=signed_params, timeout=10)
         data = resp.json()
         if data.get("code") == 0:
@@ -1032,9 +1033,10 @@ def get_award_record(activity_id, cookies_dict):
         "activity_id": activity_id,
         "web_location": "888.126558",
     }
-    signed_params = wbi_sign(params, img_key, sub_key)
 
     try:
+        # P2-Q: wbi_sign移到try内，避免签名异常导致函数崩溃
+        signed_params = wbi_sign(params, img_key, sub_key)
         resp = requests.get(MISSION_MYLIST_API, headers=headers, cookies=cookies_dict, params=signed_params, timeout=10)
         data = resp.json()
         if data.get("code") == 0:
@@ -11005,6 +11007,9 @@ class DanmakuApp:
         if custom_askyesno(self.root, "确认", f"确定删除直播间「{room['name']}」吗？"):
             self.room_mgr.delete_room(room["id"])
             self._refresh_manager_room_list()
+            # P2-G: 删除直播间后同步刷新送礼页面的下拉框，避免选中已删除的直播间
+            if hasattr(self, '_refresh_gift_room_combo_values'):
+                self._refresh_gift_room_combo_values()
             self.room_id_entry.delete(0, tk.END)
             self.room_name_entry.delete(0, tk.END)
             self.room_remark_entry.delete(0, tk.END)
