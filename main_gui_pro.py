@@ -8589,6 +8589,8 @@ class WatchLiveFrame(tk.Frame):
         import random
         base_interval = self.interval_var.get()
         target_seconds = self.duration_var.get() * 60
+        # P1-5: 用monotonic记录开始时间，替代sleep累加计时
+        watch_start_time = time.monotonic()
         # 进入所有直播间
         for acc in selected_accounts:
             if self.stop_flag["stop"]:
@@ -8673,7 +8675,8 @@ class WatchLiveFrame(tk.Frame):
                 time.sleep(1)
                 for name, stats in self.account_stats.items():
                     if stats["status"] == "观看中":
-                        stats["watch_seconds"] += 1
+                        # P1-5: 用monotonic差值计算真实观看时长，替代sleep累加
+                        stats["watch_seconds"] = int(time.monotonic() - watch_start_time)
                 if int(time.time()) % 10 == 0:
                     self.refresh_status_tree()
                 # 每60秒检查一次弹幕连接状态
