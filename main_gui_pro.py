@@ -1017,8 +1017,8 @@ def check_all_tasks_finished(version, period, task_type, cookies):
 
     return all_finished, details
 
-def get_award_record(activity_id, cookies_dict):
-    """获取领取记录（含兑换码）"""
+def get_award_record(activity_id, cookies_dict, page=1, page_size=50):
+    """获取领取记录（含兑换码）P2-U: 支持分页"""
     img_key, sub_key = get_wbi_keys(cookies_dict)
     if not img_key:
         return None, "获取WBI密钥失败"
@@ -1032,6 +1032,8 @@ def get_award_record(activity_id, cookies_dict):
     params = {
         "activity_id": activity_id,
         "web_location": "888.126558",
+        "page": page,
+        "page_size": page_size,
     }
 
     try:
@@ -6651,13 +6653,30 @@ class CodeExportFrame(tk.Frame):
                     for acc in accounts:
                         try:
                             cookies = cookies_from_account(acc)
-                            record_data, record_msg = get_award_record(act_id, cookies)
+                            # P2-U: 分页获取所有领取记录，每页50条
+                            all_records = []
+                            page = 1
+                            max_pages = 10  # 安全上限，防止无限循环
+                            while page <= max_pages:
+                                record_data, record_msg = get_award_record(act_id, cookies, page=page, page_size=50)
+                                if record_data and record_data.get("list"):
+                                    record_list = record_data["list"]
+                                    all_records.extend(record_list)
+                                    # P2-U: 检查是否还有下一页
+                                    has_more = record_data.get("has_more", False)
+                                    total = record_data.get("total", 0)
+                                    if not has_more and len(all_records) >= total:
+                                        break
+                                    if len(record_list) < 50:
+                                        break
+                                    page += 1
+                                    time.sleep(0.5)  # P2-U: 请求节流，避免触发-702
+                                else:
+                                    break
                             
-                            if record_data and record_data.get("list"):
-                                record_list = record_data["list"]
+                            if all_records:
                                 account_codes = 0
-                                
-                                for record in record_list:
+                                for record in all_records:
                                     codes = extract_redeem_codes(record)
                                     for code_info in codes:
                                         record_activity_name = record.get("activity_name", "")
@@ -6676,9 +6695,11 @@ class CodeExportFrame(tk.Frame):
                                             account_codes += 1
                                         else:
                                             total_skipped += 1
-                                account_results.append(f"  [{activity_name}] {acc['name']}: 导入 {account_codes} 个，共 {len(record_list)} 条记录")
+                                account_results.append(f"  [{activity_name}] {acc['name']}: 导入 {account_codes} 个，共 {len(all_records)} 条记录（{page}页）")
                             else:
                                 account_results.append(f"  [{activity_name}] {acc['name']}: 无领取记录 ({record_msg})")
+                            # P2-U: 账户之间也加节流
+                            time.sleep(0.3)
                         except Exception as e:
                             account_results.append(f"  [{activity_name}] {acc['name']}: 异常 - {e}")
             finally:
