@@ -381,7 +381,8 @@
 **修复**：
 - 两处都添加 `protocol("WM_DELETE_WINDOW", cancel)` 处理窗口X按钮关闭
 - 第二处（主线程中）删除wait_window，由下方while循环等待confirm_result["done"]
-- 第一处（工作线程中）保留wait_window，因不阻塞UI
+- 第一处通过 `root.after(0, ...)` 调度在UI线程执行，wait_window是合法的Tk用法（会重入事件循环），保留不影响功能
+- **v6.0.3补充**：两处60秒倒计时超时从"自动确认关机"改为"自动取消"，避免用户不在时误关机
 
 **验证**：`git show e1ff920`
 

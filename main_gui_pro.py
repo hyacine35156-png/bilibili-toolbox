@@ -133,7 +133,7 @@ LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # 程序版本号
-APP_VERSION = "v6.0.2"
+APP_VERSION = "v6.0.3"
 
 # ========== 任务信息缓存 ==========
 # 缓存已判定为"已领取"或"无剩余总量"的任务信息，避免重复查询API
@@ -9948,11 +9948,11 @@ class ScheduleFrame(tk.Frame):
             def update_countdown():
                 if remaining[0] > 0 and confirm_win.winfo_exists():
                     remaining[0] -= 1
-                    countdown_label.config(text=f"{remaining[0]}秒后自动关机...")
+                    countdown_label.config(text=f"{remaining[0]}秒后自动取消...")
                     confirm_win.after(1000, update_countdown)
                 elif confirm_win.winfo_exists():
-                    # 超时自动确认
-                    result["confirmed"] = True
+                    # 超时自动取消（避免用户不在时误关机）
+                    result["confirmed"] = False
                     confirm_win.destroy()
             confirm_win.after(1000, update_countdown)
 
@@ -11823,10 +11823,11 @@ bili_jct: {jct_preview}
                         def tick():
                             if remaining[0] > 0 and confirm_win.winfo_exists():
                                 remaining[0] -= 1
-                                countdown_label.config(text=f"{remaining[0]}秒后自动关机...")
+                                countdown_label.config(text=f"{remaining[0]}秒后自动取消...")
                                 confirm_win.after(1000, tick)
                             elif confirm_win.winfo_exists():
-                                confirm_result["confirmed"] = True
+                                # 超时自动取消（避免用户不在时误关机）
+                                confirm_result["confirmed"] = False
                                 confirm_result["done"] = True
                                 confirm_win.destroy()
                         confirm_win.after(1000, tick)
