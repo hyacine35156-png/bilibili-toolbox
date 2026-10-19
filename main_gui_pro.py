@@ -1848,8 +1848,10 @@ class RushRewardFrame(tk.Frame):
         self.nm_group_stop_flags = {}
         self.nm_group_status = {}
 
-        # 初始化日志文件
+        # 初始化日志文件（P1-13: 常开句柄+锁）
         self.log_file = None
+        self._log_file_handle = None
+        self._log_lock = threading.Lock()
         self.init_log_file()
 
         self.build_ui()
@@ -1869,6 +1871,13 @@ class RushRewardFrame(tk.Frame):
         # 停止所有定时任务线程
         for task_id, stop_flag in self.scheduled_task_stop_flags.items():
             stop_flag["stop"] = True
+        # P1-13: 关闭日志文件句柄
+        if self._log_file_handle:
+            try:
+                self._log_file_handle.close()
+            except Exception:
+                pass
+            self._log_file_handle = None
 
     def load_scheduled_tasks(self):
         """加载定时任务列表，自动过滤掉已从ALL_TASKS中删除的任务"""
@@ -5166,29 +5175,33 @@ pause
         return self.filtered_tasks[idx]
 
     def init_log_file(self):
-        """初始化日志文件"""
+        """初始化日志文件（P1-13: 常开句柄+锁，避免每次log都open/close）"""
         try:
             LOG_DIR.mkdir(exist_ok=True)
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             self.log_file = LOG_DIR / f"抢码日志_{timestamp}.txt"
-            with open(self.log_file, "w", encoding="utf-8") as f:
-                f.write(f"===== B站抢码工具日志 =====\n")
-                f.write(f"启动时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"日志文件: {self.log_file}\n")
-                f.write(f"============================\n\n")
+            # P1-13: 打开文件句柄，保持常开，避免高频open/close
+            self._log_file_handle = open(self.log_file, "w", encoding="utf-8")
+            self._log_file_handle.write(f"===== B站抢码工具日志 =====\n")
+            self._log_file_handle.write(f"启动时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            self._log_file_handle.write(f"日志文件: {self.log_file}\n")
+            self._log_file_handle.write(f"============================\n\n")
+            self._log_file_handle.flush()
         except Exception as e:
             print(f"初始化日志文件失败: {e}")
             self.log_file = None
+            self._log_file_handle = None
 
     def log(self, msg):
-        """线程安全的日志输出"""
+        """线程安全的日志输出（P1-13: 常开句柄+锁，避免高频open/close阻塞主线程）"""
         timestamp = time.strftime("%H:%M:%S")
         line = f"[{timestamp}] {msg}\n"
-        # 写入日志文件（线程安全）
-        if self.log_file:
+        # P1-13: 用锁保护写入，使用常开句柄，避免每次open/close
+        if self._log_file_handle:
             try:
-                with open(self.log_file, "a", encoding="utf-8") as f:
-                    f.write(line)
+                with self._log_lock:
+                    self._log_file_handle.write(line)
+                    self._log_file_handle.flush()
             except Exception:
                 pass
         # 通过主线程更新UI，避免Tkinter线程安全问题
@@ -8418,6 +8431,10 @@ class WatchLiveFrame(tk.Frame):
                     state["interval"] = next_interval
                 state["beat_count"] += 1
                 consecutive_fail = 0
+                # P2-I: 同步beat_count和heartbeat_interval到account_stats，供达标判断使用
+                if name in self.account_stats:
+                    self.account_stats[name]["beat_count"] = state["beat_count"]
+                    self.account_stats[name]["heartbeat_interval"] = state["interval"]
                 if state["beat_count"] % 2 == 0:
                     self.log(f"  [{name}] X25Kn心跳 #{state['beat_count']} 成功")
             else:
@@ -8637,7 +8654,8 @@ class WatchLiveFrame(tk.Frame):
             self.account_stats = {}
             for acc in selected_accounts:
                 name = acc.get("name", "未知")
-                self.account_stats[name] = {"watch_seconds": 0, "heartbeat_count": 0, "play_count": 0, "status": "进入中", "last_heartbeat": None, "account": acc}
+                # P2-I: 添加beat_count（服务端确认的心跳次数）和heartbeat_interval
+                self.account_stats[name] = {"watch_seconds": 0, "heartbeat_count": 0, "play_count": 0, "beat_count": 0, "heartbeat_interval": 0, "status": "进入中", "last_heartbeat": None, "account": acc}
             room_display = ", ".join(room_ids)
             self.log(f"开始看播，直播间: {room_display}（共{len(room_ids)}个），账户: {len(selected_accounts)}个")
             self.log(f"目标时长: {self.duration_var.get()} 分钟，心跳间隔: {self.interval_var.get()} 秒")
@@ -8789,9 +8807,18 @@ class WatchLiveFrame(tk.Frame):
             for name, stats in self.account_stats.items():
                 if stats["status"] == "观看中":
                     has_watching = True
-                    if stats["watch_seconds"] < target_seconds:
-                        all_done = False
-                        break
+                    # P2-I: 优先用服务端确认的beat_count计算观看时长，无心跳时回退到客户端估算的watch_seconds
+                    beat_count = stats.get("beat_count", 0)
+                    beat_interval = stats.get("heartbeat_interval", 0)
+                    if beat_count > 0 and beat_interval > 0:
+                        confirmed_seconds = beat_count * beat_interval
+                        if confirmed_seconds < target_seconds:
+                            all_done = False
+                            break
+                    else:
+                        if stats["watch_seconds"] < target_seconds:
+                            all_done = False
+                            break
                 elif stats["status"] == "进入失败":
                     has_failed = True
             # P2-A: 如果没有观看中的账户且有进入失败的，不应标记为完成
