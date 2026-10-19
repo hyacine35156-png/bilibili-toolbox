@@ -346,42 +346,82 @@
 
 ---
 
-## 八、Git commit历史（最新到最旧）
+## 八、Git commit详细清单（从旧到新，便于检查者逐commit验证）
 
+> **基线版本**：`2e1bb41` v6.0.0（修复前）
+> **目标版本**：`904382b` v6.0.1（修复后）
+> **验证方法**：`git diff 2e1bb41..904382b -- main_gui_pro.py` 查看全部改动
+> **单commit查看**：`git show <hash>` 查看该commit的具体修改
+> **单commit回退**：`git revert <hash>` 撤销该commit（其他修复保留）
+
+| 序号 | 短hash | 完整hash | 日期时间 | 修复内容 | 改动 | 前一commit | 后一commit | 回退命令 |
+|------|--------|----------|----------|----------|------|-----------|-----------|----------|
+| 基线 | 2e1bb41 | 2e1bb41... | - | v6.0.0 原版（修复前基线） | - | - | 242900c | - |
+| 1 | 242900c | 242900cf527a2eea8d1b1f129d01f9c09c5b4931 | 10-19 13:02 | 第一优先：P0-A删account_listbox、P0-E关机after改root.after、P0-1弹窗fail-safe、P0-2删旧get_room_info、P0-G修正属性名、P0-3任务结束重置 | +11/-29 | 2e1bb41 | d5836e6 | `git revert 242900c` |
+| 2 | d5836e6 | d5836e69cef873888d7224cc1e181dbdc4137c7b | 10-19 13:04 | 第二优先1：atomic_write_json原子写入，替换23处JSON非原子写 | +31/-44 | 242900c | 2a9207c | `git revert d5836e6` |
+| 3 | 2a9207c | 2a9207c15893f0c693b804dbb42bd454d82c2392 | 10-19 13:04 | 第二优先2：safe_load_json安全加载，解析失败备份.corrupt | +23/-20 | d5836e6 | 47c7356 | `git revert 2a9207c` |
+| 4 | 47c7356 | 47c7356c7b738a30315d3fd37482c496bcd46bcb | 10-19 13:05 | 第二优先3：兑换码批量删除一次性过滤、on_closing先停线程再保存 | +92/-18 | 2a9207c | 5e7f506 | `git revert 47c7356` |
+| 5 | 5e7f506 | 5e7f50613108cab9e57b3b04983a0c1d6cd2df31 | 10-19 13:08 | 第三优先1：WatchLiveFrame设self.root、快照anomalies判空、弹幕result初始化+运行中守卫 | +15/-3 | 47c7356 | b026576 | `git revert 5e7f506` |
+| 6 | b026576 | b026576cf014d1d4e9e4e1b85b1ae0250fd8ecb8 | 10-19 13:08 | 第三优先2：P0-B start_watch完整回滚_reset_watch_ui、P1-A stop_flag不换对象 | +43/-19 | 5e7f506 | 3e94d35 | `git revert b026576` |
+| 7 | 3e94d35 | 3e94d35eb7af7bddfc9ff2f4f10fce1dc09f6b39 | 10-19 13:10 | 第四优先1：P1-G关机配置加载顺序、P1-R account_mode改读var | +10/-2 | b026576 | 7b7cfa3 | `git revert 3e94d35` |
+| 8 | 7b7cfa3 | 7b7cfa3d7cf8fac4362cf91a1253fcb43efc70d6 | 10-19 13:12 | 第四优先2：P1-5看播计时改monotonic差值 | +4/-1 | 3e94d35 | 57ec0d1 | `git revert 7b7cfa3` |
+| 9 | 57ec0d1 | 57ec0d14ecf16e6407a9bf6443a67c82352c4742 | 10-19 13:13 | 第四优先3：P1-J取消全部纳入待确认、P1-N receive_reward改三态 | +14/-13 | 7b7cfa3 | f3bc0d3 | `git revert 57ec0d1` |
+| 10 | f3bc0d3 | f3bc0d3b739bf490db2eecfb52565070062c3499 | 10-19 13:14 | 第四优先4：P1-6新旧抢码互斥闸门 | +9/-0 | 57ec0d1 | 8457f96 | `git revert f3bc0d3` |
+| 11 | 8457f96 | 8457f96b4b8800e79d8bf6bec9adf725c2d7c7a4 | 10-19 13:16 | 第四优先5：P1-O/P1-P缓存键加账号+日期 | +7/-3 | f3bc0d3 | 1408250 | `git revert 8457f96` |
+| 12 | 1408250 | 140825094ca37c10c0df3457400d644e5993621d | 10-19 13:16 | 第四优先6：P1-H/K调度器list快照、P1-I同类任务禁止并发 | +16/-2 | 8457f96 | 89691f5 | `git revert 1408250` |
+| 13 | 89691f5 | 89691f5722769fc5ab779d4d3b94404868bea82f | 10-19 13:17 | 第四优先7：P1-T弹幕重试区分瞬时/永久错误 | +6/-0 | 1408250 | 1c58279 | `git revert 89691f5` |
+| 14 | 1c58279 | 1c58279b5d3112ad951a476faf087e735925ede6 | 10-19 13:18 | 第五优先1：P1-12 migrate加try、P1-8弹幕空列表保护、P1-9 WS指数退避 | +11/-3 | 89691f5 | a96c5e5 | `git revert 1c58279` |
+| 15 | a96c5e5 | a96c5e59da9d9ce0059e8318bf3aa73324fccb2f | 10-19 13:19 | 第五优先2：P1-D/10送礼余额闸门、spec加excludes、P1-14调度器唤醒 | +13/-0 | 1c58279 | b3dc8df | `git revert a96c5e5` |
+| 16 | b3dc8df | b3dc8dfcf13d4d4855bdc458e5aef39ae4fb667e | 10-19 13:20 | 第五优先3：P1-E WS重连Timer可cancel、修复第三处指数退避 | +21/-6 | a96c5e5 | 8880987 | `git revert b3dc8df` |
+| 17 | 8880987 | 888098730bdd5d0aa1154382bf9f2eb5a7a6443f | 10-19 13:21 | 第五优先4：P2-5精准首发perf_counter+timeBeginPeriod | +21/-3 | b3dc8df | e17be70 | `git revert 8880987` |
+| 18 | e17be70 | e17be70c03ae4e9f47772bfc04bedd3eb7111c7d | 10-19 13:22 | 第五优先5：P1-F X25Kn传入deadline，超时自动停止 | +12/-2 | 8880987 | 204f07c | `git revert e17be70` |
+| 19 | 204f07c | 204f07ca78e1732930023a4e900c35263dad0437 | 10-19 13:37 | 第四优先8：P1-3 current_interval风控3次恢复、P1-4 deadline显式传target_time | +16/-8 | e17be70 | 8149244 | `git revert 204f07c` |
+| 20 | 8149244 | 81492446d9deb45f2e3b7d9ab0b4d33ff95b2351 | 10-19 13:38 | 第五优先6：P1-B/C看播流读socket超时可中断 | +9/-0 | 204f07c | bd5f663 | `git revert 8149244` |
+| 21 | bd5f663 | bd5f663e0bb0b2ffd4d2d8a7ba35f9f8666f2d58 | 10-19 13:39 | 第四优先9：P1-S验证登录按钮改异步（2处） | +30/-15 | 8149244 | 335bda0 | `git revert bd5f663` |
+| 22 | 335bda0 | 335bda037f06ccc8cecc961668b96d88f4c6516c | 10-19 13:45 | P2批量1：P2-7/8抢码间隔、P2-A all_done、P2-D停送礼、P2-E字段名、P2-F日志守卫、P2-K清空确认、P2-O滚轮局部 | +44/-12 | bd5f663 | f9ca2f3 | `git revert 335bda0` |
+| 23 | f9ca2f3 | f9ca2f3dc4783d7e88a95a08e8246fe11958a0ea | 10-19 13:45 | P2批量2：P2-12/13 bat临时目录、P2-H duration注释、P2-P update返回False、P2-T save重复返回False | +14/-5 | 335bda0 | 2bae143 | `git revert f9ca2f3` |
+| 24 | 2bae143 | 2bae14311d4366c837126d43e0fc9cd9f54e39fd | 10-19 13:47 | P2批量3：P2-L导出.get()、P2-M list过滤、P2-N活动筛选、P2-R Origin匹配、P2-S重试3次 | +23/-11 | f9ca2f3 | 29ee1df | `git revert 2bae143` |
+| 25 | 29ee1df | 29ee1dfe9cf0490cb9e9cea4e9d23475114f8227 | 10-19 13:49 | P2批量4：P2-14 SHELLEXECUTEINFOW全局定义 | +20/-30 | 2bae143 | 43ef520 | `git revert 29ee1df` |
+| 26 | 43ef520 | 43ef5208238947a110ede70828d87e8f47d69b4c | 10-19 13:51 | P2批量5：P2-J auto回退字段黑名单 | +6/-1 | 29ee1df | 7052a8a | `git revert 43ef520` |
+| 27 | 7052a8a | 7052a8acd2e51cc700ff3d848e2265bdb1d90621 | 10-19 13:53 | P2批量6：P2-Q wbi_sign移到try内、P2-G删除直播间刷新送礼下拉框 | +7/-2 | 43ef520 | 80192d0 | `git revert 7052a8a` |
+| 28 | 80192d0 | 80192d050f5b155826617893003db6d37e41dbcd | 10-19 13:55 | P2批量7：P2-B历史详情用id定位、P2-G看播页面删除直播间del_btn修复 | +31/-20 | 7052a8a | ec04bfe | `git revert 80192d0` |
+| 29 | ec04bfe | ec04bfe7550359cca9058a238ee56617193299b3 | 10-19 13:55 | P2批量8：P2-C历史统计容器用实例变量替代winfo_children硬编码 | +7/-7 | 80192d0 | 803504c | `git revert ec04bfe` |
+| 30 | 803504c | 803504ca3eaf7db80508700d7a318aea65f96b07 | 10-19 14:13 | P2-I/P1-13：beat_count参与达标判断、抢码日志常开句柄+锁 | +43/-16 | ec04bfe | 372a9a6 | `git revert 803504c` |
+| 31 | 372a9a6 | 372a9a6406582da4b746759f44ddd28ed0b880ec | 10-19 14:15 | P2-U：导入添加分页获取和请求节流，避免数据截断和-702风控 | +29/-8 | 803504c | 904382b | `git revert 372a9a6` |
+| 32 | 904382b | 904382bdfe5943cce19f16919ee950f6ae769942 | 10-19 14:19 | v6.0.1发布：版本号更新、审计修复报告md | +390/-1 | 372a9a6 | - | - |
+
+### 验证命令速查
+
+```bash
+# 查看全部修复改动（v6.0.0 → v6.0.1）
+git diff 2e1bb41..904382b -- main_gui_pro.py
+
+# 查看某个commit的具体修改
+git show 242900c
+git show d5836e6
+# ... 以此类推
+
+# 统计总改动行数
+git diff 2e1bb41..904382b --stat
+
+# 回退到v6.0.0（全部撤销）
+git reset --hard 2e1bb41
+
+# 只撤销某个修复（其他修复保留）
+git revert 372a9a6   # 只撤销导入分页
+git revert 803504c   # 只撤销beat_count达标
 ```
-372a9a6 审计修复-P2-U: 导入添加分页获取和请求节流
-803504c 审计修复-P2-I/P1-13: beat_count参与达标、日志常开句柄+锁
-ec04bfe 审计修复-P2批量8: P2-C 历史统计容器用实例变量
-80192d0 审计修复-P2批量7: P2-B 历史详情用id定位、P2-G 看播删除直播间
-7052a8a 审计修复-P2批量6: P2-Q wbi_sign移到try内、P2-G 删除直播间刷新送礼
-43ef520 审计修复-P2批量5: P2-J auto回退字段黑名单
-29ee1df 审计修复-P2批量4: P2-14 SHELLEXECUTEINFOW全局定义
-2bae143 审计修复-P2批量3: P2-L/M/N/R/S
-f9ca2f3 审计修复-P2批量2: P2-12/13/H/P/T
-335bda0 审计修复-P2批量1: P2-7/8/A/D/E/F/K/O
-bd5f663 审计修复-第四优先9: P1-S验证登录异步
-8149244 审计修复-第五优先6: P1-B/C看播流读可中断
-204f07c 审计修复-第四优先8: P1-3/P1-4
-e17be70 审计修复-第五优先5: P1-F X25Kn deadline
-8880987 审计修复-第五优先4: P2-5 perf_counter
-b3dc8df 审计修复-第五优先3: P1-E WS Timer可cancel
-a96c5e5 审计修复-第五优先2
-1c58279 审计修复-第五优先1
-89691f5 审计修复-第四优先7
-1408250 审计修复-第四优先6
-8457f96 审计修复-第四优先5
-f3bc0d3 审计修复-第四优先4
-57ec0d1 审计修复-第四优先3
-7b7cfa3 审计修复-第四优先2
-3e94d35 审计修复-第四优先1
-b026576 审计修复-第三优先2
-5e7f506 审计修复-第三优先1
-47c7356 审计修复-第二优先3
-2a9207c 审计修复-第二优先2
-d5836e6 审计修复-第二优先1
-242900c 审计修复-第一优先
-2e1bb41 v6.0.0
-```
+
+### 改动统计
+
+| 指标 | 数值 |
+|------|------|
+| 总commit数 | 32个（含发布commit） |
+| 修复commit数 | 31个 |
+| 总插入行数 | ~620行 |
+| 总删除行数 | ~310行 |
+| 净增行数 | ~310行 |
+| 涉及文件 | main_gui_pro.py（主）、spec文件、报告md |
 
 ---
 
