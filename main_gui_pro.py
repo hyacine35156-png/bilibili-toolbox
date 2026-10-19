@@ -9615,6 +9615,16 @@ class ScheduleFrame(tk.Frame):
 
     def execute_task(self, task, manual=False):
         """执行指定任务"""
+        # P1-I: 同类任务禁止并发（抢码/看播/弹幕同一时间只能有一个在执行）
+        if task["type"] in ["watch", "danmaku", "rush"]:
+            for t in self.schedule_tasks:
+                if t["id"] != task["id"] and t["type"] == task["type"] and t.get("status") == "执行中":
+                    msg = f"⏭ [日程] 跳过任务「{task['name']}」：同类型任务「{t['name']}」正在执行中"
+                    self.log(msg)
+                    self.sync_log_to_modules(msg)
+                    task["status"] = "已跳过"
+                    self.refresh_task_list()
+                    return
         task["status"] = "执行中"
         task["last_run"] = time.strftime("%Y-%m-%d %H:%M:%S")
         self.refresh_task_list()
@@ -9898,8 +9908,12 @@ class ScheduleFrame(tk.Frame):
                     # 新的一分钟，清空已警告集合（用于第二天重复）
                     warned_tasks.clear()
 
-                    for task in self.schedule_tasks:
-                        if not task["enabled"]:
+                    # P1-H/P1-K: 用list快照遍历，避免execute_task修改列表导致迭代器异常
+                    for task in list(self.schedule_tasks):
+                        # 逐任务重校验：任务可能在遍历期间被删除/禁用
+                        if task not in self.schedule_tasks:
+                            continue
+                        if not task.get("enabled", False):
                             continue
                         # 抢码任务是立即执行的，不参与定时检查
                         if task["type"] == "rush" or task.get("hour", -1) == -1:
