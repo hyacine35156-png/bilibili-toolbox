@@ -63,6 +63,15 @@ _EXE_DIR = Path(__file__).parent if not getattr(__import__("sys"), "frozen", Fal
 BASE_DIR = _EXE_DIR / "data"
 BASE_DIR.mkdir(parents=True, exist_ok=True)
 
+def atomic_write_json(path, data):
+    """原子写入JSON：先写临时文件，fsync后os.replace，断电不损坏"""
+    tmp = str(path) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, str(path))
+
 # 自动迁移旧配置文件（从exe同目录迁移到data子目录）
 def _migrate_old_files():
     old_files = [
@@ -532,8 +541,7 @@ def load_act_id_cache():
 def save_act_id_cache():
     """保存act_id缓存到文件"""
     try:
-        with open(ACT_ID_CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(TASK_ACT_ID_CACHE, f, ensure_ascii=False, indent=2)
+        atomic_write_json(ACT_ID_CACHE_FILE, TASK_ACT_ID_CACHE)
     except Exception as e:
         print(f"保存act_id缓存失败: {e}")
 
@@ -596,8 +604,7 @@ class AccountManager:
                 self.accounts = []
 
     def save(self):
-        with open(ACCOUNTS_FILE, "w", encoding="utf-8") as f:
-            json.dump(self.accounts, f, ensure_ascii=False, indent=2)
+        atomic_write_json(ACCOUNTS_FILE, self.accounts)
 
     def add_account(self, name, sessdata, bili_jct, dede_userid=""):
         MAX_ACCOUNTS = 8
@@ -686,8 +693,7 @@ class RoomManager:
 
     def save(self):
         config_file = BASE_DIR / "rooms_config.json"
-        with open(config_file, "w", encoding="utf-8") as f:
-            json.dump({"rooms": self.rooms}, f, ensure_ascii=False, indent=2)
+        atomic_write_json(config_file, {"rooms": self.rooms})
 
     def add_room(self, room_id, name, remark=""):
         room_id = str(room_id).strip()
@@ -1386,8 +1392,7 @@ def save_redeem_code(task_name, account_name, data, task_period="", task_type=""
         for i, r in enumerate(records):
             r["id"] = i + 1
         
-        with open(CODE_EXPORT_FILE, "w", encoding="utf-8") as f:
-            json.dump(records, f, ensure_ascii=False, indent=2)
+        atomic_write_json(CODE_EXPORT_FILE, records)
         
         if skipped_count > 0:
             return True, f"已保存 {saved_count} 个兑换码，跳过 {skipped_count} 个重复"
@@ -1414,8 +1419,7 @@ def update_redeem_code_status(record_id, status):
                 r["status"] = status
                 break
         _ensure_code_dir()
-        with open(CODE_EXPORT_FILE, "w", encoding="utf-8") as f:
-            json.dump(records, f, ensure_ascii=False, indent=2)
+        atomic_write_json(CODE_EXPORT_FILE, records)
         return True
     except:
         return False
@@ -1429,8 +1433,7 @@ def delete_redeem_code(record_id):
         for i, r in enumerate(records):
             r["id"] = i + 1
         _ensure_code_dir()
-        with open(CODE_EXPORT_FILE, "w", encoding="utf-8") as f:
-            json.dump(records, f, ensure_ascii=False, indent=2)
+        atomic_write_json(CODE_EXPORT_FILE, records)
         return True
     except:
         return False
@@ -1439,8 +1442,7 @@ def clear_redeem_codes():
     """清空所有兑换码记录"""
     try:
         _ensure_code_dir()
-        with open(CODE_EXPORT_FILE, "w", encoding="utf-8") as f:
-            json.dump([], f, ensure_ascii=False, indent=2)
+        atomic_write_json(CODE_EXPORT_FILE, [])
         return True
     except:
         return False
@@ -1841,8 +1843,7 @@ class RushRewardFrame(tk.Frame):
                 # 如果有任务被清理，保存清理后的结果
                 if len(tasks) != original_count:
                     try:
-                        with open(tasks_file, "w", encoding="utf-8") as f:
-                            json.dump(tasks, f, ensure_ascii=False, indent=2)
+                        atomic_write_json(tasks_file, tasks)
                     except Exception:
                         pass
                 return tasks
@@ -1859,8 +1860,7 @@ class RushRewardFrame(tk.Frame):
             for task in self.scheduled_tasks:
                 task_copy = {k: v for k, v in task.items() if k != "thread"}
                 tasks_to_save.append(task_copy)
-            with open(tasks_file, "w", encoding="utf-8") as f:
-                json.dump(tasks_to_save, f, ensure_ascii=False, indent=2)
+            atomic_write_json(tasks_file, tasks_to_save)
         except Exception:
             pass
 
@@ -1887,8 +1887,7 @@ class RushRewardFrame(tk.Frame):
                 if cleaned:
                     # 保存清理后的结果
                     try:
-                        with open(groups_file, "w", encoding="utf-8") as f:
-                            json.dump(groups, f, ensure_ascii=False, indent=2)
+                        atomic_write_json(groups_file, groups)
                     except Exception:
                         pass
                 return groups
@@ -1900,8 +1899,7 @@ class RushRewardFrame(tk.Frame):
         """保存新模式任务组配置"""
         try:
             groups_file = BASE_DIR / "rush_groups.json"
-            with open(groups_file, "w", encoding="utf-8") as f:
-                json.dump(self.rush_groups, f, ensure_ascii=False, indent=2)
+            atomic_write_json(groups_file, self.rush_groups)
         except Exception as e:
             self.nm_log(f"⚠ 保存任务组失败: {e}")
 
@@ -1922,8 +1920,7 @@ class RushRewardFrame(tk.Frame):
                 "target_ms": self.nm_ms_entry.get(),
             }
             settings_file = BASE_DIR / "rush_ui_settings.json"
-            with open(settings_file, "w", encoding="utf-8") as f:
-                json.dump(settings, f, ensure_ascii=False, indent=2)
+            atomic_write_json(settings_file, settings)
         except Exception:
             pass
 
@@ -2022,8 +2019,7 @@ class RushRewardFrame(tk.Frame):
             self.rush_config["schedule_second"] = self.schedule_second_var.get().strip()
 
             rush_config_file = BASE_DIR / "rush_config.json"
-            with open(rush_config_file, "w", encoding="utf-8") as f:
-                json.dump(self.rush_config, f, ensure_ascii=False, indent=2)
+            atomic_write_json(rush_config_file, self.rush_config)
         except Exception as e:
             pass
 
@@ -6900,8 +6896,7 @@ class WatchLiveFrame(tk.Frame):
         """保存看播历史记录"""
         try:
             history_file = BASE_DIR / "watch_history.json"
-            with open(history_file, "w", encoding="utf-8") as f:
-                json.dump(self.watch_history, f, ensure_ascii=False, indent=2)
+            atomic_write_json(history_file, self.watch_history)
         except Exception as e:
             self.log(f"⚠ 保存看播历史失败: {e}")
 
@@ -7012,8 +7007,7 @@ class WatchLiveFrame(tk.Frame):
                     "status": stats.get("status", "未知")
                 }
             snapshot_file = BASE_DIR / "watch_snapshot.json"
-            with open(snapshot_file, "w", encoding="utf-8") as f:
-                json.dump(snapshot, f, ensure_ascii=False, indent=2)
+            atomic_write_json(snapshot_file, snapshot)
         except Exception as e:
             self.log(f"⚠ 保存看播快照失败: {e}")
         # 安排下一次快照（5分钟后）
@@ -7397,8 +7391,7 @@ class WatchLiveFrame(tk.Frame):
                     selected.append(name)
             self.watch_config["selected_accounts"] = selected
             config_file = BASE_DIR / "watch_config.json"
-            with open(config_file, "w", encoding="utf-8") as f:
-                json.dump(self.watch_config, f, ensure_ascii=False, indent=2)
+            atomic_write_json(config_file, self.watch_config)
         except Exception:
             pass
 
@@ -7460,8 +7453,7 @@ class WatchLiveFrame(tk.Frame):
             selected = self.gift_account_combo.get()
             self.gift_config["selected_account"] = selected
             config_file = BASE_DIR / "gift_config.json"
-            with open(config_file, "w", encoding="utf-8") as f:
-                json.dump(self.gift_config, f, ensure_ascii=False, indent=2)
+            atomic_write_json(config_file, self.gift_config)
         except Exception:
             pass
 
@@ -9917,8 +9909,7 @@ class ScheduleFrame(tk.Frame):
                     "enabled": task["enabled"],
                     "last_run": task.get("last_run", ""),
                 })
-            with open(config_file, "w", encoding="utf-8") as f:
-                json.dump(save_data, f, ensure_ascii=False, indent=2)
+            atomic_write_json(config_file, save_data)
         except Exception:
             pass
 
@@ -9937,8 +9928,7 @@ class ScheduleFrame(tk.Frame):
         """保存日程方案列表到文件"""
         try:
             preset_file = BASE_DIR / "schedule_presets.json"
-            with open(preset_file, "w", encoding="utf-8") as f:
-                json.dump(self.schedule_presets, f, ensure_ascii=False, indent=2)
+            atomic_write_json(preset_file, self.schedule_presets)
         except Exception as e:
             self.log(f"✗ 保存日程方案失败: {e}")
 
@@ -10025,8 +10015,7 @@ class ScheduleFrame(tk.Frame):
                 "hour": self.schedule_hour.get(),
                 "minute": self.schedule_minute.get(),
             }
-            with open(config_file, "w", encoding="utf-8") as f:
-                json.dump(settings, f, ensure_ascii=False, indent=2)
+            atomic_write_json(config_file, settings)
         except Exception:
             pass
 
@@ -11670,8 +11659,7 @@ bili_jct: {jct_preview}
                 "task_name": self.shutdown_task_name.get().strip(),
             }
             shutdown_config_file = BASE_DIR / "shutdown_config.json"
-            with open(shutdown_config_file, "w", encoding="utf-8") as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
+            atomic_write_json(shutdown_config_file, config)
         except Exception:
             pass
 
@@ -11755,8 +11743,7 @@ bili_jct: {jct_preview}
                         self.config["selected_account"] = self.account_mgr.accounts[idx].get("name", "")
             except Exception:
                 pass
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.config, f, ensure_ascii=False, indent=2)
+            atomic_write_json(CONFIG_FILE, self.config)
         except Exception:
             pass
 
