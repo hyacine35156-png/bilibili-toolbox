@@ -607,6 +607,20 @@ HEADERS = {
     "Origin": "https://live.bilibili.com",
 }
 
+# P2-14: 全局SHELLEXECUTEINFOW定义，避免两个函数内重复定义
+import ctypes as _ctypes
+class _SHELLEXECUTEINFOW(_ctypes.Structure):
+    _fields_ = [
+        ("cbSize", _ctypes.c_ulong), ("fMask", _ctypes.c_ulong),
+        ("hwnd", _ctypes.c_void_p), ("lpVerb", _ctypes.c_wchar_p),
+        ("lpFile", _ctypes.c_wchar_p), ("lpParameters", _ctypes.c_wchar_p),
+        ("lpDirectory", _ctypes.c_wchar_p), ("nShow", _ctypes.c_int),
+        ("hInstApp", _ctypes.c_void_p), ("lpIDList", _ctypes.c_void_p),
+        ("lpClass", _ctypes.c_wchar_p), ("hkeyClass", _ctypes.c_void_p),
+        ("dwHotKey", _ctypes.c_ulong), ("hIcon", _ctypes.c_void_p),
+        ("hProcess", _ctypes.c_void_p),
+    ]
+
 
 # ========== 数据管理 ==========
 _last_claim_data_global = None
@@ -4265,21 +4279,9 @@ class RushRewardFrame(tk.Frame):
         try:
             self.nm_log("正在请求管理员权限同步系统时间...")
 
-            # 用ShellExecuteExW获取进程句柄，可等待结束
-            class SHELLEXECUTEINFOW(ctypes.Structure):
-                _fields_ = [
-                    ("cbSize", ctypes.c_ulong), ("fMask", ctypes.c_ulong),
-                    ("hwnd", ctypes.c_void_p), ("lpVerb", ctypes.c_wchar_p),
-                    ("lpFile", ctypes.c_wchar_p), ("lpParameters", ctypes.c_wchar_p),
-                    ("lpDirectory", ctypes.c_wchar_p), ("nShow", ctypes.c_int),
-                    ("hInstApp", ctypes.c_void_p), ("lpIDList", ctypes.c_void_p),
-                    ("lpClass", ctypes.c_wchar_p), ("hkeyClass", ctypes.c_void_p),
-                    ("dwHotKey", ctypes.c_ulong), ("hIcon", ctypes.c_void_p),
-                    ("hProcess", ctypes.c_void_p),
-                ]
-
-            see = SHELLEXECUTEINFOW()
-            see.cbSize = ctypes.sizeof(SHELLEXECUTEINFOW)
+            # 用ShellExecuteExW获取进程句柄，可等待结束（P2-14: 引用全局定义）
+            see = _SHELLEXECUTEINFOW()
+            see.cbSize = ctypes.sizeof(_SHELLEXECUTEINFOW)
             see.fMask = 0x00000040  # SEE_MASK_NOCLOSEPROCESS
             see.lpVerb = "runas"
             see.lpFile = "cmd.exe"
@@ -4406,21 +4408,9 @@ pause
             with open(bat_path, "w", encoding="gbk") as f:
                 f.write(bat_content)
 
-            # 用ShellExecuteExW以管理员权限运行bat，等待完成
-            class SHELLEXECUTEINFOW(ctypes.Structure):
-                _fields_ = [
-                    ("cbSize", ctypes.c_ulong), ("fMask", ctypes.c_ulong),
-                    ("hwnd", ctypes.c_void_p), ("lpVerb", ctypes.c_wchar_p),
-                    ("lpFile", ctypes.c_wchar_p), ("lpParameters", ctypes.c_wchar_p),
-                    ("lpDirectory", ctypes.c_wchar_p), ("nShow", ctypes.c_int),
-                    ("hInstApp", ctypes.c_void_p), ("lpIDList", ctypes.c_void_p),
-                    ("lpClass", ctypes.c_wchar_p), ("hkeyClass", ctypes.c_void_p),
-                    ("dwHotKey", ctypes.c_ulong), ("hIcon", ctypes.c_void_p),
-                    ("hProcess", ctypes.c_void_p),
-                ]
-
-            see = SHELLEXECUTEINFOW()
-            see.cbSize = ctypes.sizeof(SHELLEXECUTEINFOW)
+            # 用ShellExecuteExW以管理员权限运行bat，等待完成（P2-14: 引用全局定义）
+            see = _SHELLEXECUTEINFOW()
+            see.cbSize = ctypes.sizeof(_SHELLEXECUTEINFOW)
             see.fMask = 0x00000040
             see.lpVerb = "runas"
             see.lpFile = bat_path
