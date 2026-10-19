@@ -6823,14 +6823,24 @@ class CodeExportFrame(tk.Frame):
             pass
 
     def delete_selected(self):
-        """删除选中的记录（仅筛选后的记录中选中的）"""
+        """删除选中的记录（仅筛选后的记录中选中的）—— 一次性过滤，避免循环删除时id错位"""
         if not self.selected_ids:
             return
         filtered = self._get_filtered_records()
         filtered_ids = set(r["id"] for r in filtered)
-        for rid in list(self.selected_ids):
-            if rid in filtered_ids:
-                delete_redeem_code(rid)
+        to_delete = set(rid for rid in self.selected_ids if rid in filtered_ids)
+        if not to_delete:
+            return
+        try:
+            records = load_redeem_codes()
+            records = [r for r in records if r["id"] not in to_delete]
+            # 统一重新编号
+            for i, r in enumerate(records):
+                r["id"] = i + 1
+            _ensure_code_dir()
+            atomic_write_json(CODE_EXPORT_FILE, records)
+        except Exception as e:
+            print(f"批量删除失败: {e}")
         self.refresh_list()
 
     def clear_all(self):
@@ -10159,25 +10169,89 @@ class DanmakuApp:
                 break
 
     def on_closing(self):
-        """窗口关闭时保存所有配置"""
+        """窗口关闭时：先停止所有线程 → 等待结束 → 保存配置 → 销毁窗口"""
+        close_errors = []
         try:
-            self.save_config()
-            self.save_danmaku_silent()
-            # 保存抢码工具配置
+            # 1. 停止所有运行中的模块
             if hasattr(self, 'rush_page'):
-                self.rush_page.on_close()
-            # 保存看播任务配置
+                try:
+                    if hasattr(self.rush_page, 'running'):
+                        self.rush_page.running = False
+                    if hasattr(self.rush_page, 'nm_stop_all'):
+                        self.rush_page.nm_stop_all()
+                    elif hasattr(self.rush_page, 'stop_rush'):
+                        self.rush_page.stop_rush()
+                except Exception as e:
+                    close_errors.append(f"停止抢码: {e}")
             if hasattr(self, 'watch_page'):
-                self.watch_page.on_close()
-            # 保存日程任务配置并停止调度器
+                try:
+                    if hasattr(self.watch_page, 'running'):
+                        self.watch_page.running = False
+                    if hasattr(self.watch_page, 'stop_flag'):
+                        self.watch_page.stop_flag["stop"] = True
+                    if hasattr(self.watch_page, 'gift_running'):
+                        self.watch_page.gift_running = False
+                    if hasattr(self.watch_page, 'gift_stop'):
+                        for name in self.watch_page.gift_stop:
+                            self.watch_page.gift_stop[name] = True
+                except Exception as e:
+                    close_errors.append(f"停止看播: {e}")
+            # 停止弹幕发送
+            try:
+                self.running = False
+            except Exception:
+                pass
+            # 停止调度器
             if hasattr(self, 'schedule_page'):
-                self.schedule_page.on_close()
+                try:
+                    if hasattr(self.schedule_page, 'stop_scheduler'):
+                        self.schedule_page.stop_scheduler()
+                except Exception as e:
+                    close_errors.append(f"停止调度器: {e}")
             # 取消定时关机
-            self.cancel_shutdown()
-            # 保存关机配置
-            self.save_shutdown_config()
-        except Exception:
-            pass
+            try:
+                self.cancel_shutdown()
+            except Exception as e:
+                close_errors.append(f"取消关机: {e}")
+
+            # 2. 等待线程结束（最多2秒）
+            time.sleep(0.5)
+
+            # 3. 保存所有配置
+            try:
+                self.save_config()
+            except Exception as e:
+                close_errors.append(f"保存配置: {e}")
+            try:
+                self.save_danmaku_silent()
+            except Exception as e:
+                close_errors.append(f"保存弹幕: {e}")
+            if hasattr(self, 'rush_page'):
+                try:
+                    self.rush_page.on_close()
+                except Exception as e:
+                    close_errors.append(f"保存抢码: {e}")
+            if hasattr(self, 'watch_page'):
+                try:
+                    self.watch_page.on_close()
+                except Exception as e:
+                    close_errors.append(f"保存看播: {e}")
+            if hasattr(self, 'schedule_page'):
+                try:
+                    self.schedule_page.on_close()
+                except Exception as e:
+                    close_errors.append(f"保存日程: {e}")
+            try:
+                self.save_shutdown_config()
+            except Exception as e:
+                close_errors.append(f"保存关机配置: {e}")
+
+            if close_errors:
+                print(f"⚠ 关闭时出现 {len(close_errors)} 个错误:")
+                for err in close_errors:
+                    print(f"  - {err}")
+        except Exception as e:
+            print(f"✗ on_closing严重异常: {e}")
         self.root.destroy()
 
     def setup_styles(self):
