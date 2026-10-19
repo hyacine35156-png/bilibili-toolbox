@@ -4859,14 +4859,24 @@ pause
             # ===== 阶段3: 精准首发（自旋等待到目标时间-动态提前量）=====
             fire_time = target_timestamp - dynamic_advance / 1000.0
             now_time = time.time()
-            
+
+            # P2-5: 用perf_counter做精确自旋等待，timeBeginPeriod提高Windows定时器精度
+            try:
+                import ctypes
+                ctypes.windll.winmm.timeBeginPeriod(1)
+            except Exception:
+                pass
+            _perf_start = time.perf_counter()
+            _time_start = now_time
+            fire_time_perf = _perf_start + (fire_time - _time_start)
+
             # 如果预热超时导致fire_time已过，立即发送（不再等待）
             if now_time >= fire_time:
                 self.nm_log(f"[精准首发] 预热已超时({(now_time - target_timestamp)*1000:.0f}ms)，立即发送")
             else:
                 self.nm_log(f"[精准首发] 目标 {target_time_str}，提前{dynamic_advance:.0f}ms发送，自旋等待中...")
-                while time.time() < fire_time and not stop_flag["stop"]:
-                    remaining = fire_time - time.time()
+                while time.perf_counter() < fire_time_perf and not stop_flag["stop"]:
+                    remaining = fire_time_perf - time.perf_counter()
                     if remaining > 0.1:
                         time.sleep(remaining / 2)
                     elif remaining > 0.02:
@@ -4875,9 +4885,17 @@ pause
 
             if stop_flag["stop"]:
                 self.nm_log("抢码已取消")
+                try:
+                    ctypes.windll.winmm.timeEndPeriod(1)
+                except Exception:
+                    pass
                 return
 
             actual_fire = time.time()
+            try:
+                ctypes.windll.winmm.timeEndPeriod(1)
+            except Exception:
+                pass
             self.nm_log(f"[精准首发] 发送！目标偏差: {(actual_fire - target_timestamp)*1000:.1f}ms")
 
             # ===== 阶段4: 按优先级依次执行任务 =====
