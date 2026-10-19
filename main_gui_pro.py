@@ -8466,6 +8466,12 @@ class WatchLiveFrame(tk.Frame):
                             stream_paused = False
                             self.log(f"  [{name}] ✓ 视频流恢复，解除暂停")
                         self.log(f"  [{name}] ✓ 视频流连接成功，开始播放...")
+                        # P1-B/P1-C: 给socket设置1秒超时，使流读可中断，及时响应stop_flag
+                        try:
+                            import socket as _socket
+                            resp.raw._fp.fp._sock.settimeout(1.0)
+                        except Exception:
+                            pass
                         # 持续读取流数据，保持连接不断开
                         bytes_read = 0
                         play_start = time.time()
@@ -8485,6 +8491,9 @@ class WatchLiveFrame(tk.Frame):
                                 # 每60秒刷新一次播放地址
                                 if time.time() - play_start > 60:
                                     break
+                            except (_socket.timeout, OSError):
+                                # P1-B/P1-C: 超时后继续检查stop_flag，不退出循环
+                                continue
                             except Exception as e:
                                 self.log(f"  [{name}] 读取流异常: {e}")
                                 break
