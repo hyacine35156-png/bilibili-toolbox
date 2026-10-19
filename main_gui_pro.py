@@ -5007,7 +5007,7 @@ pause
         import random
         random_fluctuations = [random.randint(-30, 30) for _ in range(100)]
 
-        base_interval = task.get("base_interval", 0.9)  # 从任务配置读取，默认900ms
+        base_interval = task.get("base_interval", 1.0)  # P2-8: 默认1.0秒，符合实测安全线
         current_interval = base_interval
         attempt = 0
         success = False
@@ -5039,7 +5039,15 @@ pause
             else:
                 # 判断是否是未到领奖时间（202120），这种情况不切下一个优先级
                 if "202120" in msg or "未到领取时间" in msg or "未到领奖时间" in msg:
-                    self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 未到领取时间，继续等待... ({msg[:30]})")
+                    # P2-7: 未到领取时间时，根据距目标时间动态调整间隔
+                    _time_to_target = target_time - time.time()
+                    if _time_to_target > 10:
+                        current_interval = min(current_interval, 2.0)  # 还早，放慢
+                    elif _time_to_target > 3:
+                        current_interval = min(current_interval, 1.0)  # 接近，正常
+                    else:
+                        current_interval = base_interval  # 快到了，用基础间隔
+                    self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 未到领取时间（距目标{_time_to_target:.1f}s），间隔{current_interval*1000:.0f}ms")
                 elif "75255" in msg or "库存已经使用完" in msg or "库存已使用完" in msg:
                     # P1-4: 直接用传入的target_time，不再从deadline反推
                     consecutive_risk_control = 0
@@ -6477,8 +6485,9 @@ class CodeExportFrame(tk.Frame):
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # 鼠标滚轮
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        # 鼠标滚轮（P2-O: 只绑定canvas本身，不全局劫持）
+        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self.canvas.bind("<Enter>", lambda e: self.canvas.focus_set())
 
     def _on_mousewheel(self, event):
         self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -6886,7 +6895,9 @@ class CodeExportFrame(tk.Frame):
         self.refresh_list()
 
     def clear_all(self):
-        """清空全部记录"""
+        """清空全部记录（P2-K: 加二次确认，防止误触）"""
+        if not custom_askyesno(self.winfo_toplevel(), "确认清空", "确定要清空全部兑换码记录吗？此操作不可恢复！"):
+            return
         clear_redeem_codes()
         self.refresh_list()
 
@@ -7491,7 +7502,7 @@ class WatchLiveFrame(tk.Frame):
             "gift_num": 1,
             "interval": 10,
             "max_count": 0,
-            "selected_accounts": [],
+            "selected_account": "",  # P2-E: 统一字段名，代码用selected_account
             "room_history": []
         }
         config_file = BASE_DIR / "gift_config.json"
@@ -7666,6 +7677,12 @@ class WatchLiveFrame(tk.Frame):
 
     def on_close(self):
         self.stop_watch()
+        # P2-D: 同时停止送礼，避免窗口销毁后worker仍循环
+        if hasattr(self, 'gift_frame') and self.gift_frame:
+            try:
+                self.gift_frame.stop_gift()
+            except Exception:
+                pass
         self.save_watch_config()
 
     def build_ui(self):
@@ -8734,13 +8751,25 @@ class WatchLiveFrame(tk.Frame):
         self.log("启动持续播放线程...")
         self.start_play_threads(selected_accounts, room_ids)
         # 心跳循环
+        last_refresh_time = 0  # P2-F: 防止同一秒重复刷新
+        last_ws_check_time = 0  # P2-F: 防止同一秒重复检查WS
         while not self.stop_flag["stop"]:
             all_done = True
+            has_watching = False
+            has_failed = False
             for name, stats in self.account_stats.items():
-                if stats["status"] == "观看中" and stats["watch_seconds"] < target_seconds:
-                    all_done = False
-                    break
-            if all_done:
+                if stats["status"] == "观看中":
+                    has_watching = True
+                    if stats["watch_seconds"] < target_seconds:
+                        all_done = False
+                        break
+                elif stats["status"] == "进入失败":
+                    has_failed = True
+            # P2-A: 如果没有观看中的账户且有进入失败的，不应标记为完成
+            if not has_watching and has_failed:
+                self.log("⚠ 所有账户均进入失败，任务终止")
+                break
+            if all_done and has_watching:
                 self.log("所有账户已达到目标观看时长，自动停止")
                 break
             interval = base_interval * random.uniform(0.8, 1.2)
@@ -8753,10 +8782,13 @@ class WatchLiveFrame(tk.Frame):
                     if stats["status"] == "观看中":
                         # P1-5: 用monotonic差值计算真实观看时长，替代sleep累加
                         stats["watch_seconds"] = int(time.monotonic() - watch_start_time)
-                if int(time.time()) % 10 == 0:
+                _now_sec = int(time.time())
+                if _now_sec % 10 == 0 and _now_sec != last_refresh_time:
+                    last_refresh_time = _now_sec
                     self.refresh_status_tree()
                 # 每60秒检查一次弹幕连接状态
-                if int(time.time()) % 60 == 0:
+                if _now_sec % 60 == 0 and _now_sec != last_ws_check_time:
+                    last_ws_check_time = _now_sec
                     ws_connected = sum(1 for s in self.account_stats.values() if s.get("ws_connected", False))
                     ws_total = len(self.account_stats)
                     if ws_total > 0:
