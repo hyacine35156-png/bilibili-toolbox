@@ -348,6 +348,42 @@
 
 ## 八、Git commit详细清单（从旧到新，便于检查者逐commit验证）
 
+### 仓库位置
+
+| 项目 | 内容 |
+|------|------|
+| **本地仓库路径** | `C:\Users\15868\Doubao\chats\2026-08-29\new-chat\bilibili-danmaku-bot` |
+| **当前分支** | `master` |
+| **远程仓库** | 暂无（本地仓库，未推送GitHub） |
+| **主程序文件** | `main_gui_pro.py`（约12400行） |
+| **基线版本** | `2e1bb41` v6.0.0（修复前） |
+| **目标版本** | `c9f2bc8`（含报告更新，修复后最新） |
+
+### 检查者操作步骤
+
+```bash
+# 1. 进入仓库目录
+cd C:\Users\15868\Doubao\chats\2026-08-29\new-chat\bilibili-danmaku-bot
+
+# 2. 查看全部修复改动（v6.0.0 → 最新）
+git diff 2e1bb41..HEAD -- main_gui_pro.py
+
+# 3. 查看某个commit的具体修改
+git show 242900c
+git show d5836e6
+# ... 对照下方表格中的hash逐个验证
+
+# 4. 统计总改动
+git diff 2e1bb41..HEAD --stat
+
+# 5. 查看commit历史
+git log --oneline 2e1bb41..HEAD
+```
+
+> **注意**：当前为本地仓库，如需远程验证请先推送到GitHub。推送后检查者可通过 `git clone <仓库URL>` 获取完整历史。
+
+---
+
 > **基线版本**：`2e1bb41` v6.0.0（修复前）
 > **目标版本**：`904382b` v6.0.1（修复后）
 > **验证方法**：`git diff 2e1bb41..904382b -- main_gui_pro.py` 查看全部改动
