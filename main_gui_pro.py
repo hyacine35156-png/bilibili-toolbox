@@ -863,6 +863,7 @@ def get_mission_info(task_id, cookies_dict):
     headers = {
         **HEADERS,
         "Referer": f"https://www.bilibili.com/blackboard/era/award-exchange.html?task_id={task_id}",
+        "Origin": "https://www.bilibili.com",  # P2-R: Origin与Referer域匹配
     }
     params = {
         "task_id": task_id,
@@ -935,8 +936,8 @@ def check_all_tasks_finished(version, period, task_type, cookies):
 
         # 如果使用了缓存，跳过API查询
         if not used_cache:
-            # 重试机制：最多重试2次
-            for retry in range(2):
+            # P2-S: 重试机制改为最多3次（首次+2次重试），超时/5xx也退避
+            for retry in range(3):
                 try:
                     info, msg = get_mission_info(task["task_id"], cookies)
                     if info:
@@ -964,14 +965,18 @@ def check_all_tasks_finished(version, period, task_type, cookies):
                         break
                     else:
                         message = f"查询失败: {msg}"
-                        # 如果是频率过高，等待1秒后重试
-                        if "-702" in msg or "频率" in msg:
-                            time.sleep(1.0)
-                            continue
+                        # P2-S: 频率过高、超时、5xx都退避后重试
+                        if "-702" in msg or "频率" in msg or "超时" in msg or "500" in msg or "502" in msg or "503" in msg:
+                            if retry < 2:
+                                time.sleep(1.0 * (retry + 1))
+                                continue
                         break
                 except Exception as e:
                     message = f"异常: {str(e)}"
-                    time.sleep(0.5)
+                    if retry < 2:
+                        time.sleep(0.5 * (retry + 1))
+                        continue
+                    break
 
         details.append({
             "task_id": task["task_id"],
@@ -1341,7 +1346,8 @@ def extract_redeem_codes(data):
                             codes.append({"field": k, "value": v, "path": path + "." + k})
                     elif isinstance(v, list):
                         for item in v:
-                            if isinstance(item, str) and item and len(item) >= 4:
+                            # P2-M: list分支也做URL和垃圾值过滤，与string分支一致
+                            if isinstance(item, str) and item and len(item) >= 4 and not item.startswith("http") and item not in ["0", "1", "true", "false", "success", "ok"]:
                                 codes.append({"field": k, "value": item, "path": path + "." + k})
                 search(v, path + "." + k)
         elif isinstance(obj, list):
@@ -6512,11 +6518,15 @@ class CodeExportFrame(tk.Frame):
             records = self.records
         if self.current_activity_filter == "全部活动":
             return records
+        # P2-N: 筛选条件也剥掉"激励计划"后缀，与task_name构造逻辑一致
+        import re
+        filter_name = re.sub(r'版本激励计划.*$', '', self.current_activity_filter)
+        filter_name = re.sub(r'激励计划.*$', '', filter_name).strip()
         # 根据task_name前缀筛选（task_name格式为"活动名称 奖励名称"）
         filtered = []
         for r in records:
             task_name = r.get("task_name", "")
-            if task_name.startswith(self.current_activity_filter):
+            if task_name.startswith(filter_name):
                 filtered.append(r)
         return filtered
 
@@ -6829,7 +6839,8 @@ class CodeExportFrame(tk.Frame):
         if not self.selected_ids:
             return
         filtered = self._get_filtered_records()
-        codes = [r["redeem_code"] for r in filtered if r["id"] in self.selected_ids]
+        # P2-L: 用.get()避免旧版记录缺字段时KeyError
+        codes = [r.get("redeem_code", "") for r in filtered if r.get("id") in self.selected_ids and r.get("redeem_code")]
         if codes:
             self._copy_to_clipboard("\n".join(codes))
 
@@ -6838,7 +6849,8 @@ class CodeExportFrame(tk.Frame):
         filtered = self._get_filtered_records()
         if not filtered:
             return
-        codes = [r["redeem_code"] for r in filtered]
+        # P2-L: 用.get()避免旧版记录缺字段时KeyError
+        codes = [r.get("redeem_code", "") for r in filtered if r.get("redeem_code")]
         self._copy_to_clipboard("\n".join(codes))
 
     def export_txt(self):
