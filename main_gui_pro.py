@@ -4912,7 +4912,7 @@ pause
                 self.nm_log(f"[优先级{task.get('priority', '?')}] 开始: {task['name']} => {task['award']} (窗口期{task.get('window_seconds', 15)}秒)")
 
                 success = self.nm_execute_task(task, task_infos.get(task["task_id"]),
-                                               sessions.get(task["task_id"]), task_deadline, stop_flag)
+                                               sessions.get(task["task_id"]), task_deadline, target_timestamp, stop_flag)
 
                 if success:
                     self.nm_log(f"[优先级{task.get('priority', '?')}] ✓ 领取成功，立即启动下一个优先级")
@@ -4990,8 +4990,10 @@ pause
         self.nm_log("[NTP同步] 所有NTP服务器均不可用，使用本地时间")
         return 0
 
-    def nm_execute_task(self, task, task_info, session, deadline, stop_flag):
-        """执行单个任务的抢码（带风控递增延迟）"""
+    def nm_execute_task(self, task, task_info, session, deadline, target_time, stop_flag):
+        """执行单个任务的抢码（带风控递增延迟）
+        P1-4: target_time显式传入，不再从deadline反推
+        """
         account = self.account_mgr.get_account(task["account_name"])
         if not account:
             self.nm_log(f"  账户不存在: {task['account_name']}")
@@ -5009,6 +5011,7 @@ pause
         current_interval = base_interval
         attempt = 0
         success = False
+        consecutive_risk_control = 0  # P1-3: 连续风控计数
 
         while time.time() < deadline and not stop_flag["stop"]:
             attempt += 1
@@ -5038,10 +5041,9 @@ pause
                 if "202120" in msg or "未到领取时间" in msg or "未到领奖时间" in msg:
                     self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 未到领取时间，继续等待... ({msg[:30]})")
                 elif "75255" in msg or "库存已经使用完" in msg or "库存已使用完" in msg:
-                    # 从deadline反推目标时间，判断是否超过目标后5秒
-                    _window = task.get("window_seconds", 15)
-                    _target_time = deadline - _window
-                    _elapsed_after_target = time.time() - _target_time
+                    # P1-4: 直接用传入的target_time，不再从deadline反推
+                    consecutive_risk_control = 0
+                    _elapsed_after_target = time.time() - target_time
                     _over_5s = _elapsed_after_target > 5
                     if not _over_5s:
                         # 目标后5秒内：库存可能正在刷新，放慢间隔持续重试（不限时段）
@@ -5055,7 +5057,13 @@ pause
                     break
                 elif "-705" in msg or "-509" in msg or "-702" in msg or "请求过于频繁" in msg or "请求频率过高" in msg:
                     # 风控，间隔保持基础间隔不变（靠±30ms波动）
-                    self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 风控 {msg[:25]}，下次间隔 {current_interval*1000:.0f}ms")
+                    consecutive_risk_control += 1
+                    # P1-3: 连续风控3次后，如果间隔被升过，恢复基础间隔（避免永久卡2秒）
+                    if consecutive_risk_control >= 3 and current_interval != base_interval:
+                        current_interval = base_interval
+                        self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 风控{consecutive_risk_control}次，恢复基础间隔{base_interval*1000:.0f}ms")
+                    else:
+                        self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 风控 {msg[:25]}，下次间隔 {current_interval*1000:.0f}ms")
                 else:
                     # 无风控（未成功但也没被风控），恢复基础间隔
                     if current_interval != base_interval:
