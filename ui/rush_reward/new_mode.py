@@ -603,37 +603,9 @@ class NewModeMixin:
                 self.nm_update_scheduler()
     # ========== 新模式·任务组调度器 ==========
     def nm_refresh_scheduler(self):
-        """刷新调度器列表"""
-        for widget in self.nm_scheduler_frame.winfo_children():
-            widget.destroy()
-        for group in self.rush_groups:
-            gid = group["group_id"]
-            row = tk.Frame(self.nm_scheduler_frame, bg=COLORS["bg_card"])
-            row.pack(fill=tk.X, pady=1)
-            status = self.nm_group_status.get(gid, "等待中")
-            status_color = COLORS["success"] if status == "运行中" else COLORS["text_muted"]
-            tk.Label(row, text=group["group_name"], bg=COLORS["bg_card"],
-                     fg=COLORS["text_primary"], font=("微软雅黑", 9), width=18, anchor=tk.W).pack(side=tk.LEFT, padx=5)
-            tk.Label(row, text=group.get("target_time", "00:00:00.000"), bg=COLORS["bg_card"],
-                     fg=COLORS["accent"], font=("微软雅黑", 9, "bold"), width=12, anchor=tk.W).pack(side=tk.LEFT, padx=5)
-            tk.Label(row, text=str(len(group.get("tasks", []))), bg=COLORS["bg_card"],
-                     fg=COLORS["text_secondary"], font=("微软雅黑", 9), width=6, anchor=tk.W).pack(side=tk.LEFT, padx=5)
-            tk.Label(row, text=status, bg=COLORS["bg_card"],
-                     fg=status_color, font=("微软雅黑", 9, "bold"), width=10, anchor=tk.W).pack(side=tk.LEFT, padx=5)
-            # 操作按钮
-            btn_frame = tk.Frame(row, bg=COLORS["bg_card"])
-            btn_frame.pack(side=tk.LEFT, padx=5)
-            if status == "运行中":
-                tk.Button(btn_frame, text="停止", bg="#c0392b", fg="#ffffff",
-                          font=("微软雅黑", 8), relief=tk.FLAT, cursor="hand2", width=5,
-                          command=lambda g=gid: self.nm_stop_single_group(g)).pack(side=tk.LEFT, padx=2)
-            else:
-                tk.Button(btn_frame, text="开始", bg=COLORS["success"], fg="#ffffff",
-                          font=("微软雅黑", 8), relief=tk.FLAT, cursor="hand2", width=5,
-                          command=lambda g=gid: self.nm_start_single_group(g)).pack(side=tk.LEFT, padx=2)
-            tk.Button(btn_frame, text="切换", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                      font=("微软雅黑", 8), relief=tk.FLAT, cursor="hand2", width=5,
-                      command=lambda g=gid: self.nm_switch_to_group(g)).pack(side=tk.LEFT, padx=2)
+        """刷新调度器列表（兼容旧调用，实际使用Treeview版本）"""
+        if hasattr(self, 'nm_update_scheduler'):
+            self.nm_update_scheduler()
 
     def nm_switch_to_group(self, group_id):
         """从调度器切换到指定组"""

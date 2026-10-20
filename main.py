@@ -1064,8 +1064,8 @@ bili_jct: {jct_preview}
             # 刷新所有直播间下拉框选项（用户列表变了）
             if hasattr(self, '_refresh_danmaku_room_combo_values'):
                 self._refresh_danmaku_room_combo_values()
-            if hasattr(self, 'watch_frame') and hasattr(self.watch_frame, '_refresh_room_combo_values'):
-                self.watch_frame._refresh_room_combo_values()
+            if hasattr(self, 'watch_page') and hasattr(self.watch_page, '_refresh_room_combo_values'):
+                self.watch_page._refresh_room_combo_values()
             self.log(f"已删除账户: {acc['name']}")
 
     def _manager_verify_account(self):
@@ -1204,11 +1204,11 @@ bili_jct: {jct_preview}
         running_tasks = []
         if getattr(self, 'running', False):
             running_tasks.append('弹幕发送')
-        if hasattr(self, 'watch_frame') and getattr(self.watch_frame, 'running', False):
+        if hasattr(self, 'watch_page') and getattr(self.watch_page, 'running', False):
             running_tasks.append('看播')
-        if hasattr(self, 'gift_frame') and getattr(self.gift_frame, 'gift_running', False):
+        if hasattr(self, 'watch_page') and getattr(self.watch_page, 'gift_running', False):
             running_tasks.append('送礼')
-        if hasattr(self, 'rush_frame') and getattr(self.rush_frame, 'running', False):
+        if hasattr(self, 'rush_page') and getattr(self.rush_page, 'running', False):
             running_tasks.append('抢码')
         if running_tasks:
             messagebox.showwarning("提示", f"以下任务正在运行，请先停止后再删除账户：\n{'、'.join(running_tasks)}")
