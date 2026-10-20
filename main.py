@@ -856,9 +856,6 @@ class DanmakuApp:
         # 刷新看播页面直播间下拉框
         if hasattr(self, 'watch_page') and hasattr(self.watch_page, '_refresh_room_combo_values'):
             self.watch_page._refresh_room_combo_values()
-        # 刷新抢码页面直播间下拉框（如果有）
-        if hasattr(self, 'rush_page') and hasattr(self.rush_page, '_refresh_room_combo_values'):
-            self.rush_page._refresh_room_combo_values()
         messagebox.showinfo("提示", f"从账户导入完成，共新增 {count} 个直播间")
 
     def refresh_account_manager_list(self):

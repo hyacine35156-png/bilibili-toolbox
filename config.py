@@ -5,7 +5,7 @@ import os
 import threading
 from pathlib import Path
 
-# ========== 閰嶈壊鏂规 ==========
+# ========== 配色方案 ==========
 COLORS = {
     "bg_dark": "#1a1a2e",
     "bg_card": "#16213e",
@@ -21,75 +21,58 @@ COLORS = {
     "border": "#2a2a4a",
 }
 
-# ========== 甯搁噺 ==========
-# exe鎵€鍦ㄧ洰褰曪紙鐢ㄤ簬瀹氫綅锛?
+# ========== 常量 ==========
+# exe所在目录（用于定位）
 _EXE_DIR = Path(__file__).parent if not getattr(__import__("sys"), "frozen", False) else Path(__import__("sys").executable).parent
-# 鎵€鏈夐厤缃枃浠跺瓨鍒癲ata瀛愭枃浠跺す锛岄伩鍏嶉摵婊℃闈?
+# 所有配置文件存到data子文件夹，避免铺满桌面
 BASE_DIR = _EXE_DIR / "data"
 BASE_DIR.mkdir(parents=True, exist_ok=True)
 
-# ---------- 閰嶇疆鏂囦欢璺緞 ----------
+# ---------- 配置文件路径 ----------
 
 ACCOUNTS_FILE = BASE_DIR / "accounts.json"
-ACCOUNTS_FILE = BASE_DIR / "accounts.json"
-DANMAKU_FILE = BASE_DIR / "danmaku_list.txt"
 DANMAKU_FILE = BASE_DIR / "danmaku_list.txt"
 CONFIG_FILE = BASE_DIR / "config.json"
-CONFIG_FILE = BASE_DIR / "config.json"
 ACT_ID_CACHE_FILE = BASE_DIR / "act_id_cache.json"
-ACT_ID_CACHE_FILE = BASE_DIR / "act_id_cache.json"
-LOG_DIR = BASE_DIR / "logs"
 LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
-# ---------- 鐗堟湰 ----------
-# 绋嬪簭鐗堟湰鍙?
+# ---------- 版本 ----------
+# 程序版本号
 APP_VERSION = "v6.0.4"
 
-# ---------- API 鍦板潃 ----------
+# ---------- API 地址 ----------
 
 SEND_API = "https://api.live.bilibili.com/msg/send"
-SEND_API = "https://api.live.bilibili.com/msg/send"
 USER_INFO_API = "https://api.bilibili.com/x/web-interface/nav"
-# 鎶㈢爜鐩稿叧API
+# 抢码相关API
 MISSION_INFO_API = "https://api.bilibili.com/x/activity_components/mission/info"
-# 鎶㈢爜鐩稿叧API
-MISSION_INFO_API = "https://api.bilibili.com/x/activity_components/mission/info"
-MISSION_RECEIVE_API = "https://api.bilibili.com/x/activity_components/mission/receive"
 MISSION_RECEIVE_API = "https://api.bilibili.com/x/activity_components/mission/receive"
 MISSION_MYLIST_API = "https://api.bilibili.com/x/activity_components/mission/mylist"
 
-# ---------- 鍗″瘑鏈嶅姟 ----------
-# ========== 鍗″瘑楠岃瘉閰嶇疆 ==========
+# ---------- 卡密服务 ----------
+# ========== 卡密验证配置 ==========
 CARD_API_BASE = "https://precious-tanuki-c4b16d.netlify.app/api"
-# ========== 鍗″瘑楠岃瘉閰嶇疆 ==========
-CARD_API_BASE = "https://precious-tanuki-c4b16d.netlify.app/api"
-CARD_VERIFY_URL = f"{CARD_API_BASE}/verify-card"
 CARD_VERIFY_URL = f"{CARD_API_BASE}/verify-card"
 CARD_FILE = BASE_DIR / "card_auth.json"
 
-# ---------- 缂撳瓨 ----------
-# ========== 浠诲姟淇℃伅缂撳瓨 ==========
-# 缂撳瓨宸插垽瀹氫负"宸查鍙?鎴?鏃犲墿浣欐€婚噺"鐨勪换鍔′俊鎭紝閬垮厤閲嶅鏌ヨAPI
+# ---------- 缓存 ----------
+# ========== 任务信息缓存 ==========
+# 缓存已判定为"已领取"或"无剩余总量"的任务信息，避免重复查询API
 # key: task_id, value: {finished, status, message, total_stock, day_stock, timestamp}
 _mission_info_cache = {}
-# 缂撳瓨鏈夋晥鏈燂細24灏忔椂锛堢锛?
+# 缓存有效期：24小时（秒）
 _MISSION_CACHE_TTL = 24 * 3600
-# ========== 鎶㈢爜鐩稿叧鍑芥暟 ==========
-# WBI瀵嗛挜缂撳瓨锛堝噺灏戦噸澶嶇綉缁滆姹傦級
+# ========== 抢码相关函数 ==========
+# WBI密钥缓存（减少重复网络请求）
 _WBI_KEY_CACHE = {}  # {cookie_hash: (img_key, sub_key, expire_time)}
-# ========== 鎶㈢爜鐩稿叧鍑芥暟 ==========
-# WBI瀵嗛挜缂撳瓨锛堝噺灏戦噸澶嶇綉缁滆姹傦級
-_WBI_KEY_CACHE = {}  # {cookie_hash: (img_key, sub_key, expire_time)}
-_WBI_CACHE_TTL = 3600  # 缂撳瓨1灏忔椂
+_WBI_CACHE_TTL = 3600  # 缓存1小时
 
-# ---------- 鍏变韩閿佷笌鍏ㄥ眬鐘舵€?----------
-# task_id鍒癮ct_id鐨勭紦瀛樺瓧鍏革紙鏌ヨ鎴愬姛鏃惰嚜鍔ㄤ繚瀛橈紝鏌ヨ澶辫触鏃朵娇鐢級
-# 鍏ㄥ眬鍙橀噺绾跨▼閿?
+# ---------- 共享锁与全局状态 ----------
+# task_id到act_id的缓存字典（查询成功时自动保存，查询失败时使用）
+# 全局变量线程锁
 _GLOBAL_LOCK = threading.Lock()
-# ========== 鏁版嵁绠＄悊 ==========
-_last_claim_data_global = None
-# ========== 鏁版嵁绠＄悊 ==========
+# ========== 数据管理 ==========
 _last_claim_data_global = None
 _last_claim_result_global = None
 
@@ -143,7 +126,7 @@ TASK_GUIDE_TEXT = """B站工具箱 使用说明
 """
 
 
-# ---------- 璇锋眰澶?----------
+# ---------- 请求头 ----------
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -152,11 +135,11 @@ HEADERS = {
     "Origin": "https://live.bilibili.com",
 }
 
-# ---------- 鍏戞崲鐮佽褰曟枃浠?----------
+# ---------- 兑换码记录文件 ----------
 CODE_EXPORT_FILE = str(BASE_DIR / "兑换码记录.json")
 
-# ---------- 寮瑰箷姹?----------
-# 甯哥敤寮瑰箷璇嶅簱锛?00鏉★紝鐢ㄤ簬鎵归噺鐢熸垚锛?
+# ---------- 弹幕池 ----------
+# 常用弹幕词库（100条，用于批量生成）
 DANMAKU_POOL = [
     "666", "主播好强", "来了来了", "哈哈哈哈", "学到了", "太强了", "牛逼",
     "666666", "主播牛逼", "哈哈", "这波操作可以", "厉害了", "我的天",
@@ -178,8 +161,8 @@ DANMAKU_POOL = [
     "就这", "就这水平", "不过如此", "拿下拿下", "拿捏了",
 ]
 
-# ---------- WBI 娣锋穯琛?----------
-# WBI绛惧悕鏄犲皠琛?
+# ---------- WBI 混淆表 ----------
+# WBI签名映射表
 MIXIN_KEY_ENC_TAB = [
     46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
     27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
