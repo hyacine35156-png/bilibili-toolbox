@@ -1,17 +1,25 @@
 // 统计数据API
 const { supabaseRequest } = require('./lib/supabase');
 
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 exports.handler = async (event, context) => {
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': process.env.ALLOWED_ORIGIN || '*',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
   };
 
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
+  }
+
+  if (!ADMIN_PASSWORD) {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ code: -99, msg: '服务器配置错误' })
+    };
   }
 
   try {
@@ -32,10 +40,22 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // 获取所有卡密（用于统计）
-    const { data: allCards } = await supabaseRequest('GET', 'cards', {
-      select: 'status,card_type'
-    });
+    // 分页拉取卡密用于统计（避免全量拉取超时）
+    const PAGE_SIZE = 1000;
+    let allCards = [];
+    let page = 0;
+    while (true) {
+      const from = page * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      const { data } = await supabaseRequest('GET', 'cards', {
+        select: 'status,card_type',
+        range: [from, to]
+      });
+      if (!data || data.length === 0) break;
+      allCards = allCards.concat(data);
+      if (data.length < PAGE_SIZE) break;
+      page++;
+    }
 
     // 按状态统计
     const statusStats = {
@@ -77,10 +97,11 @@ exports.handler = async (event, context) => {
     };
 
   } catch (error) {
+    console.error('stats error:', error.message);
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ code: -99, msg: '服务器错误: ' + error.message })
+      body: JSON.stringify({ code: -99, msg: '服务器内部错误' })
     };
   }
 };

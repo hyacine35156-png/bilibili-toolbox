@@ -1,15 +1,43 @@
 // 卡密验证API - exe调用
 const { supabaseRequest } = require('./lib/supabase');
 
+// 简单内存级限流（每IP每分钟最多20次验证）
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1分钟
+const RATE_LIMIT_MAX = 20;
+
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const requests = rateLimitMap.get(ip) || [];
+  const validRequests = requests.filter(t => now - t < RATE_LIMIT_WINDOW);
+  if (validRequests.length >= RATE_LIMIT_MAX) {
+    rateLimitMap.set(ip, validRequests);
+    return false;
+  }
+  validRequests.push(now);
+  rateLimitMap.set(ip, validRequests);
+  return true;
+}
+
 exports.handler = async (event, context) => {
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': process.env.ALLOWED_ORIGIN || '*',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS'
   };
 
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
+  }
+
+  // 限流检查
+  const clientIP = event.headers['x-forwarded-for'] || event.headers['client-ip'] || 'unknown';
+  if (!checkRateLimit(clientIP)) {
+    return {
+      statusCode: 429,
+      headers,
+      body: JSON.stringify({ code: -10, msg: '请求过于频繁，请稍后再试' })
+    };
   }
 
   try {
@@ -177,10 +205,11 @@ exports.handler = async (event, context) => {
     };
 
   } catch (error) {
+    console.error('verify-card error:', error.message);
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ code: -99, msg: '服务器错误: ' + error.message })
+      body: JSON.stringify({ code: -99, msg: '服务器内部错误' })
     };
   }
 };

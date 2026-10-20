@@ -2,7 +2,7 @@
 const { supabaseRequest } = require('./lib/supabase');
 const crypto = require('crypto');
 
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 function generateCardCode() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -10,7 +10,7 @@ function generateCardCode() {
   for (let i = 0; i < 4; i++) {
     if (i > 0) code += '-';
     for (let j = 0; j < 4; j++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
+      code += chars.charAt(crypto.randomInt(0, chars.length));
     }
   }
   return code;
@@ -18,13 +18,21 @@ function generateCardCode() {
 
 exports.handler = async (event, context) => {
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': process.env.ALLOWED_ORIGIN || '*',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS'
   };
 
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
+  }
+
+  if (!ADMIN_PASSWORD) {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ code: -99, msg: '服务器配置错误' })
+    };
   }
 
   try {
@@ -115,10 +123,11 @@ exports.handler = async (event, context) => {
     };
 
   } catch (error) {
+    console.error('generate-cards error:', error.message);
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ code: -99, msg: '服务器错误: ' + error.message })
+      body: JSON.stringify({ code: -99, msg: '服务器内部错误' })
     };
   }
 };

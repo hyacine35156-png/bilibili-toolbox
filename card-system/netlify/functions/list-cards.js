@@ -1,17 +1,25 @@
 // 卡密列表API
 const { supabaseRequest } = require('./lib/supabase');
 
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 exports.handler = async (event, context) => {
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': process.env.ALLOWED_ORIGIN || '*',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
   };
 
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
+  }
+
+  if (!ADMIN_PASSWORD) {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ code: -99, msg: '服务器配置错误' })
+    };
   }
 
   try {
@@ -64,10 +72,11 @@ exports.handler = async (event, context) => {
     };
 
   } catch (error) {
+    console.error('list-cards error:', error.message);
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ code: -99, msg: '服务器错误: ' + error.message })
+      body: JSON.stringify({ code: -99, msg: '服务器内部错误' })
     };
   }
 };
