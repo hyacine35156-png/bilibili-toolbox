@@ -1506,6 +1506,45 @@ def cookies_from_account(acc):
 
 
 # ========== 自定义美观组件 ==========
+class ToolTip:
+    """简单的鼠标悬停提示框"""
+    def __init__(self, widget, text, delay=500):
+        self.widget = widget
+        self.text = text
+        self.delay = delay
+        self.tip_window = None
+        self.after_id = None
+        widget.bind("<Enter>", self._on_enter)
+        widget.bind("<Leave>", self._on_leave)
+
+    def _on_enter(self, event=None):
+        self.after_id = self.widget.after(self.delay, self._show_tip)
+
+    def _on_leave(self, event=None):
+        if self.after_id:
+            self.widget.after_cancel(self.after_id)
+            self.after_id = None
+        self._hide_tip()
+
+    def _show_tip(self):
+        if self.tip_window or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        tw.attributes("-topmost", True)
+        tk.Label(tw, text=self.text, justify=tk.LEFT,
+                 background="#ffffe0", relief=tk.SOLID, borderwidth=1,
+                 font=("微软雅黑", 9), wraplength=300).pack(ipadx=5, ipady=3)
+
+    def _hide_tip(self):
+        if self.tip_window:
+            self.tip_window.destroy()
+            self.tip_window = None
+
+
 class DarkButton(tk.Canvas):
     """自定义深色主题按钮"""
     def __init__(self, parent, text, command=None, width=None, height=44,
@@ -3731,7 +3770,7 @@ class RushRewardFrame(tk.Frame):
             # 获取act_id并保存（添加任务时一次性获取，抢码时直接使用）
             act_id = task.get("act_id", "")
             try:
-                cookies = cookies_from_account(account)
+                cookies = cookies_from_account(account_name)
                 info, msg = get_mission_info(task["task_id"], cookies)
                 if info:
                     # 尝试多种字段名和层级
@@ -3791,7 +3830,7 @@ class RushRewardFrame(tk.Frame):
                 # 回到主线程更新UI
                 self.after(0, lambda: self._update_task_status(task, result))
             except Exception as e:
-                self.after(0, lambda: self._update_task_status(task, {"error": str(e)}))
+                self.after(0, lambda ex=str(e): self._update_task_status(task, {"error": ex}))
         threading.Thread(target=query_thread, daemon=True).start()
 
     def _do_query_task_status(self, task):
@@ -9577,34 +9616,6 @@ class ScheduleFrame(tk.Frame):
     def select_task(self, task_id):
         self.selected_task_id = task_id
         self.refresh_task_list()
-
-    def toggle_select_all(self):
-        """全选/取消全选"""
-        if len(self.selected_ids) == len(self.schedule_tasks):
-            # 已全选，取消全选
-            self.selected_ids.clear()
-            self.log("☐ 已取消全选")
-        else:
-            # 全选
-            self.selected_ids = {t["id"] for t in self.schedule_tasks}
-            self.log(f"☑ 已全选 {len(self.schedule_tasks)} 个任务")
-        self.refresh_task_list()
-
-    def delete_selected_tasks(self):
-        """批量删除勾选的任务"""
-        if not self.selected_ids:
-            messagebox.showwarning("提示", "请先勾选要删除的任务（每行左侧复选框）")
-            return
-        count = len(self.selected_ids)
-        if custom_askyesno(self.app.root, "确认", f"确定删除选中的 {count} 个任务吗？"):
-            names = [t["name"] for t in self.schedule_tasks if t["id"] in self.selected_ids]
-            self.schedule_tasks = [t for t in self.schedule_tasks if t["id"] not in self.selected_ids]
-            if self.selected_task_id in self.selected_ids:
-                self.selected_task_id = None
-            self.selected_ids.clear()
-            self.refresh_task_list()
-            self.save_schedule()
-            self.log(f"🗑 已批量删除 {count} 个任务: {', '.join(names)}")
 
     def toggle_select_all(self):
         """全选/取消全选"""
