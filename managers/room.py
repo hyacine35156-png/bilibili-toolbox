@@ -65,7 +65,33 @@ class RoomManager:
         for acc in account_mgr.accounts:
             name = acc.get("name", "未知")
             mid = acc.get("DedeUserID", "")
+            # 修复P0-导入直播间bug: DedeUserID为空时自动获取
             if not mid:
+                sessdata = acc.get("SESSDATA", "")
+                bili_jct = acc.get("bili_jct", "")
+                if sessdata:
+                    try:
+                        cookie_str = f"SESSDATA={sessdata}"
+                        if bili_jct:
+                            cookie_str += f"; bili_jct={bili_jct}"
+                        headers = {**HEADERS, "Cookie": cookie_str}
+                        resp = requests.get(
+                            "https://api.bilibili.com/x/web-interface/nav",
+                            headers=headers, timeout=10
+                        )
+                        data = resp.json()
+                        if data.get("code") == 0 and data.get("data", {}).get("isLogin"):
+                            mid = str(data["data"].get("mid", ""))
+                            acc["DedeUserID"] = mid
+                            acc["username"] = data["data"].get("uname", name)
+                            account_mgr.save()
+                            if log_func:
+                                log_func(f"已自动获取「{name}」的UID: {mid}")
+                    except Exception:
+                        pass
+            if not mid:
+                if log_func:
+                    log_func(f"跳过「{name}」: 无法获取UID")
                 continue
             try:
                 url = f"https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld?mid={mid}"
@@ -80,8 +106,15 @@ class RoomManager:
                             added += 1
                             if log_func:
                                 log_func(f"已导入「{name}」的直播间: {room_id}")
-            except Exception:
-                pass
+                    elif room_id and data["data"].get("roomStatus") == 0:
+                        if log_func:
+                            log_func(f"「{name}」未开播，跳过")
+                else:
+                    if log_func:
+                        log_func(f"「{name}」获取直播间信息失败: {data.get('message', '未知错误')}")
+            except Exception as e:
+                if log_func:
+                    log_func(f"「{name}」导入异常: {e}")
         if log_func:
             log_func(f"从账户导入完成，共新增 {added} 个直播间")
         return added

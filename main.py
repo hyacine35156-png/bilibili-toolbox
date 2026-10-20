@@ -476,7 +476,12 @@ class DanmakuApp:
         tk.Label(row1, text="直播间:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=("微软雅黑", 10)).pack(side=tk.LEFT)
         self.room_combo = ttk.Combobox(row1, width=28, values=[], state="readonly")
-        self.room_combo.pack(side=tk.LEFT, padx=(8, 20))
+        self.room_combo.pack(side=tk.LEFT, padx=(8, 4))
+        # 刷新直播间下拉框按钮
+        refresh_btn = tk.Button(row1, text="↻", width=3, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                                relief=tk.FLAT, cursor="hand2", font=("微软雅黑", 10),
+                                command=self._refresh_danmaku_room_combo_values)
+        refresh_btn.pack(side=tk.LEFT, padx=(0, 20))
 
         tk.Label(row1, text="发送间隔", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=("微软雅黑", 9)).pack(side=tk.LEFT)
@@ -846,6 +851,14 @@ class DanmakuApp:
         """从账户导入直播间"""
         count = self.room_mgr.import_from_accounts(self.account_mgr, self.log)
         self._refresh_manager_room_list()
+        # 刷新弹幕页面直播间下拉框
+        self._refresh_danmaku_room_combo_values()
+        # 刷新看播页面直播间下拉框
+        if hasattr(self, 'watch_page') and hasattr(self.watch_page, '_refresh_room_combo_values'):
+            self.watch_page._refresh_room_combo_values()
+        # 刷新抢码页面直播间下拉框（如果有）
+        if hasattr(self, 'rush_page') and hasattr(self.rush_page, '_refresh_room_combo_values'):
+            self.rush_page._refresh_room_combo_values()
         messagebox.showinfo("提示", f"从账户导入完成，共新增 {count} 个直播间")
 
     def refresh_account_manager_list(self):

@@ -857,7 +857,11 @@ class WatchLiveFrame(tk.Frame):
         # 添加直播间栏按钮
         self.add_room_bar_btn = tk.Button(row1, text="+ 添加", bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 9),
                                            bd=0, padx=8, pady=2, cursor="hand2", command=self._add_watch_room_bar)
-        self.add_room_bar_btn.pack(side=tk.LEFT, padx=(8, 20))
+        self.add_room_bar_btn.pack(side=tk.LEFT, padx=(8, 4))
+        # 刷新直播间下拉框按钮
+        self.refresh_room_btn = tk.Button(row1, text="↻ 刷新", bg=COLORS["bg_input"], fg=COLORS["text_primary"], font=("微软雅黑", 9),
+                                           bd=0, padx=8, pady=2, cursor="hand2", command=self._refresh_room_combo_values)
+        self.refresh_room_btn.pack(side=tk.LEFT, padx=(0, 20))
         tk.Label(row1, text="每日时长(分):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
         self.duration_var = tk.IntVar(value=30)
         self.duration_combo = ttk.Combobox(row1, textvariable=self.duration_var, width=8, values=[10, 15, 20, 30, 45, 60, 90, 120], state="readonly")
