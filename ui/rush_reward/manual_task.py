@@ -304,8 +304,18 @@ class ManualTaskMixin:
 
         grid = tk.Frame(card2, bg=COLORS["bg_card"])
         grid.pack(fill=tk.X, padx=12, pady=(0, 6))
-        for col in range(6):
-            grid.columnconfigure(col, weight=1 if col in (1, 3, 5) else 0)
+        # 列宽策略：label 列用 minsize 固定下限，输入列可伸展且有下限。
+        # 这样即使窗口被拖窄，期数/类型下拉框也不会被挤成一条线。
+        _COL_CFG = {
+            0: dict(weight=0, minsize=76),   # 归类版本 / 查询账户 / 加入任务组 label
+            1: dict(weight=1, minsize=168),  # 版本 / 账户 / 组 下拉框
+            2: dict(weight=0, minsize=62),   # 期数 / act_id 兜底 / 或新建组名 label
+            3: dict(weight=1, minsize=132),  # 期数 / act_id / 新组名 输入
+            4: dict(weight=0, minsize=46),   # 类型 label
+            5: dict(weight=2, minsize=170),  # 类型下拉框（给足宽度显示自定义类型）
+        }
+        for col, cfg in _COL_CFG.items():
+            grid.columnconfigure(col, **cfg)
 
         # 行1：归类 版本/期数/类型
         tk.Label(grid, text="归类版本", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
@@ -319,31 +329,48 @@ class ManualTaskMixin:
                  font=font_lbl).grid(row=0, column=2, sticky="w", pady=3)
         period_var = tk.StringVar(value=MANUAL_PERIOD)
         period_combo = ttk.Combobox(grid, textvariable=period_var, values=[MANUAL_PERIOD],
-                                    state="normal", width=12, font=font_input)
+                                    state="normal", width=11, font=font_input)
         period_combo.grid(row=0, column=3, sticky="we", padx=(6, 12), pady=3)
 
         tk.Label(grid, text="类型", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=font_lbl).grid(row=0, column=4, sticky="w", pady=3)
         type_var = tk.StringVar(value=MANUAL_TYPE)
         type_combo = ttk.Combobox(grid, textvariable=type_var, values=[MANUAL_TYPE],
-                                  state="normal", width=12, font=font_input)
+                                  state="normal", width=14, font=font_input)
         type_combo.grid(row=0, column=5, sticky="we", padx=(6, 0), pady=3)
 
         def _sync_period_types(_event=None):
+            """版本变化：刷新期数候选；期数/类型都允许用户自填，不被清空。"""
             v = version_var.get().strip()
             ps = available_periods(v)
+            cur_period = period_var.get().strip()
             period_combo.config(values=ps or [MANUAL_PERIOD])
-            ts = available_types(v, period_var.get().strip())
-            type_combo.config(values=ts or [MANUAL_TYPE])
+            # 只有当前期数不在候选里，才切到第一个；否则保留用户选择
+            if cur_period and cur_period in ps:
+                period_var.set(cur_period)
+            elif ps:
+                period_var.set(ps[0])
+            # 期数定了，再刷新类型候选
+            _sync_types()
 
         def _sync_types(_event=None):
-            ts = available_types(version_var.get().strip(), period_var.get().strip())
-            type_combo.config(values=ts or [MANUAL_TYPE])
+            """期数变化：刷新类型候选；保留用户已输入的自定义类型。"""
+            v = version_var.get().strip()
+            p = period_var.get().strip()
+            ts = available_types(v, p)
+            cur_type = type_var.get().strip()
+            # 把当前值并入候选，保证自定义类型不会从列表里消失
+            merged = list(ts)
+            if cur_type and cur_type not in merged:
+                merged.append(cur_type)
+            type_combo.config(values=merged or [cur_type or MANUAL_TYPE])
+            if cur_type:
+                type_var.set(cur_type)
         version_combo.bind("<<ComboboxSelected>>", _sync_period_types)
         period_combo.bind("<<ComboboxSelected>>", _sync_types)
 
-        tk.Label(grid, text="（可选用已有版本，也可直接输入新版本名→自动新建）",
-                 bg=COLORS["bg_card"], fg=COLORS["text_muted"], font=("微软雅黑", 9)
+        tk.Label(grid, text="↑ 三栏都可直接输入新名称自动创建：版本(如 鸣潮3.8) / 期数(如 限时任务) / 类型(如 里程碑)",
+                 bg=COLORS["bg_card"], fg=COLORS["success"], font=("微软雅黑", 9)
                  ).grid(row=1, column=0, columnspan=6, sticky="w", pady=(0, 4))
 
         # 行2：查询账户 / act_id 兜底 / 强制添加
@@ -578,18 +605,49 @@ class ManualTaskMixin:
         append_result("提示：归类到已有版本（如 鸣潮3.7）后，该任务会和官方任务一起出现在对应下拉框；")
         append_result("      勾选/填写任务组则同时加入精准抢码的组，可直接开抢。")
 
-        # ---- 自适应尺寸：按内容实际需要，且不超过屏幕 ----
-        dlg.update_idletasks()
-        need_w = max(dlg.winfo_reqwidth(), 720)
-        need_h = dlg.winfo_reqheight()
+        # ---- 自适应尺寸：按 body 真实内容尺寸（不是 canvas 外壳）----
+        # 之前量的是 dlg.winfo_reqheight()，它只是 canvas 默认高度(264)，
+        # 导致窗口被裁成一条、内容显示不全。这里改为量内部 body 的实际需求。
+        body.update_idletasks()
+        content_w = body.winfo_reqwidth()
+        content_h = body.winfo_reqheight()
+
         screen_w = dlg.winfo_screenwidth()
         screen_h = dlg.winfo_screenheight()
-        w = min(need_w, int(screen_w * 0.92))
-        h = min(need_h, int(screen_h * 0.86))
+        max_w = int(screen_w * 0.92)
+        max_h = int(screen_h * 0.86)
+
+        # 内容宽度 + 左右内边距(20) + 竖向滚动条(18)
+        need_w = max(content_w + 40, 780)
+        # 内容高度 + 上下内边距(16)
+        need_h = max(content_h + 16, 520)
+
+        w = min(need_w, max_w)
+        h = min(need_h, max_h)
         x = max(0, (screen_w - w) // 2)
         y = max(0, (screen_h - h) // 2)
         dlg.geometry(f"{w}x{h}+{x}+{y}")
-        dlg.minsize(min(640, w), min(480, h))
+        dlg.minsize(min(700, w), min(420, h))
+
+        # 若内容小于可视区，就隐去滚动条，避免出现无意义的滚动条
+        def _sync_scrollbar(event=None):
+            try:
+                bbox = canvas.bbox("all")
+                if not bbox:
+                    return
+                need = bbox[3] - bbox[1]
+                if need <= canvas.winfo_height() + 2:
+                    if vbar.winfo_ismapped():
+                        vbar.pack_forget()
+                    canvas.yview_moveto(0)
+                else:
+                    if not vbar.winfo_ismapped():
+                        vbar.pack(side=tk.RIGHT, fill=tk.Y)
+            except Exception:
+                pass
+        canvas.bind("<Configure>", lambda e: (_sync_scrollbar(), canvas.itemconfigure(body_id, width=e.width)))
+        body.bind("<Configure>", lambda e: (canvas.configure(scrollregion=canvas.bbox("all")), _sync_scrollbar()))
+        dlg.after(60, _sync_scrollbar)
 
     # ---------------- 宿主联动 ----------------
 
