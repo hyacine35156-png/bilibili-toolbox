@@ -111,33 +111,38 @@ ALL_TASKS = [
     {"version": "崩坏星穹铁道4.6", "period": "下半", "type": "直播", "name": "【里程碑】累积15天开播", "task_id": "18ERA1wloghvcva00", "award": "星琼*1000"},
     {"version": "崩坏星穹铁道4.6", "period": "下半", "type": "直播", "name": "直播间新增1名舰长", "task_id": "6ERAcwloghvp7x00", "award": "星轨通票*3"},
 
-    # ===== 绝区零3.2 =====
-    # 全版本 - 直播里程碑任务
-    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计3天完成开播及互动任务", "task_id": "18ERA1wloghvv9m00", "award": "菲林*360"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计5天完成开播及互动任务", "task_id": "18ERA1wloghvbtf00", "award": "菲林*660"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计10天完成开播及互动任务", "task_id": "18ERA1wloghvv1m00", "award": "菲林*1000"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计20天完成开播及互动任务", "task_id": "18ERA1wloghvbfq00", "award": "菲林*1000"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计30天完成开播及互动任务", "task_id": "18ERA1wloghvvef00", "award": "菲林*1000"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "累计35天完成开播及互动任务", "task_id": "18ERA1wloghvc4600", "award": "菲林*1000"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "直播里程碑", "name": "直播收获1名舰长", "task_id": "6ERAcwloghvuzk00", "award": "菲林*480"},
-    # 全版本 - 每日直播任务
-    {"version": "绝区零3.2", "period": "全版本", "type": "直播", "name": "当日开播60分钟", "task_id": "6ERAcwloghvuse00", "award": "丁尼*1000"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "直播", "name": "当日直播间收到电池≥2", "task_id": "6ERAcwloghvyxs00", "award": "音擎能源模块*2"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "直播", "name": "当日直播间弹幕≥10条", "task_id": "6ERAcwloghvabs00", "award": "资深调查员记录*2"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "直播", "name": "当日至少1名用户观看≥10分钟", "task_id": "6ERAcwloghvsp000", "award": "丁尼*5000"},
+    # ===== 绝区零3.3 =====
+    # 全版本 - 观看互动任务
+    {"version": "绝区零3.3", "period": "全版本", "type": "观看互动", "name": "观看挽昼实机PV一分钟，并一键三连", "task_id": "6ERAcwloghvop400", "award": "菲林*30"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "观看互动", "name": "每日观看活动视频时长≥10min", "task_id": "6ERAcwloghvpz000", "award": "丁尼*1000"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "观看互动", "name": "每日给活动视频投币≥1", "task_id": "6ERAcwloghvp6b00", "award": "资深调查员记录*2"},
     # 全版本 - 投稿任务
-    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "投稿≥4，播放≥400", "task_id": "6ERAcwloghvy3000", "award": "菲林*80"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "投稿≥5，播放≥500", "task_id": "6ERAcwloghva2p00", "award": "原装母带*1"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "播放≥15万", "task_id": "6ERAcwloghvstw00", "award": "菲林*1000"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "播放≥70万", "task_id": "6ERAcwloghva0600", "award": "菲林*1600"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "单稿播放≥100", "task_id": "6ERAcwloghvydm00", "award": "菲林*30"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "单稿播放≥10000", "task_id": "6ERAcwloghvuvr00", "award": "菲林*300"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "单稿播放≥10000的有效投稿≥3", "task_id": "6ERAcwloghva5u00", "award": "菲林*800"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "累计投稿3天，且累计视频播放≥500", "task_id": "6ERAcwloghvany00", "award": "菲林*150"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "累计投稿10天，且累计视频播放≥1000", "task_id": "6ERAcwloghvse600", "award": "菲林*300"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "累计投稿20天，且累计视频播放≥3000", "task_id": "6ERAcwloghvyvy00", "award": "菲林*500"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "累计投稿30天，且累计视频播放≥6000", "task_id": "6ERAcwloghvy3900", "award": "菲林*1000"},
-    {"version": "绝区零3.2", "period": "全版本", "type": "投稿", "name": "累计投稿35天，且累计视频播放≥50000", "task_id": "6ERAcwloghvsp300", "award": "菲林*1000"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "投稿", "name": "投稿≥4，单稿点赞≥10且累计播放≥400", "task_id": "6ERAcwloghvaeu00", "award": "菲林*80"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "投稿", "name": "投稿≥5，单稿点赞≥10且累计播放≥500", "task_id": "6ERAcwloghvpar00", "award": "原装母带*1"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "投稿", "name": "累计播放≥15万且累计点赞≥1000", "task_id": "6ERAcwloghvasq00", "award": "菲林*1000"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "投稿", "name": "累计播放≥70万且累计点赞≥10000", "task_id": "6ERAcwloghvoo900", "award": "菲林*1600"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "投稿", "name": "单稿播放≥100且单稿点赞≥10", "task_id": "6ERAcwloghvpf500", "award": "菲林*30"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "投稿", "name": "单稿播放≥10000且单稿点赞≥500", "task_id": "6ERAcwloghvosw00", "award": "菲林*300"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "投稿", "name": "单稿播放≥10000且单稿点赞≥500的有效稿件≥3个", "task_id": "6ERAcwloghvp1000", "award": "菲林*800"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "投稿", "name": "累计投稿3天，单稿点赞≥10且累计视频播放≥500", "task_id": "6ERAcwloghvp5r00", "award": "菲林*150"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "投稿", "name": "累计投稿10天，单稿点赞≥10且累计视频播放≥1000", "task_id": "6ERAcwloghvp1900", "award": "菲林*300"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "投稿", "name": "累计投稿20天，累计点赞≥300且累计视频播放≥3000", "task_id": "6ERAcwloghvpl100", "award": "菲林*500"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "投稿", "name": "累计投稿30天，累计点赞≥600且累计视频播放≥6000", "task_id": "6ERAcwloghvoh200", "award": "菲林*1000"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "投稿", "name": "累计投稿35天，累计点赞≥1000且累计视频播放≥50000", "task_id": "6ERAcwloghvaa200", "award": "菲林*1000"},
+    # 全版本 - 每日直播任务
+    {"version": "绝区零3.3", "period": "全版本", "type": "直播", "name": "当日开播60分钟", "task_id": "6ERAcwloghvpv900", "award": "丁尼*1000"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "直播", "name": "当日直播间收到电池≥2", "task_id": "6ERAcwloghvpr400", "award": "音擎能源模块*2"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "直播", "name": "当日直播间弹幕≥10条", "task_id": "6ERAcwloghvpsl00", "award": "资深调查员记录*2"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "直播", "name": "当日至少1名用户观看时长≥10分钟", "task_id": "6ERAcwloghvpz300", "award": "丁尼*5000"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "直播", "name": "直播收获1名舰长", "task_id": "6ERAcwloghvaix00", "award": "菲林*480"},
+    # 全版本 - 直播里程碑任务
+    {"version": "绝区零3.3", "period": "全版本", "type": "直播里程碑", "name": "直播里程碑任务（任务主体）", "task_id": "6ERAcwloghvpd800", "award": "菲林*360~1000（6档累计）"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "直播里程碑", "name": "累计3天完成开播及互动任务", "task_id": "18ERA1wloghvcrj00", "award": "菲林*360"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "直播里程碑", "name": "累计5天完成开播及互动任务", "task_id": "18ERA1wloghvccb00", "award": "菲林*660"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "直播里程碑", "name": "累计10天完成开播及互动任务", "task_id": "18ERA1wloghvcvp00", "award": "菲林*1000"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "直播里程碑", "name": "累计20天完成开播及互动任务", "task_id": "18ERA1wloghvcj100", "award": "菲林*1000"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "直播里程碑", "name": "累计30天完成开播及互动任务", "task_id": "18ERA1wloghvcfb00", "award": "菲林*1000"},
+    {"version": "绝区零3.3", "period": "全版本", "type": "直播里程碑", "name": "累计35天完成开播及互动任务", "task_id": "18ERA1wloghvc3e00", "award": "菲林*1000"},
 ]
 
 # 兼容旧代码
@@ -148,7 +153,7 @@ VERSION_DEFAULT_ACT_ID = {
     "鸣潮3.7": "1ERAzwloghv32n00",
     "原神7.1": "1ERA3wloghv6q200",
     "崩坏星穹铁道4.6": "1ERAzwloghv3q100",
-    "绝区零3.2": "1ERAzwloghvbmi00",
+    "绝区零3.3": "1ERAzwloghv2ai00",
 }
 
 TASK_ACT_ID_CACHE = {}
