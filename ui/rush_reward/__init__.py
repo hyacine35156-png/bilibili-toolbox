@@ -356,8 +356,9 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, tk.Frame):
         tk.Label(row1, text="版本", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
         self.version_var = tk.StringVar(value="鸣潮3.7")
+        _versions = sorted(set(t["version"] for t in ALL_TASKS), key=lambda v: [t["version"] for t in ALL_TASKS].index(v))
         self.version_combo = ttk.Combobox(row1, textvariable=self.version_var,
-                                           values=["鸣潮3.7", "原神7.1", "崩坏星穹铁道4.6", "绝区零3.2"], state="readonly",
+                                           values=_versions, state="readonly",
                                            width=14, font=("微软雅黑", 11))
         self.version_combo.pack(side=tk.LEFT, padx=(8, 15))
         self.version_combo.bind("<<ComboboxSelected>>", lambda e: self.on_version_change())
@@ -850,8 +851,9 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, tk.Frame):
         tk.Label(row1, text="版本", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
         self.nm_version_var = tk.StringVar(value="鸣潮3.7")
+        _nm_versions = sorted(set(t["version"] for t in ALL_TASKS), key=lambda v: [t["version"] for t in ALL_TASKS].index(v))
         self.nm_version_combo = ttk.Combobox(row1, textvariable=self.nm_version_var,
-                                             values=["鸣潮3.7", "原神7.1", "崩坏星穹铁道4.6", "绝区零3.2"],
+                                             values=_nm_versions,
                                              state="readonly", width=14, font=("微软雅黑", 11))
         self.nm_version_combo.pack(side=tk.LEFT, padx=(8, 15))
         self.nm_version_combo.bind("<<ComboboxSelected>>", lambda e: self.nm_on_version_change())
@@ -2071,6 +2073,8 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, tk.Frame):
             act_name = "原神7.0版本创作激励计划"
         elif "崩坏" in version or "星穹" in version:
             act_name = "崩坏星穹铁道4.5版本创作激励计划"
+        elif "绝区零" in version:
+            act_name = "绝区零3.3版本创作激励计划"
         else:
             act_name = "鸣潮3.7版本创作激励计划"
         # 直接根据版本获取act_id（同一版本所有任务共享同一个act_id）
