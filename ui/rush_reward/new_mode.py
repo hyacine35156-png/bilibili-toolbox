@@ -19,6 +19,7 @@ from storage import atomic_write_json, safe_load_json
 from bili_api import (check_all_tasks_finished, cookies_from_account, get_mission_info,
                       parse_stock_info, receive_reward, verify_login)
 from widgets import DarkButton, DarkEntry, ToolTip, _SHELLEXECUTEINFOW
+from .manual_task import task_label, available_versions
 
 
 class NewModeMixin:
@@ -54,7 +55,7 @@ class NewModeMixin:
                 return
             with open(settings_file, "r", encoding="utf-8") as f:
                 settings = json.load(f)
-            if settings.get("version"):
+            if settings.get("version") and settings["version"] in available_versions():
                 self.nm_version_var.set(settings["version"])
                 self.nm_on_version_change()
             if settings.get("period"):
@@ -140,7 +141,7 @@ class NewModeMixin:
         period = self.nm_period_var.get()
         task_type = self.nm_type_var.get()
         tasks = [t for t in ALL_TASKS if t["version"] == version and t["period"] == period and t["type"] == task_type]
-        task_names = [f"{t['name']} => {t['award']}" for t in tasks]
+        task_names = [task_label(t, "arrow") for t in tasks]
         self.nm_task_combo.config(values=task_names)
         if task_names:
             self.nm_task_var.set(task_names[0])
@@ -264,7 +265,7 @@ class NewModeMixin:
         task_type = self.nm_type_var.get()
         task = None
         for t in ALL_TASKS:
-            if t["version"] == version and t["period"] == period and t["type"] == task_type and f"{t['name']} => {t['award']}" == task_text:
+            if t["version"] == version and t["period"] == period and t["type"] == task_type and task_label(t, "arrow") == task_text:
                 task = t
                 break
         if not task:

@@ -34,12 +34,14 @@ ACCOUNTS_FILE = BASE_DIR / "accounts.json"
 DANMAKU_FILE = BASE_DIR / "danmaku_list.txt"
 CONFIG_FILE = BASE_DIR / "config.json"
 ACT_ID_CACHE_FILE = BASE_DIR / "act_id_cache.json"
+# 手动添加的抢码任务（task_id / 活动网址解析结果）
+MANUAL_TASKS_FILE = BASE_DIR / "manual_tasks.json"
 LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # ---------- 版本 ----------
 # 程序版本号
-APP_VERSION = "v6.0.4"
+APP_VERSION = "v6.1.0"
 
 # ---------- API 地址 ----------
 
@@ -92,6 +94,14 @@ TASK_GUIDE_TEXT = """B站工具箱 使用说明
   自动监控并领取B站直播任务奖励
   选择任务、账户、领取时间，点击开始监控
   多个任务间隔5秒顺序启动，避免请求频率过高
+  2.1 手动添加任务(新)
+    旧模式任务行 / 精准抢码「添加任务」处 点「＋ 手动添加」
+    直接粘贴 task_id 或完整活动网址, 一行一个, 支持批量:
+      https://www.bilibili.com/blackboard/era/award-exchange.html?task_id=6ERAcwloghvosw00
+    程序自动联网解析出 活动名/任务名/奖励/act_id, 保存到「手动任务」版本
+    解析失败时可勾选「查询失败也强制添加」, 或手填 act_id 兜底
+    手动任务持久保存在 data/manual_tasks.json, 可在同一对话框里删除
+    抢码/查询/领取/定时 都按普通任务对待, 无需重新打包任务表
 
 【三、弹幕工具】
   多账户自动发送弹幕到指定直播间

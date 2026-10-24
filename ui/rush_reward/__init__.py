@@ -10,16 +10,17 @@ import requests
 
 from config import (COLORS, BASE_DIR, APP_VERSION, LOG_DIR,
                     HEADERS, MIXIN_KEY_ENC_TAB, _GLOBAL_LOCK)
-from tasks_config import ALL_TASKS, VERSION_DEFAULT_ACT_ID
+from tasks_config import ALL_TASKS, VERSION_DEFAULT_ACT_ID, get_manual_task
 from storage import atomic_write_json, safe_load_json
 from bili_api import (check_all_tasks_finished, cookies_from_account, get_mission_info,
                       parse_stock_info, receive_reward, verify_login)
 from widgets import DarkButton, DarkEntry, ToolTip
 from .new_mode import NewModeMixin
 from .scheduled import ScheduledMixin
+from .manual_task import ManualTaskMixin, task_label, available_versions
 
 
-class RushRewardFrame(NewModeMixin, ScheduledMixin, tk.Frame):
+class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
     """抢码页面。逻辑分布在：
       - 本文件：初始化、UI 构建、旧版监控、查询/领取、关机
       - new_mode.py：精准抢码（39 个方法）
@@ -189,9 +190,13 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, tk.Frame):
     def apply_rush_config(self):
         """应用抢码工具配置（直接更新下拉框选项，不触发级联方法的自动保存）"""
         try:
-            # 1. 设置版本
-            if self.rush_config.get("version"):
-                self.version_var.set(self.rush_config["version"])
+            # 1. 设置版本（保存的版本已不存在时回退到第一个可用版本，避免空列表）
+            _versions = available_versions()
+            _saved_version = self.rush_config.get("version") or ""
+            if _saved_version in _versions:
+                self.version_var.set(_saved_version)
+            elif _versions:
+                self.version_var.set(_versions[0])
 
             # 2. 根据版本直接更新期数下拉框选项（不调用on_version_change，避免触发自动保存和重置）
             version = self.version_var.get()
@@ -398,7 +403,15 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, tk.Frame):
         self.task_combo = ttk.Combobox(row1b, textvariable=self.task_var, values=[],
                                         state="readonly", width=45, font=("微软雅黑", 11))
         self.task_combo.pack(side=tk.LEFT, padx=(8, 0))
+
+        # 手动添加任务（task_id / 活动网址）
+        self.mt_add_btn = tk.Button(row1b, text="＋ 手动添加", bg="#8e44ad", fg="#ffffff",
+                                    font=("微软雅黑", 10, "bold"), relief=tk.FLAT, cursor="hand2",
+                                    command=self.mt_open_add_dialog)
+        self.mt_add_btn.pack(side=tk.LEFT, padx=(10, 0), ipadx=10, ipady=2)
+
         self.on_version_change()  # 初始化期数、类型下拉框选项和任务列表
+        self.mt_refresh_task_combos()  # 把手动任务版本并入版本下拉框
 
         # 第二行：账户选择（下拉框）
         row2 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
@@ -891,7 +904,13 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, tk.Frame):
         self.nm_account_var = tk.StringVar()
         self.nm_account_combo = ttk.Combobox(row2, textvariable=self.nm_account_var, values=[],
                                              state="readonly", width=14, font=("微软雅黑", 11))
-        self.nm_account_combo.pack(side=tk.LEFT, padx=(8, 15))
+        self.nm_account_combo.pack(side=tk.LEFT, padx=(8, 8))
+
+        # 手动添加任务（task_id / 活动网址）
+        self.nm_mt_add_btn = tk.Button(row2, text="＋ 手动添加", bg="#8e44ad", fg="#ffffff",
+                                       font=("微软雅黑", 10, "bold"), relief=tk.FLAT, cursor="hand2",
+                                       command=self.mt_open_add_dialog)
+        self.nm_mt_add_btn.pack(side=tk.LEFT, padx=(0, 15), ipadx=10, ipady=2)
 
         # 第三行：窗口期+基础间隔+添加按钮
         row3 = tk.Frame(add_inner, bg=COLORS["bg_card"])
@@ -1303,7 +1322,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, tk.Frame):
                 self.task_type_var.set(version_types[0])
                 task_type = version_types[0]
                 filtered = [t for t in ALL_TASKS if t["version"] == version and t["period"] == period and t["type"] == task_type]
-        task_names = [f'{t["name"]} ({t["award"]})' for t in filtered]
+        task_names = [task_label(t, "paren") for t in filtered]
         self.task_combo.config(values=task_names)
         if task_names:
             self.task_combo.current(0)
@@ -2077,8 +2096,14 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, tk.Frame):
             act_name = "绝区零3.3版本创作激励计划"
         else:
             act_name = "鸣潮3.7版本创作激励计划"
-        # 直接根据版本获取act_id（同一版本所有任务共享同一个act_id）
-        act_id = VERSION_DEFAULT_ACT_ID.get(version, task.get("act_id", ""))
+        # 手动任务（即使被归入 鸣潮3.7 这类官方版本）优先用任务自带的 act_id/act_name，
+        # 因为它的 act_id 来自接口实查，比版本默认值更准确。
+        _is_manual = get_manual_task(task.get("task_id", "")) is not None
+        if _is_manual:
+            act_id = task.get("act_id") or VERSION_DEFAULT_ACT_ID.get(version, "")
+        else:
+            act_id = VERSION_DEFAULT_ACT_ID.get(version) or task.get("act_id", "")
+        act_name = task.get("act_name") or act_name
         return {
             "act_id": act_id,
             "act_name": act_name,

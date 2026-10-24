@@ -2,9 +2,10 @@
 """游戏活动任务表与 act_id 缓存。"""
 
 import json
+import time
 
-from config import ACT_ID_CACHE_FILE
-from storage import atomic_write_json
+from config import ACT_ID_CACHE_FILE, MANUAL_TASKS_FILE
+from storage import atomic_write_json, safe_load_json
 
 # 活动任务列表（按版本+期数+类型分类）
 ALL_TASKS = [
@@ -148,6 +149,103 @@ ALL_TASKS = [
 # 兼容旧代码
 MINGCHAO_TASKS = [t for t in ALL_TASKS if t["version"] == "鸣潮3.7"]
 
+# ========== 手动任务库 ==========
+# 用户手动添加（task_id / 活动网址解析而来）的任务，持久化在 data/manual_tasks.json，
+# 统一以「手动任务」版本挂到 ALL_TASKS 末尾，因此两套抢码界面的动态下拉框会自动出现。
+MANUAL_VERSION = "手动任务"
+MANUAL_PERIOD = "手动"
+MANUAL_TYPE = "手动"
+
+MANUAL_TASKS = []
+
+
+def load_manual_tasks():
+    """从 data/manual_tasks.json 载入手动任务（失败返回空列表，不抛异常）。"""
+    global MANUAL_TASKS
+    data = safe_load_json(MANUAL_TASKS_FILE, [])
+    if not isinstance(data, list):
+        data = []
+    cleaned = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        task_id = str(item.get("task_id", "")).strip()
+        if not task_id:
+            continue
+        cleaned.append({
+            # 允许归入已有游戏版本（如 鸣潮3.7），也允许新建版本名
+            "version": str(item.get("version") or MANUAL_VERSION),
+            "period": item.get("period") or MANUAL_PERIOD,
+            "type": item.get("type") or MANUAL_TYPE,
+            "name": str(item.get("name") or task_id),
+            "task_id": task_id,
+            "award": str(item.get("award") or ""),
+            "act_id": str(item.get("act_id") or ""),
+            "act_name": str(item.get("act_name") or ""),
+            "added_at": str(item.get("added_at") or ""),
+        })
+    MANUAL_TASKS = cleaned
+    return MANUAL_TASKS
+
+
+def save_manual_tasks():
+    """写回 data/manual_tasks.json（原子写，断电不损坏）。"""
+    try:
+        atomic_write_json(MANUAL_TASKS_FILE, MANUAL_TASKS)
+        return True
+    except Exception as e:
+        print(f"保存手动任务失败: {e}")
+        return False
+
+
+def add_manual_task(entry):
+    """新增一条手动任务。返回 (是否成功, 说明)。task_id 重复时拒绝。"""
+    task_id = str((entry or {}).get("task_id", "")).strip()
+    if not task_id:
+        return False, "task_id 为空"
+    if any(t.get("task_id") == task_id for t in MANUAL_TASKS):
+        return False, "该 task_id 已存在（手动任务库）"
+    if any(t.get("task_id") == task_id for t in ALL_TASKS):
+        return False, "该 task_id 已在官方任务表中，无需手动添加"
+    item = {
+        # 允许归入已有版本/期数/类型，便于和官方任务混排；留空则落到「手动任务」
+        "version": str(entry.get("version") or MANUAL_VERSION),
+        "period": str(entry.get("period") or MANUAL_PERIOD),
+        "type": str(entry.get("type") or MANUAL_TYPE),
+        "name": str(entry.get("name") or task_id),
+        "task_id": task_id,
+        "award": str(entry.get("award") or ""),
+        "act_id": str(entry.get("act_id") or ""),
+        "act_name": str(entry.get("act_name") or ""),
+        "added_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    MANUAL_TASKS.append(item)
+    ALL_TASKS.append(item)
+    save_manual_tasks()
+    return True, "已添加"
+
+
+def remove_manual_task(task_id):
+    """删除一条手动任务（同时从 ALL_TASKS 摘除）。返回是否删除成功。"""
+    task_id = str(task_id or "").strip()
+    before = len(MANUAL_TASKS)
+    MANUAL_TASKS[:] = [t for t in MANUAL_TASKS if t.get("task_id") != task_id]
+    # 手动任务可能被归入任意版本，不能只按 version 判断，改为按「手动任务集合」差集摘除
+    _manual_ids = {t.get("task_id") for t in MANUAL_TASKS}
+    ALL_TASKS[:] = [t for t in ALL_TASKS
+                    if t.get("task_id") != task_id or t.get("task_id") in _manual_ids]
+    if len(MANUAL_TASKS) != before:
+        save_manual_tasks()
+        return True
+    return False
+
+
+def get_manual_task(task_id):
+    """按 task_id 查手动任务。"""
+    task_id = str(task_id or "").strip()
+    return next((t for t in MANUAL_TASKS if t.get("task_id") == task_id), None)
+
+
 # 版本默认act_id（同一版本的所有任务共享同一个act_id）
 VERSION_DEFAULT_ACT_ID = {
     "鸣潮3.7": "1ERAzwloghv32n00",
@@ -183,3 +281,20 @@ def save_act_id_cache():
 
 # 启动时加载 act_id 缓存（原 main_gui_pro.py:571）
 load_act_id_cache()
+
+
+# ========== 启动时把手动任务并入 ALL_TASKS ==========
+# 放在文件末尾执行：此时 load_manual_tasks / MANUAL_TASKS 均已定义。
+# 手动任务可以归入已有版本（如 鸣潮3.7），也可以落在「手动任务」版本；
+# 两种情况下都会并入 ALL_TASKS，因此两套界面的动态下拉框都能自动出现。
+load_manual_tasks()
+for _mt in MANUAL_TASKS:
+    if not any(t.get("task_id") == _mt["task_id"] for t in ALL_TASKS):
+        ALL_TASKS.append(_mt)
+
+
+def rebuild_all_tasks():
+    """按「官方任务 + 手动任务」重建 ALL_TASKS（保持原对象引用不变）。"""
+    _official = [t for t in ALL_TASKS if t.get("task_id") not in {m.get("task_id") for m in MANUAL_TASKS}]
+    ALL_TASKS[:] = _official + list(MANUAL_TASKS)
+    return ALL_TASKS
