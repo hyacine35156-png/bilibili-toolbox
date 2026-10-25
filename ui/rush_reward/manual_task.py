@@ -178,17 +178,42 @@ class ManualTaskMixin:
         font_input = ("微软雅黑", 10)
 
         # ===== 可滚动容器：保证任何 DPI 下都不会"显示不完全" =====
+        # 关键：滚动条必须用 place 绝对定位，不能用 pack。
+        # 用 pack 时，滚动条的显示/隐藏会改变 canvas 宽度 -> 触发 <Configure> ->
+        # 再次调整滚动条，形成"抖动"死循环。
         outer = tk.Frame(dlg, bg=COLORS["bg_dark"])
         outer.pack(fill=tk.BOTH, expand=True)
         canvas = tk.Canvas(outer, bg=COLORS["bg_dark"], highlightthickness=0, bd=0)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         vbar = tk.Scrollbar(outer, orient=tk.VERTICAL, command=canvas.yview)
         canvas.configure(yscrollcommand=vbar.set)
-        vbar.pack(side=tk.RIGHT, fill=tk.Y)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         body = tk.Frame(canvas, bg=COLORS["bg_dark"])
         body_id = canvas.create_window((0, 0), window=body, anchor="nw")
-        body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(body_id, width=e.width))
+
+        # 滚动条位置随 canvas 尺寸同步（place 定位，不挤压内容）
+        vbar_visible = {"on": False}
+
+        def _place_vbar():
+            try:
+                cw = canvas.winfo_width()
+                ch = canvas.winfo_height()
+                if cw <= 1 or ch <= 1:
+                    return
+                vbar.place(in_=canvas, relx=1.0, rely=0, anchor="ne",
+                           y=0, width=16, height=ch)
+            except Exception:
+                pass
+
+        def _sync_body_width(event):
+            """body 宽度扣除滚动条占位，避免文字被滚动条盖住。"""
+            try:
+                reserve = 16 if vbar_visible["on"] else 0
+                canvas.itemconfigure(body_id, width=max(1, event.width - reserve))
+                _place_vbar()
+            except Exception:
+                pass
+
+        canvas.bind("<Configure>", _sync_body_width)
 
         def _wheel(event):
             try:
@@ -325,18 +350,20 @@ class ManualTaskMixin:
         # ---- 按钮 ----
         btn_row = tk.Frame(body, bg=COLORS["bg_dark"])
         btn_row.pack(fill=tk.X, padx=10, pady=(0, 6))
+        # 注意：按钮文字会随状态变化（如"保存到任务库（3）"），
+        # 必须固定 width，否则文字变长会撑开按钮 -> 整行重排 -> 界面抖动。
         add_btn = tk.Button(btn_row, text="🔍 解析（预览）", bg=COLORS["accent"], fg="#000000",
-                            font=font_btn, relief=tk.FLAT, cursor="hand2")
-        add_btn.pack(side=tk.LEFT, ipadx=14, ipady=4)
+                            font=font_btn, relief=tk.FLAT, cursor="hand2", width=13)
+        add_btn.pack(side=tk.LEFT, ipady=4)
 
         # 保存按钮：解析只入预览区，点这里才真正写盘
         save_btn = tk.Button(btn_row, text="💾 保存到任务库", bg=COLORS["success"], fg="#000000",
-                             font=font_btn, relief=tk.FLAT, cursor="hand2", state=tk.DISABLED)
-        save_btn.pack(side=tk.LEFT, padx=(8, 0), ipadx=14, ipady=4)
+                             font=font_btn, relief=tk.FLAT, cursor="hand2", state=tk.DISABLED, width=18)
+        save_btn.pack(side=tk.LEFT, padx=(8, 0), ipady=4)
 
         discard_btn = tk.Button(btn_row, text="✕ 放弃预览", bg="#7f8c8d", fg="#ffffff",
-                                font=font_btn, relief=tk.FLAT, cursor="hand2", state=tk.DISABLED)
-        discard_btn.pack(side=tk.LEFT, padx=(8, 0), ipadx=10, ipady=4)
+                                font=font_btn, relief=tk.FLAT, cursor="hand2", state=tk.DISABLED, width=11)
+        discard_btn.pack(side=tk.LEFT, padx=(8, 0), ipady=4)
 
         clear_btn = tk.Button(btn_row, text="清空输入", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
                               font=font_btn, relief=tk.FLAT, cursor="hand2",
@@ -674,25 +701,40 @@ class ManualTaskMixin:
         dlg.geometry(f"{w}x{h}+{x}+{y}")
         dlg.minsize(min(700, w), min(420, h))
 
-        # 若内容小于可视区，就隐去滚动条，避免出现无意义的滚动条
+        # 滚动条按需显示：只在"需要/不需要"真正切换时才动，避免抖动
         def _sync_scrollbar(event=None):
             try:
                 bbox = canvas.bbox("all")
                 if not bbox:
                     return
                 need = bbox[3] - bbox[1]
-                if need <= canvas.winfo_height() + 2:
-                    if vbar.winfo_ismapped():
-                        vbar.pack_forget()
-                    canvas.yview_moveto(0)
+                vis = canvas.winfo_height()
+                if vis <= 1:
+                    return
+                should_show = need > vis + 2
+                if should_show == vbar_visible["on"]:
+                    return  # 状态未变，绝不重复布局
+                vbar_visible["on"] = should_show
+                if should_show:
+                    _place_vbar()
                 else:
-                    if not vbar.winfo_ismapped():
-                        vbar.pack(side=tk.RIGHT, fill=tk.Y)
+                    vbar.place_forget()
+                    canvas.yview_moveto(0)
+                # 宽度补偿：滚动条出现/消失后重新设置 body 宽度
+                reserve = 16 if should_show else 0
+                canvas.itemconfigure(body_id, width=max(1, canvas.winfo_width() - reserve))
             except Exception:
                 pass
-        canvas.bind("<Configure>", lambda e: (_sync_scrollbar(), canvas.itemconfigure(body_id, width=e.width)))
-        body.bind("<Configure>", lambda e: (canvas.configure(scrollregion=canvas.bbox("all")), _sync_scrollbar()))
-        dlg.after(60, _sync_scrollbar)
+
+        def _on_body_configure(event=None):
+            try:
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            except Exception:
+                pass
+            _sync_scrollbar()
+
+        body.bind("<Configure>", _on_body_configure)
+        dlg.after(80, _sync_scrollbar)
 
     # ---------------- 宿主联动 ----------------
 
