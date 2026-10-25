@@ -703,13 +703,13 @@ class DanmakuApp:
         self.manager_info_text.config(state=tk.DISABLED)
         self._manager_show_info(None)
 
-        # 复制按钮区
+        # 复制按钮区（竖向两行，每行占满宽度，避免并排时被挤压截断）
         copy_frame = tk.Frame(info_frame, bg=COLORS["bg_card"])
         copy_frame.pack(fill=tk.X, pady=(8, 0))
         DarkButton(copy_frame, "📋 复制 SESSDATA", command=self._manager_copy_sessdata,
-                   width=180, height=32, bg_color="#8e44ad", text_color="#ffffff").pack(side=tk.LEFT, padx=(0, 8))
+                   height=32, bg_color="#8e44ad", text_color="#ffffff").pack(fill=tk.X, pady=(0, 6))
         DarkButton(copy_frame, "📋 复制 bili_jct", command=self._manager_copy_bili_jct,
-                   width=180, height=32, bg_color="#16a085", text_color="#ffffff").pack(side=tk.LEFT)
+                   height=32, bg_color="#16a085", text_color="#ffffff").pack(fill=tk.X)
 
         # ===== 直播间管理子区域 =====
         room_card = tk.Frame(main, bg=COLORS["bg_card"], bd=0, highlightthickness=1, highlightbackground=COLORS["border"])

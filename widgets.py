@@ -396,9 +396,12 @@ _BTN_MIN_WIDTH = 100
 _measure_cache = {}
 
 
-def _measure_button_width(text, height=44):
-    """计算按钮所需的最小宽度（像素），保证文字完整显示。"""
-    key = (text,)
+def _measure_button_width(text, height=44, pad_x=_BTN_PAD_X, min_width=_BTN_MIN_WIDTH):
+    """计算按钮所需的最小宽度（像素），保证文字完整显示。
+
+    pad_x / min_width 可调，供"紧凑模式"（如表格里的 ↑↓✎× 小按钮）使用。
+    """
+    key = (text, pad_x, min_width)
     if key in _measure_cache:
         return _measure_cache[key]
 
@@ -421,7 +424,7 @@ def _measure_button_width(text, height=44):
             else:
                 tw += 8
 
-    width = max(_BTN_MIN_WIDTH, tw + _BTN_PAD_X)
+    width = max(min_width, tw + pad_x)
     _measure_cache[key] = width
     return width
 
@@ -429,15 +432,27 @@ def _measure_button_width(text, height=44):
 class DarkButton(tk.Canvas):
     """自定义深色主题按钮"""
     def __init__(self, parent, text, command=None, width=None, height=44,
-                 bg_color=COLORS["accent"], text_color="#000000", hover_color=COLORS["accent_hover"]):
-        # 如果未指定宽度，根据文字自动计算
-        if width is None:
-            width = _measure_button_width(text, height)
-        # 显式给了 width 也要校验：如果太窄，自动撑宽避免文字溢出
+                 bg_color=COLORS["accent"], text_color="#000000", hover_color=COLORS["accent_hover"],
+                 compact=False):
+        """compact=True 用于小尺寸按钮（表格操作列等）：
+        不套用 100px 最小宽度和 44px 内边距，按 min(width, 文字+16) 精确控制。
+        """
+        if compact:
+            # 紧凑模式：按文字实际宽度 + 少量内边距，且允许很窄
+            natural = _measure_button_width(text, height, pad_x=16, min_width=1)
+            if width is None:
+                width = natural
+            elif width < natural:
+                width = natural
         else:
-            min_w = _measure_button_width(text, height)
-            if width < min_w:
-                width = min_w
+            # 如果未指定宽度，根据文字自动计算
+            if width is None:
+                width = _measure_button_width(text, height)
+            # 显式给了 width 也要校验：如果太窄，自动撑宽避免文字溢出
+            else:
+                min_w = _measure_button_width(text, height)
+                if width < min_w:
+                    width = min_w
         super().__init__(parent, width=width, height=height, bg=COLORS["bg_card"],
                          highlightthickness=0, bd=0)
         self.command = command

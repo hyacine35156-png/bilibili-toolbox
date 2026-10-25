@@ -1247,21 +1247,22 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             # 操作按钮（放进第7列，与表头「操作」列严格对齐）
             btn_frame = tk.Frame(row, bg=COLORS["bg_card"])
             btn_frame.grid(row=0, column=6, sticky="w")
+            # 紧凑模式：表格操作列需要小按钮，不能用默认 100px 最小宽度
             DarkButton(btn_frame, text="↑", command=lambda tid=task["task_id"]: self.nm_move_task(tid, -1),
-                       height=26, width=30, bg_color=COLORS["bg_input"],
-                       text_color=COLORS["text_primary"]).pack(side=tk.LEFT, padx=1)
+                       height=24, width=30, bg_color=COLORS["bg_input"],
+                       text_color=COLORS["text_primary"], compact=True).pack(side=tk.LEFT, padx=1)
             DarkButton(btn_frame, text="↓", command=lambda tid=task["task_id"]: self.nm_move_task(tid, 1),
-                       height=26, width=30, bg_color=COLORS["bg_input"],
-                       text_color=COLORS["text_primary"]).pack(side=tk.LEFT, padx=1)
+                       height=24, width=30, bg_color=COLORS["bg_input"],
+                       text_color=COLORS["text_primary"], compact=True).pack(side=tk.LEFT, padx=1)
             DarkButton(btn_frame, text="✎", command=lambda t=task: self.nm_edit_task(t),
-                       height=26, width=30, bg_color="#3498db",
-                       text_color="#ffffff").pack(side=tk.LEFT, padx=1)
+                       height=24, width=30, bg_color="#3498db",
+                       text_color="#ffffff", compact=True).pack(side=tk.LEFT, padx=1)
             DarkButton(btn_frame, text="🔍", command=lambda t=task: self.nm_query_single_task(t),
-                       height=26, width=30, bg_color="#f39c12",
-                       text_color="#ffffff").pack(side=tk.LEFT, padx=1)
+                       height=24, width=34, bg_color="#f39c12",
+                       text_color="#ffffff", compact=True).pack(side=tk.LEFT, padx=1)
             DarkButton(btn_frame, text="×", command=lambda tid=task["task_id"]: self.nm_remove_task(tid),
-                       height=26, width=30, bg_color="#c0392b",
-                       text_color="#ffffff").pack(side=tk.LEFT, padx=1)
+                       height=24, width=30, bg_color="#c0392b",
+                       text_color="#ffffff", compact=True).pack(side=tk.LEFT, padx=1)
 
     def _do_query_task_status(self, task):
         """实际执行任务状态查询（在后台线程中调用）"""
