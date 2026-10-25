@@ -794,8 +794,13 @@ class DanmakuApp:
         text.pack(fill=tk.BOTH, expand=True)
         scroll.config(command=text.yview)
 
-        # 插入任务说明内容
-        text.insert(tk.END, TASK_GUIDE_TEXT)
+        # 插入任务说明内容（O7: 富文本渲染，支持加粗/斜体/红色加粗）
+        try:
+            theme.render_richtext(text, TASK_GUIDE_TEXT, base_size=10)
+        except Exception as e:
+            # 富文本失败时回退纯文本，保证说明一定能看
+            print(f"富文本渲染失败，回退纯文本: {e}")
+            text.insert(tk.END, TASK_GUIDE_TEXT)
         text.config(state=tk.DISABLED)
 
     def _refresh_manager_room_list(self):

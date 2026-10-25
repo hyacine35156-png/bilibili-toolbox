@@ -57,11 +57,121 @@ def sz(n, widget=None):
 FONT_FAMILY = "微软雅黑"
 
 
-def font(size=10, bold=False, family=None):
-    """按 DPI 缩放的字号元组。"""
+def font(size=10, bold=False, family=None, italic=False):
+    """按 DPI 缩放的字号元组。支持 bold / italic 组合。"""
     s = sz(size)
     fam = family or FONT_FAMILY
-    return (fam, s, "bold") if bold else (fam, s)
+    styles = []
+    if bold:
+        styles.append("bold")
+    if italic:
+        styles.append("italic")
+    if styles:
+        return (fam, s, " ".join(styles))
+    return (fam, s)
+
+
+# ---------- 富文本渲染（使用说明页用）----------
+# 支持的轻量标记（不是 Markdown，避免和 Tk Text 混用歧义）：
+#   【标题】       -> 大号加粗强调色
+#   **文字**       -> 加粗
+#   //文字//       -> 斜体
+#   !!文字!!       -> 红色加粗（最高优先级，用于危险/必读）
+#   ## 小节名      -> 小节标题（加粗 + 强调色）
+#   | 表格行 |     -> 等宽字体展示
+#
+# 为什么不用 Markdown：Tkinter Text 没有 Markdown 引擎，需要自己解析。
+# 这套标记更简单、不会有歧义（例如 ** 在中文语境里不会误判）。
+
+def render_richtext(text_widget, content, base_size=10, pad=0):
+    """把带轻量标记的文本渲染进 Tk Text 控件（支持加粗/斜体/红色加粗）。
+
+    必须在 Text 的 state=NORMAL 状态下调用，调用方负责最终禁用。
+    """
+    import re as _re
+
+    # 配置 tag 样式
+    text_widget.tag_configure("bold", font=font(base_size, bold=True))
+    text_widget.tag_configure("italic", font=font(base_size, italic=True))
+    text_widget.tag_configure(
+        "danger",
+        font=font(base_size, bold=True),
+        foreground="#ff4d4d",
+    )
+    text_widget.tag_configure(
+        "accent", font=font(base_size, bold=True), foreground=COLORS["accent"]
+    )
+    text_widget.tag_configure("mono", font=mono_font(base_size - 1))
+    text_widget.tag_configure(
+        "h1", font=font(base_size + 6, bold=True), foreground=COLORS["accent"],
+        spacing1=10, spacing3=6,
+    )
+    text_widget.tag_configure(
+        "h2", font=font(base_size + 2, bold=True), foreground=COLORS["accent"],
+        spacing1=8, spacing3=4,
+    )
+
+    # 行级标记优先处理
+    for raw_line in content.split("\n"):
+        line = raw_line
+
+        # 标题行
+        if line.startswith("【") and line.endswith("】"):
+            text_widget.insert("end", line + "\n", ("h1",))
+            continue
+        if line.startswith("## "):
+            text_widget.insert("end", line[3:] + "\n", ("h2",))
+            continue
+
+        # 行内标记：按优先级 danger > bold > italic 逐段解析
+        i = 0
+        while i < len(line):
+            # danger: !!...!!
+            if line.startswith("!!", i):
+                end = line.find("!!", i + 2)
+                if end > 0:
+                    text_widget.insert("end", line[i + 2:end], ("danger",))
+                    i = end + 2
+                    continue
+            # bold: **...**
+            if line.startswith("**", i):
+                end = line.find("**", i + 2)
+                if end > 0:
+                    text_widget.insert("end", line[i + 2:end], ("bold",))
+                    i = end + 2
+                    continue
+            # italic: //...//
+            # 防护：URL 里的 "https://" 不能被当成斜体标记。
+            # 判定条件：前面紧邻的是 ":" 就跳过，按普通文本处理。
+            if line.startswith("//", i) and not (i > 0 and line[i - 1] == ":"):
+                end = line.find("//", i + 2)
+                if end > 0:
+                    text_widget.insert("end", line[i + 2:end], ("italic",))
+                    i = end + 2
+                    continue
+            # 普通字符（成段写入，提升性能）
+            # 关键防护：若标记未闭合（如孤立的 !!），j 会停在原地导致死循环。
+            # 这里在检测到"当前正好是标记起点"时，直接吃掉两个字符当作普通文本。
+            if (line.startswith("!!", i) or line.startswith("**", i)
+                    or line.startswith("//", i)):
+                text_widget.insert("end", line[i:i + 2], ())
+                i += 2
+                continue
+
+            j = i
+            while j < len(line) and not (
+                line.startswith("!!", j)
+                or line.startswith("**", j)
+                or line.startswith("//", j)
+            ):
+                j += 1
+            # 兜底：确保一定前进
+            if j == i:
+                j = i + 1
+            text_widget.insert("end", line[i:j], ())
+            i = j
+
+        text_widget.insert("end", "\n")
 
 
 def mono_font(size=9):
