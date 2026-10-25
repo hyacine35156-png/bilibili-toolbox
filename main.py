@@ -381,10 +381,7 @@ class DanmakuApp:
                 bg=COLORS["bg_card"], fg=COLORS["accent"],
                 font=("Consolas", 10))
         self.footer_machine_label.pack(side=tk.LEFT, padx=(0, 8))
-        copy_machine_btn = tk.Button(right_info, text="📋 复制", 
-                bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                font=theme.font(9), relief=tk.FLAT, cursor="hand2",
-                command=lambda: self._copy_machine_code())
+        copy_machine_btn = DarkButton(right_info, text="📋 复制", command=lambda: self._copy_machine_code(), bg_color=COLORS["bg_input"], text_color=COLORS["text_primary"], height=32)
         copy_machine_btn.pack(side=tk.LEFT, ipadx=8, ipady=2)
 
         # 主内容区（标签页容器）
@@ -451,13 +448,9 @@ class DanmakuApp:
         # 全选/取消全选按钮
         danmaku_btn_frame = tk.Frame(left_card, bg=COLORS["bg_card"])
         danmaku_btn_frame.pack(fill=tk.X, padx=12, pady=(0, 4))
-        self.danmaku_select_all_btn = tk.Button(danmaku_btn_frame, text="全选", bg=COLORS["bg_input"],
-                                                  fg=COLORS["text_secondary"], font=theme.font(8), bd=0,
-                                                  padx=8, pady=2, cursor="hand2", command=self._danmaku_select_all)
+        self.danmaku_select_all_btn = DarkButton(danmaku_btn_frame, text="全选", command=self._danmaku_select_all, bg_color=COLORS["bg_input"], text_color=COLORS["text_secondary"], height=32)
         self.danmaku_select_all_btn.pack(side=tk.LEFT, padx=(0, 4))
-        self.danmaku_deselect_all_btn = tk.Button(danmaku_btn_frame, text="取消全选", bg=COLORS["bg_input"],
-                                                     fg=COLORS["text_secondary"], font=theme.font(8), bd=0,
-                                                     padx=8, pady=2, cursor="hand2", command=self._danmaku_deselect_all)
+        self.danmaku_deselect_all_btn = DarkButton(danmaku_btn_frame, text="取消全选", command=self._danmaku_deselect_all, bg_color=COLORS["bg_input"], text_color=COLORS["text_secondary"], height=32)
         self.danmaku_deselect_all_btn.pack(side=tk.LEFT)
 
         # 复选框区域
@@ -489,9 +482,7 @@ class DanmakuApp:
         self.room_combo = ttk.Combobox(row1, width=28, values=[], state="readonly")
         self.room_combo.pack(side=tk.LEFT, padx=(8, 4))
         # 刷新直播间下拉框按钮
-        refresh_btn = tk.Button(row1, text="↻", width=3, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                                relief=tk.FLAT, cursor="hand2", font=theme.font(10),
-                                command=self._refresh_danmaku_room_combo_values)
+        refresh_btn = DarkButton(row1, text="↻", command=self._refresh_danmaku_room_combo_values, bg_color=COLORS["bg_input"], text_color=COLORS["text_primary"], height=32, width=50)
         refresh_btn.pack(side=tk.LEFT, padx=(0, 20))
 
         tk.Label(row1, text="发送间隔", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],

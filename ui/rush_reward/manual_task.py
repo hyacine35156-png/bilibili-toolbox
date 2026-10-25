@@ -18,6 +18,7 @@ from tkinter import ttk
 
 from config import COLORS
 from ui.theme import sz, font as theme_font
+from widgets import DarkButton
 from tasks_config import (ALL_TASKS, MANUAL_TASKS, MANUAL_VERSION, MANUAL_PERIOD,
                           MANUAL_TYPE, OFFICIAL_TASKS, HIDDEN_TASK_IDS,
                           add_manual_task, remove_manual_task, hide_official_task)
@@ -354,25 +355,19 @@ class ManualTaskMixin:
         btn_row.pack(fill=tk.X, padx=10, pady=(0, 6))
         # 注意：按钮文字会随状态变化（如"保存到任务库（3）"），
         # 必须固定 width，否则文字变长会撑开按钮 -> 整行重排 -> 界面抖动。
-        add_btn = tk.Button(btn_row, text="🔍 解析（预览）", bg=COLORS["accent"], fg="#000000",
-                            font=font_btn, relief=tk.FLAT, cursor="hand2", width=13)
+        add_btn = DarkButton(btn_row, text="🔍 解析（预览）", bg_color=COLORS["accent"], text_color="#000000", height=32, width=150)
         add_btn.pack(side=tk.LEFT, ipady=4)
 
         # 保存按钮：解析只入预览区，点这里才真正写盘
-        save_btn = tk.Button(btn_row, text="💾 保存到任务库", bg=COLORS["success"], fg="#000000",
-                             font=font_btn, relief=tk.FLAT, cursor="hand2", state=tk.DISABLED, width=18)
+        save_btn = DarkButton(btn_row, text="💾 保存到任务库", bg_color=COLORS["success"], text_color="#000000", height=32, width=200)
         save_btn.pack(side=tk.LEFT, padx=(8, 0), ipady=4)
 
-        discard_btn = tk.Button(btn_row, text="✕ 放弃预览", bg="#7f8c8d", fg="#ffffff",
-                                font=font_btn, relief=tk.FLAT, cursor="hand2", state=tk.DISABLED, width=11)
+        discard_btn = DarkButton(btn_row, text="✕ 放弃预览", bg_color="#7f8c8d", text_color="#ffffff", height=32, width=130)
         discard_btn.pack(side=tk.LEFT, padx=(8, 0), ipady=4)
 
-        clear_btn = tk.Button(btn_row, text="清空输入", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                              font=font_btn, relief=tk.FLAT, cursor="hand2",
-                              command=lambda: input_text.delete("1.0", tk.END))
+        clear_btn = DarkButton(btn_row, text="清空输入", command=lambda: input_text.delete("1.0", tk.END), bg_color=COLORS["bg_input"], text_color=COLORS["text_primary"], height=32)
         clear_btn.pack(side=tk.LEFT, padx=(8, 0), ipadx=10, ipady=4)
-        close_btn = tk.Button(btn_row, text="关闭", bg="#555577", fg="#ffffff",
-                              font=font_btn, relief=tk.FLAT, cursor="hand2")
+        close_btn = DarkButton(btn_row, text="关闭", bg_color="#555577", text_color="#ffffff", height=32)
         close_btn.pack(side=tk.RIGHT, ipadx=14, ipady=4)
 
         # ---- ③ 结果 ----
@@ -442,13 +437,8 @@ class ManualTaskMixin:
             self.mt_refresh_task_combos()
             self._mt_after_change()
 
-        tk.Button(del_row, text="🗑 删除选中", bg="#c0392b", fg="#ffffff", font=font_btn,
-                  relief=tk.FLAT, cursor="hand2", command=delete_selected
-                  ).pack(side=tk.LEFT, ipadx=10, ipady=3)
-        tk.Button(del_row, text="刷新列表", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                  font=font_btn, relief=tk.FLAT, cursor="hand2",
-                  command=lambda: (refresh_manual_list(), self.mt_refresh_task_combos())
-                  ).pack(side=tk.LEFT, padx=(8, 0), ipadx=10, ipady=3)
+        DarkButton(del_row, text="🗑 删除选中", command=delete_selected, bg_color="#c0392b", text_color="#ffffff", height=32).pack(side=tk.LEFT, ipadx=10, ipady=3)
+        DarkButton(del_row, text="刷新列表", command=lambda: (refresh_manual_list(), self.mt_refresh_task_combos()), bg_color=COLORS["bg_input"], text_color=COLORS["text_primary"], height=32).pack(side=tk.LEFT, padx=(8, 0), ipadx=10, ipady=3)
 
         # ---- ⑤ 官方任务管理（删除后永久生效）----
         card5 = tk.Frame(body, bg=COLORS["bg_card"])
@@ -514,13 +504,8 @@ class ManualTaskMixin:
             self.mt_refresh_task_combos()
             self._mt_after_change()
 
-        tk.Button(official_row, text="🗑 删除官方任务", bg="#c0392b", fg="#ffffff", font=font_btn,
-                  relief=tk.FLAT, cursor="hand2", command=delete_official_selected
-                  ).pack(side=tk.LEFT, ipadx=10, ipady=3)
-        tk.Button(official_row, text="刷新列表", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                  font=font_btn, relief=tk.FLAT, cursor="hand2",
-                  command=lambda: (refresh_official_list(), refresh_manual_list())
-                  ).pack(side=tk.LEFT, padx=(8, 0), ipadx=10, ipady=3)
+        DarkButton(official_row, text="🗑 删除官方任务", command=delete_official_selected, bg_color="#c0392b", text_color="#ffffff", height=32).pack(side=tk.LEFT, ipadx=10, ipady=3)
+        DarkButton(official_row, text="刷新列表", command=lambda: (refresh_official_list(), refresh_manual_list()), bg_color=COLORS["bg_input"], text_color=COLORS["text_primary"], height=32).pack(side=tk.LEFT, padx=(8, 0), ipadx=10, ipady=3)
 
         # ---- 解析 / 保存 / 放弃 ----
         # pending：本轮解析出的待保存任务。解析只进这里，点保存才落盘。

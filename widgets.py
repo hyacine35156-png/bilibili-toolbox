@@ -50,21 +50,42 @@ class RoundCard(tk.Frame):
         self._win = self._cv.create_window(pad, pad, window=self.body, anchor="nw")
 
         self._cv.bind("<Configure>", self._redraw)
-        # 关键：body 通过 create_window 嵌入 Canvas，Canvas 不会自动按内容撑高，
-        # 必须监听 body 尺寸变化并同步卡片高度，否则卡片会塌成 1px。
+        # body 尺寸变化时把期望尺寸同步给卡片本身
         self.body.bind("<Configure>", self._on_body_configure)
-        self.after(20, self._redraw)
+        # 卡片被父容器拉伸/收缩后重绘圆角
+        self.bind("<Configure>", self._on_self_configure)
+        self.after(20, self._initial_sync)
 
-    def _on_body_configure(self, event=None):
-        """body 内容尺寸变化时，同步卡片自身高度。"""
+    def _sync_size_to_parent(self):
+        """把 body 的期望尺寸同步到卡片本身。
+
+        为什么必须手动同步：
+        Canvas 用 place 布局、body 用 create_window 嵌入，
+        两者都不会向父 Frame 传播 geometry，导致 RoundCard 的
+        reqwidth/reqheight 恒为 0 —— pack/grid 时整个卡片会被压扁。
+        这里显式 configure(width/height)，让 pack 拿到正确尺寸。
+        """
         try:
+            need_w = self.body.winfo_reqwidth() + self._pad * 2
             need_h = self.body.winfo_reqheight() + self._pad * 2
-            if need_h > 1 and abs(self.winfo_height() - need_h) > 1:
-                # 只在高度确实需要变化时调整，避免无限循环
+            if need_w > 1 and abs(self.winfo_reqwidth() - need_w) > 1:
+                self.configure(width=need_w)
+            if need_h > 1 and abs(self.winfo_reqheight() - need_h) > 1:
                 self.configure(height=need_h)
-                self._cv.configure(height=need_h)
         except Exception:
             pass
+
+    def _on_body_configure(self, event=None):
+        self._sync_size_to_parent()
+
+    def _on_self_configure(self, event=None):
+        """卡片自身尺寸变化（被 pack fill 拉伸）时重绘。"""
+        self._redraw()
+
+    def _initial_sync(self):
+        """初次显示后同步尺寸并重绘。"""
+        self._sync_size_to_parent()
+        self._redraw()
 
     def _redraw(self, event=None):
         try:
@@ -364,21 +385,59 @@ class ToolTip:
             self.tip_window = None
 
 
+# 按钮文字宽度测量（含 emoji）
+# 之前用"中文字符14px、其他8px"的粗略估算，但 emoji（🔍🕐📊🔧 等）
+# 实际渲染宽度约 18-20px，低估导致文字溢出按钮边界。
+# 这里改用 tkfont.measure() 拿真实像素宽度，并在测量失败时用保守估算兜底。
+
+_BTN_FONT_SIZE = 11
+_BTN_PAD_X = 44          # 左右各留 22px 内边距
+_BTN_MIN_WIDTH = 100
+_measure_cache = {}
+
+
+def _measure_button_width(text, height=44):
+    """计算按钮所需的最小宽度（像素），保证文字完整显示。"""
+    key = (text,)
+    if key in _measure_cache:
+        return _measure_cache[key]
+
+    tw = 0
+    try:
+        import tkinter.font as _tkfont
+        f = _tkfont.Font(font=("微软雅黑", _BTN_FONT_SIZE, "bold"))
+        tw = f.measure(text)
+    except Exception:
+        tw = 0
+
+    if tw <= 0:
+        # 兜底：保守估算（emoji 按 20px，中文 15px，其他 8px）
+        for ch in text:
+            cp = ord(ch)
+            if cp >= 0x1F000 or 0x2600 <= cp <= 0x27BF:
+                tw += 20          # emoji / 符号
+            elif '一' <= ch <= '鿿':
+                tw += 15
+            else:
+                tw += 8
+
+    width = max(_BTN_MIN_WIDTH, tw + _BTN_PAD_X)
+    _measure_cache[key] = width
+    return width
+
+
 class DarkButton(tk.Canvas):
     """自定义深色主题按钮"""
     def __init__(self, parent, text, command=None, width=None, height=44,
                  bg_color=COLORS["accent"], text_color="#000000", hover_color=COLORS["accent_hover"]):
         # 如果未指定宽度，根据文字自动计算
         if width is None:
-            # 估算文字宽度（每个中文字符约12px，英文约7px，加上左右padding各20px）
-            text_width = 0
-            for ch in text:
-                if '一' <= ch <= '鿿' or ch in "🚀⏹▶🔄⏰■":
-                    text_width += 14
-                else:
-                    text_width += 8
-            width = text_width + 70  # 左右padding各35px，留出空隙
-            width = max(width, 100)  # 最小宽度100px
+            width = _measure_button_width(text, height)
+        # 显式给了 width 也要校验：如果太窄，自动撑宽避免文字溢出
+        else:
+            min_w = _measure_button_width(text, height)
+            if width < min_w:
+                width = min_w
         super().__init__(parent, width=width, height=height, bg=COLORS["bg_card"],
                          highlightthickness=0, bd=0)
         self.command = command
@@ -424,22 +483,56 @@ class DarkButton(tk.Canvas):
             self.bind("<Button-1>", self._on_click)
 
     def config(self, **kwargs):
-        """兼容标准Tkinter按钮的config方法，支持state和text参数"""
+        """兼容标准 Tkinter Button 的 config 方法。
+
+        支持的参数：
+          state / text / command / bg / fg / bg_color / text_color
+          其余参数透传给 Canvas（如 cursor、width、height）
+
+        注意：tk.Button 里用 command/bg/fg，Canvas 没有这些 option，
+        必须先自行消费掉，否则会抛 "unknown option '-command'"。
+        """
+        redraw = False
+
         if "state" in kwargs:
-            state = kwargs["state"]
-            if state == tk.DISABLED:
+            state = kwargs.pop("state")
+            if str(state) in ("disabled", "DISABLED"):
                 self.set_state("disabled")
             else:
                 self.set_state("normal")
+
         if "text" in kwargs:
-            self.text = kwargs["text"]
-            # 重绘按钮文本，保持当前背景色
-            current_bg = self.cget("bg")
-            self._draw(current_bg if current_bg != COLORS["bg_card"] else self.bg_color)
-        # 其他参数传给Canvas的config
-        canvas_kwargs = {k: v for k, v in kwargs.items() if k not in ("state", "text")}
+            self.text = kwargs.pop("text")
+            redraw = True
+
+        if "command" in kwargs:
+            self.command = kwargs.pop("command")
+
+        if "bg_color" in kwargs:
+            self.bg_color = kwargs.pop("bg_color")
+            redraw = True
+        elif "bg" in kwargs:
+            self.bg_color = kwargs.pop("bg")
+            redraw = True
+
+        if "text_color" in kwargs:
+            self.text_color = kwargs.pop("text_color")
+            redraw = True
+        elif "fg" in kwargs:
+            self.text_color = kwargs.pop("fg")
+            redraw = True
+
+        if redraw:
+            self._draw(self.bg_color)
+
+        # 剩余参数透传给 Canvas
+        canvas_kwargs = {k: v for k, v in kwargs.items()
+                         if k in ("cursor", "width", "height", "takefocus")}
         if canvas_kwargs:
-            super().config(**canvas_kwargs)
+            try:
+                super().config(**canvas_kwargs)
+            except Exception:
+                pass
 
 
 class DarkEntry(ttk.Entry):

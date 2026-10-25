@@ -45,44 +45,28 @@ class CodeExportFrame(tk.Frame):
         btn_frame = tk.Frame(btn_bar, bg=COLORS["bg_card"])
         btn_frame.pack(side=tk.LEFT, padx=15, pady=8)
 
-        self.refresh_btn = tk.Button(btn_frame, text="🔄 刷新列表", bg=COLORS["bg_input"],
-                                      fg=COLORS["text_secondary"], font=("微软雅黑", 10),
-                                      bd=0, padx=16, pady=6, cursor="hand2", command=self.refresh_list)
+        self.refresh_btn = DarkButton(btn_frame, text="🔄 刷新列表", command=self.refresh_list, bg_color=COLORS["bg_input"], text_color=COLORS["text_secondary"], height=32)
         self.refresh_btn.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.import_btn = tk.Button(btn_frame, text="📥 从领取记录导入", bg="#FF8F00",
-                                     fg="#FFFFFF", font=("微软雅黑", 10, "bold"),
-                                     bd=0, padx=16, pady=6, cursor="hand2", command=self.import_from_records)
+        self.import_btn = DarkButton(btn_frame, text="📥 从领取记录导入", command=self.import_from_records, bg_color="#FF8F00", text_color="#FFFFFF", height=32)
         self.import_btn.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.copy_selected_btn = tk.Button(btn_frame, text="📋 复制选中", bg=COLORS["accent"],
-                                            fg="#000000", font=("微软雅黑", 10, "bold"),
-                                            bd=0, padx=16, pady=6, cursor="hand2", command=self.copy_selected)
+        self.copy_selected_btn = DarkButton(btn_frame, text="📋 复制选中", command=self.copy_selected, bg_color=COLORS["accent"], text_color="#000000", height=32)
         self.copy_selected_btn.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.copy_all_btn = tk.Button(btn_frame, text="📋 复制全部", bg=COLORS["accent"],
-                                       fg="#000000", font=("微软雅黑", 10, "bold"),
-                                       bd=0, padx=16, pady=6, cursor="hand2", command=self.copy_all)
+        self.copy_all_btn = DarkButton(btn_frame, text="📋 复制全部", command=self.copy_all, bg_color=COLORS["accent"], text_color="#000000", height=32)
         self.copy_all_btn.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.export_btn = tk.Button(btn_frame, text="💾 导出TXT", bg="#2E7D32",
-                                     fg="#FFFFFF", font=("微软雅黑", 10, "bold"),
-                                     bd=0, padx=16, pady=6, cursor="hand2", command=self.export_txt)
+        self.export_btn = DarkButton(btn_frame, text="💾 导出TXT", command=self.export_txt, bg_color="#2E7D32", text_color="#FFFFFF", height=32)
         self.export_btn.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.export_csv_btn = tk.Button(btn_frame, text="📊 导出CSV", bg="#1565C0",
-                                          fg="#FFFFFF", font=("微软雅黑", 10, "bold"),
-                                          bd=0, padx=16, pady=6, cursor="hand2", command=self.export_csv)
+        self.export_csv_btn = DarkButton(btn_frame, text="📊 导出CSV", command=self.export_csv, bg_color="#1565C0", text_color="#FFFFFF", height=32)
         self.export_csv_btn.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.delete_selected_btn = tk.Button(btn_frame, text="🗑 删除选中", bg="#C62828",
-                                               fg="#FFFFFF", font=("微软雅黑", 10, "bold"),
-                                               bd=0, padx=16, pady=6, cursor="hand2", command=self.delete_selected)
+        self.delete_selected_btn = DarkButton(btn_frame, text="🗑 删除选中", command=self.delete_selected, bg_color="#C62828", text_color="#FFFFFF", height=32)
         self.delete_selected_btn.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.clear_btn = tk.Button(btn_frame, text="🧹 清空全部", bg="#616161",
-                                    fg="#FFFFFF", font=("微软雅黑", 10, "bold"),
-                                    bd=0, padx=16, pady=6, cursor="hand2", command=self.clear_all)
+        self.clear_btn = DarkButton(btn_frame, text="🧹 清空全部", command=self.clear_all, bg_color="#616161", text_color="#FFFFFF", height=32)
         self.clear_btn.pack(side=tk.LEFT)
 
         # 活动筛选下拉框
@@ -237,13 +221,9 @@ class CodeExportFrame(tk.Frame):
         btn_frame = tk.Frame(dialog, bg=COLORS["bg_dark"])
         btn_frame.pack(pady=20)
         
-        tk.Button(btn_frame, text="确定", bg=COLORS["accent"], fg="#000000",
-                  font=("微软雅黑", 10, "bold"), bd=0, padx=25, pady=6, cursor="hand2",
-                  command=on_confirm).pack(side=tk.LEFT, padx=10)
+        DarkButton(btn_frame, text="确定", command=on_confirm, bg_color=COLORS["accent"], text_color="#000000", height=32).pack(side=tk.LEFT, padx=10)
         
-        tk.Button(btn_frame, text="取消", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                  font=("微软雅黑", 10), bd=0, padx=25, pady=6, cursor="hand2",
-                  command=on_cancel).pack(side=tk.LEFT, padx=10)
+        DarkButton(btn_frame, text="取消", command=on_cancel, bg_color=COLORS["bg_input"], text_color=COLORS["text_secondary"], height=32).pack(side=tk.LEFT, padx=10)
         
         dialog.configure(bg=COLORS["bg_dark"])
         self.wait_window(dialog)
@@ -460,22 +440,14 @@ class CodeExportFrame(tk.Frame):
                 op_frame = tk.Frame(row_frame, bg=row_frame["bg"])
                 op_frame.pack(side=tk.LEFT, padx=(10, 5), pady=4)
 
-                tk.Button(op_frame, text="复制", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                          font=("微软雅黑", 8), bd=0, padx=8, pady=2, cursor="hand2",
-                          command=lambda c=rec_code: self._copy_to_clipboard(c)).pack(side=tk.LEFT, padx=(0, 4))
+                DarkButton(op_frame, text="复制", command=lambda c=rec_code: self._copy_to_clipboard(c), bg_color=COLORS["bg_input"], text_color=COLORS["text_secondary"], height=32).pack(side=tk.LEFT, padx=(0, 4))
 
                 if rec_status == "未使用":
-                    tk.Button(op_frame, text="标记已用", bg="#FF8F00", fg="#FFFFFF",
-                              font=("微软雅黑", 8), bd=0, padx=8, pady=2, cursor="hand2",
-                              command=lambda rid=rec_id: self._mark_used(rid)).pack(side=tk.LEFT, padx=(0, 4))
+                    DarkButton(op_frame, text="标记已用", command=lambda rid=rec_id: self._mark_used(rid), bg_color="#FF8F00", text_color="#FFFFFF", height=32).pack(side=tk.LEFT, padx=(0, 4))
                 else:
-                    tk.Button(op_frame, text="标记未用", bg="#1565C0", fg="#FFFFFF",
-                              font=("微软雅黑", 8), bd=0, padx=8, pady=2, cursor="hand2",
-                              command=lambda rid=rec_id: self._mark_unused(rid)).pack(side=tk.LEFT, padx=(0, 4))
+                    DarkButton(op_frame, text="标记未用", command=lambda rid=rec_id: self._mark_unused(rid), bg_color="#1565C0", text_color="#FFFFFF", height=32).pack(side=tk.LEFT, padx=(0, 4))
 
-                tk.Button(op_frame, text="删除", bg="#C62828", fg="#FFFFFF",
-                          font=("微软雅黑", 8), bd=0, padx=8, pady=2, cursor="hand2",
-                          command=lambda rid=rec_id: self._delete_one(rid)).pack(side=tk.LEFT)
+                DarkButton(op_frame, text="删除", command=lambda rid=rec_id: self._delete_one(rid), bg_color="#C62828", text_color="#FFFFFF", height=32).pack(side=tk.LEFT)
             except Exception as e:
                 # 渲染失败时显示错误信息，不中断整个列表
                 err_frame = tk.Frame(self.scroll_frame, bg="#FFEBEE")

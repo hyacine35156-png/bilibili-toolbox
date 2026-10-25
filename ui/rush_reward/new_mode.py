@@ -517,12 +517,8 @@ class NewModeMixin:
                     self.nm_query_task_status_async(t)
                     break
 
-        tk.Button(btn_frame, text="保存", bg=COLORS["success"], fg="#ffffff",
-                  font=("微软雅黑", 10, "bold"), relief=tk.FLAT, cursor="hand2",
-                  command=save_edit).pack(side=tk.RIGHT, padx=5, ipadx=20, ipady=4)
-        tk.Button(btn_frame, text="取消", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                  font=("微软雅黑", 10), relief=tk.FLAT, cursor="hand2",
-                  command=edit_win.destroy).pack(side=tk.RIGHT, padx=5, ipadx=20, ipady=4)
+        DarkButton(btn_frame, text="保存", command=save_edit, bg_color=COLORS["success"], text_color="#ffffff", height=32).pack(side=tk.RIGHT, padx=5, ipadx=20, ipady=4)
+        DarkButton(btn_frame, text="取消", command=edit_win.destroy, bg_color=COLORS["bg_input"], text_color=COLORS["text_primary"], height=32).pack(side=tk.RIGHT, padx=5, ipadx=20, ipady=4)
 
     def nm_remove_task(self, task_id):
         """从组中删除任务，删除后重新按1,2,3...分配优先级"""

@@ -743,8 +743,7 @@ class WatchLiveFrame(tk.Frame):
         combo.pack(side=tk.LEFT)
         combo.set("")
         # P2-G: 所有栏都创建删除按钮，避免删除第一栏后新第一栏无按钮
-        del_btn = tk.Button(bar, text="✕", bg=COLORS["danger"], fg="#ffffff", font=("微软雅黑", 8),
-                            bd=0, padx=4, pady=1, cursor="hand2", command=lambda b=bar: self._remove_watch_room_bar(b))
+        del_btn = DarkButton(bar, text="✕", command=lambda b=bar: self._remove_watch_room_bar(b), bg_color=COLORS["danger"], text_color="#ffffff", height=32)
         del_btn.pack(side=tk.LEFT, padx=(4, 0))
         # 只有一个栏时禁用删除按钮
         if len(self.watch_room_bars) == 0:
@@ -843,9 +842,9 @@ class WatchLiveFrame(tk.Frame):
         # 全选/取消全选按钮
         btn_frame = tk.Frame(left_card, bg=COLORS["bg_card"])
         btn_frame.pack(fill=tk.X, padx=12, pady=(0, 4))
-        self.select_all_btn = tk.Button(btn_frame, text="全选", bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 8), bd=0, padx=8, pady=2, cursor="hand2", command=self._select_all_accounts)
+        self.select_all_btn = DarkButton(btn_frame, text="全选", command=self._select_all_accounts, bg_color=COLORS["bg_input"], text_color=COLORS["text_secondary"], height=32)
         self.select_all_btn.pack(side=tk.LEFT, padx=(0, 4))
-        self.deselect_all_btn = tk.Button(btn_frame, text="取消全选", bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 8), bd=0, padx=8, pady=2, cursor="hand2", command=self._deselect_all_accounts)
+        self.deselect_all_btn = DarkButton(btn_frame, text="取消全选", command=self._deselect_all_accounts, bg_color=COLORS["bg_input"], text_color=COLORS["text_secondary"], height=32)
         self.deselect_all_btn.pack(side=tk.LEFT)
         # 复选框区域（无滚动条，账户数量少直接显示）
         list_frame = tk.Frame(left_card, bg=COLORS["bg_input"])
@@ -872,12 +871,10 @@ class WatchLiveFrame(tk.Frame):
         self.watch_room_container.pack(side=tk.LEFT, padx=(8, 0))
         self._add_watch_room_bar()
         # 添加直播间栏按钮
-        self.add_room_bar_btn = tk.Button(row1, text="+ 添加", bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 9),
-                                           bd=0, padx=8, pady=2, cursor="hand2", command=self._add_watch_room_bar)
+        self.add_room_bar_btn = DarkButton(row1, text="+ 添加", command=self._add_watch_room_bar, bg_color=COLORS["accent"], text_color="#000000", height=32)
         self.add_room_bar_btn.pack(side=tk.LEFT, padx=(8, 4))
         # 刷新直播间下拉框按钮
-        self.refresh_room_btn = tk.Button(row1, text="↻ 刷新", bg=COLORS["bg_input"], fg=COLORS["text_primary"], font=("微软雅黑", 9),
-                                           bd=0, padx=8, pady=2, cursor="hand2", command=self._refresh_room_combo_values)
+        self.refresh_room_btn = DarkButton(row1, text="↻ 刷新", command=self._refresh_room_combo_values, bg_color=COLORS["bg_input"], text_color=COLORS["text_primary"], height=32)
         self.refresh_room_btn.pack(side=tk.LEFT, padx=(0, 20))
         tk.Label(row1, text="每日时长(分):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
         self.duration_var = tk.IntVar(value=30)
@@ -913,7 +910,7 @@ class WatchLiveFrame(tk.Frame):
         self.gift_account_combo.pack(side=tk.LEFT, padx=(8, 10))
         self.gift_account_combo.bind("<<ComboboxSelected>>", lambda e: self.save_gift_config())
         # 查询电池按钮
-        self.gift_query_battery_btn = tk.Button(gift_acc_row, text="查询电池", bg=COLORS["accent"], fg="white", font=("微软雅黑", 10), bd=0, padx=12, pady=3, cursor="hand2", command=self._query_gift_battery)
+        self.gift_query_battery_btn = DarkButton(gift_acc_row, text="查询电池", command=self._query_gift_battery, bg_color=COLORS["accent"], text_color="white", height=32)
         self.gift_query_battery_btn.pack(side=tk.LEFT, padx=(0, 10))
         self.gift_battery_label = tk.Label(gift_acc_row, text="", bg=COLORS["bg_card"], fg=COLORS["accent"], font=("微软雅黑", 10, "bold"))
         self.gift_battery_label.pack(side=tk.LEFT)
