@@ -36,6 +36,8 @@ CONFIG_FILE = BASE_DIR / "config.json"
 ACT_ID_CACHE_FILE = BASE_DIR / "act_id_cache.json"
 # 手动添加的抢码任务（task_id / 活动网址解析结果）
 MANUAL_TASKS_FILE = BASE_DIR / "manual_tasks.json"
+# 用户主动删除的官方任务 task_id 集合（持久化，更新代码后不会自动复活）
+HIDDEN_TASKS_FILE = BASE_DIR / "hidden_tasks.json"
 LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 

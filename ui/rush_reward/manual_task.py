@@ -18,7 +18,8 @@ from tkinter import ttk
 
 from config import COLORS
 from tasks_config import (ALL_TASKS, MANUAL_TASKS, MANUAL_VERSION, MANUAL_PERIOD,
-                          MANUAL_TYPE, add_manual_task, remove_manual_task)
+                          MANUAL_TYPE, OFFICIAL_TASKS, HIDDEN_TASK_IDS,
+                          add_manual_task, remove_manual_task, hide_official_task)
 from bili_api import cookies_from_account, get_mission_info
 
 # task_id=xxx / &task_id=xxx / "task_id": "xxx" / task_id:xxx 均能匹配
@@ -324,9 +325,19 @@ class ManualTaskMixin:
         # ---- 按钮 ----
         btn_row = tk.Frame(body, bg=COLORS["bg_dark"])
         btn_row.pack(fill=tk.X, padx=10, pady=(0, 6))
-        add_btn = tk.Button(btn_row, text="🔍 解析并添加", bg=COLORS["accent"], fg="#000000",
+        add_btn = tk.Button(btn_row, text="🔍 解析（预览）", bg=COLORS["accent"], fg="#000000",
                             font=font_btn, relief=tk.FLAT, cursor="hand2")
         add_btn.pack(side=tk.LEFT, ipadx=14, ipady=4)
+
+        # 保存按钮：解析只入预览区，点这里才真正写盘
+        save_btn = tk.Button(btn_row, text="💾 保存到任务库", bg=COLORS["success"], fg="#000000",
+                             font=font_btn, relief=tk.FLAT, cursor="hand2", state=tk.DISABLED)
+        save_btn.pack(side=tk.LEFT, padx=(8, 0), ipadx=14, ipady=4)
+
+        discard_btn = tk.Button(btn_row, text="✕ 放弃预览", bg="#7f8c8d", fg="#ffffff",
+                                font=font_btn, relief=tk.FLAT, cursor="hand2", state=tk.DISABLED)
+        discard_btn.pack(side=tk.LEFT, padx=(8, 0), ipadx=10, ipady=4)
+
         clear_btn = tk.Button(btn_row, text="清空输入", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
                               font=font_btn, relief=tk.FLAT, cursor="hand2",
                               command=lambda: input_text.delete("1.0", tk.END))
@@ -338,8 +349,13 @@ class ManualTaskMixin:
         # ---- ③ 结果 ----
         card3 = tk.Frame(body, bg=COLORS["bg_card"])
         card3.pack(fill=tk.X, padx=10, pady=(0, 6))
-        tk.Label(card3, text="③ 解析结果", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=12, pady=(8, 4))
+        title_row = tk.Frame(card3, bg=COLORS["bg_card"])
+        title_row.pack(fill=tk.X, padx=12, pady=(8, 4))
+        tk.Label(title_row, text="③ 解析预览（尚未保存）", bg=COLORS["bg_card"], fg=COLORS["accent"],
+                 font=("微软雅黑", 11, "bold")).pack(side=tk.LEFT)
+        preview_count = tk.Label(title_row, text="", bg=COLORS["bg_card"], fg=COLORS["warning"],
+                                 font=("微软雅黑", 9))
+        preview_count.pack(side=tk.LEFT, padx=(10, 0))
         result_text = tk.Text(card3, height=5, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
                               relief=tk.FLAT, font=("Consolas", 9), state=tk.DISABLED, wrap=tk.WORD)
         result_text.pack(fill=tk.X, padx=12, pady=(0, 10))
@@ -393,6 +409,7 @@ class ManualTaskMixin:
                 if remove_manual_task(tid):
                     append_result(f"🗑 已删除手动任务 {tid}")
             refresh_manual_list()
+            refresh_official_list()
             self.mt_refresh_task_combos()
             self._mt_after_change()
 
@@ -404,8 +421,109 @@ class ManualTaskMixin:
                   command=lambda: (refresh_manual_list(), self.mt_refresh_task_combos())
                   ).pack(side=tk.LEFT, padx=(8, 0), ipadx=10, ipady=3)
 
-        # ---- 解析逻辑 ----
-        def do_add():
+        # ---- ⑤ 官方任务管理（删除后永久生效）----
+        card5 = tk.Frame(body, bg=COLORS["bg_card"])
+        card5.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        tk.Label(card5, text="⑤ 官方任务管理（删除后永久生效，更新不复活）",
+                 bg=COLORS["bg_card"], fg=COLORS["accent"],
+                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=12, pady=(8, 2))
+        tk.Label(card5, text="选中后点「删除官方任务」，会记入 data/hidden_tasks.json，之后启动不再出现",
+                 bg=COLORS["bg_card"], fg=COLORS["text_muted"], font=("微软雅黑", 9)
+                 ).pack(anchor=tk.W, padx=12, pady=(0, 4))
+
+        official_frame = tk.Frame(card5, bg=COLORS["bg_card"], height=120)
+        official_frame.pack(fill=tk.BOTH, expand=True, padx=12)
+        obar = tk.Scrollbar(official_frame, orient=tk.VERTICAL)
+        official_list = tk.Listbox(official_frame, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                                   relief=tk.FLAT, font=("Consolas", 9), height=5,
+                                   selectmode=tk.EXTENDED, yscrollcommand=obar.set,
+                                   selectbackground=COLORS["accent"], selectforeground="#000000")
+        obar.config(command=official_list.yview)
+        obar.pack(side=tk.RIGHT, fill=tk.Y)
+        official_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        official_row = tk.Frame(card5, bg=COLORS["bg_card"])
+        official_row.pack(fill=tk.X, padx=12, pady=(6, 10))
+
+        official_shown = []
+
+        def refresh_official_list():
+            official_shown.clear()
+            try:
+                official_list.delete(0, tk.END)
+            except Exception:
+                return
+            manual_ids = {t.get("task_id") for t in MANUAL_TASKS}
+            for t in OFFICIAL_TASKS:
+                if t.get("task_id") in HIDDEN_TASK_IDS or t.get("task_id") in manual_ids:
+                    continue
+                official_shown.append(t)
+                official_list.insert(
+                    tk.END,
+                    f'{t.get("version","")}/{t.get("period","")}/{t.get("type","")}  |  '
+                    f'{t.get("name","")}  |  {t.get("task_id","")}')
+
+        def delete_official_selected():
+            sel = list(official_list.curselection())
+            if not sel:
+                append_result("✗ 请先在⑤列表里选中要删除的官方任务")
+                return
+            targets = [official_shown[i] for i in sel if i < len(official_shown)]
+            if not targets:
+                return
+            names = "、".join(t.get("name", "") for t in targets[:3])
+            more = f" 等 {len(targets)} 个" if len(targets) > 3 else ""
+            if not tk.messagebox.askyesno(
+                    "删除官方任务",
+                    f"确定删除以下官方任务吗？\n\n{names}{more}\n\n"
+                    f"删除后会记入 hidden_tasks.json，之后启动和更新都不会再出现。",
+                    parent=dlg):
+                return
+            for t in targets:
+                if hide_official_task(t["task_id"]):
+                    append_result(f"🗑 已永久删除官方任务 {t['task_id']} {t.get('name','')}")
+            refresh_official_list()
+            self.mt_refresh_task_combos()
+            self._mt_after_change()
+
+        tk.Button(official_row, text="🗑 删除官方任务", bg="#c0392b", fg="#ffffff", font=font_btn,
+                  relief=tk.FLAT, cursor="hand2", command=delete_official_selected
+                  ).pack(side=tk.LEFT, ipadx=10, ipady=3)
+        tk.Button(official_row, text="刷新列表", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                  font=font_btn, relief=tk.FLAT, cursor="hand2",
+                  command=lambda: (refresh_official_list(), refresh_manual_list())
+                  ).pack(side=tk.LEFT, padx=(8, 0), ipadx=10, ipady=3)
+
+        # ---- 解析 / 保存 / 放弃 ----
+        # pending：本轮解析出的待保存任务。解析只进这里，点保存才落盘。
+        pending = []
+
+        def _update_pending_ui():
+            n = len(pending)
+            if n:
+                preview_count.config(text=f"待保存 {n} 条", fg=COLORS["warning"])
+                save_btn.config(state=tk.NORMAL, text=f"💾 保存到任务库（{n}）")
+                discard_btn.config(state=tk.NORMAL)
+            else:
+                preview_count.config(text="", fg=COLORS["text_muted"])
+                save_btn.config(state=tk.DISABLED, text="💾 保存到任务库")
+                discard_btn.config(state=tk.DISABLED)
+
+        def _clear_preview():
+            pending.clear()
+            result_text.configure(state=tk.NORMAL)
+            result_text.delete("1.0", tk.END)
+            result_text.configure(state=tk.DISABLED)
+            _update_pending_ui()
+
+        def do_parse():
+            if pending:
+                if not tk.messagebox.askyesno(
+                        "已有未保存的预览",
+                        f"当前还有 {len(pending)} 条预览未保存，重新解析会丢弃它们。\n\n确定继续吗？",
+                        parent=dlg):
+                    return
+            _clear_preview()
+
             ids = parse_task_ids(input_text.get("1.0", tk.END))
             if not ids:
                 append_result("✗ 没有识别到 task_id，请检查输入")
@@ -421,7 +539,8 @@ class ManualTaskMixin:
             force = bool(force_var.get())
 
             add_btn.config(state=tk.DISABLED, text="解析中...")
-            append_result(f"===== 开始解析 {len(ids)} 个 task_id | 归类 {cls_version}/{cls_period}/{cls_type} | 账户 {account_name} =====")
+            append_result(f"===== 开始解析 {len(ids)} 个 task_id | 活动任务组 {cls_version}/{cls_period}/{cls_type} =====")
+            append_result("      解析完成后请点「保存到任务库」正式生效")
 
             def worker():
                 cookies = {}
@@ -432,7 +551,7 @@ class ManualTaskMixin:
                 except Exception as exc:
                     self.after(0, lambda: append_result(f"✗ 读取账户 Cookie 失败: {exc}"))
 
-                ok_count = 0
+                parsed_ok = 0
                 for i, tid in enumerate(ids, 1):
                     head = f"[{i}/{len(ids)}] {tid} "
                     try:
@@ -440,47 +559,94 @@ class ManualTaskMixin:
                     except Exception as exc:
                         info, msg = None, f"网络异常: {exc}"
 
-                    added = False
                     meta = None
                     if info:
                         meta = extract_task_meta(info, tid, act_id_fallback)
                         meta.update({"version": cls_version, "period": cls_period, "type": cls_type})
-                        added, add_msg = add_manual_task(meta)
-                        if added:
+                        # 只做「能否保存」的预检，不落盘
+                        dup = (any(t.get("task_id") == tid for t in MANUAL_TASKS)
+                               or any(t.get("task_id") == tid for t in ALL_TASKS))
+                        dup_in_pending = any(t.get("task_id") == tid for t in pending)
+                        if dup or dup_in_pending:
+                            line = f"{head}⚠ 该 task_id 已存在，已跳过（不加入预览）"
+                        else:
+                            pending.append(meta)
+                            parsed_ok += 1
                             line = (f"{head}✓ {meta['name']} | 奖励:{meta['award'] or '-'} | "
                                     f"act_id:{meta['act_id'] or '-'} | act:{meta['act_name'] or '-'}")
-                        else:
-                            line = f"{head}⚠ {add_msg}"
                     elif force:
                         meta = {"task_id": tid, "name": tid, "award": "", "act_id": act_id_fallback,
                                 "act_name": "", "version": cls_version,
                                 "period": cls_period, "type": cls_type}
-                        added, add_msg = add_manual_task(meta)
-                        line = (f"{head}⚠ 查询失败({msg})，已强制添加" if added else f"{head}⚠ {add_msg}")
+                        if any(t.get("task_id") == tid for t in pending):
+                            line = f"{head}⚠ 预览中已存在，跳过"
+                        else:
+                            pending.append(meta)
+                            parsed_ok += 1
+                            line = f"{head}⚠ 查询失败({msg})，已放入预览（强制添加）"
                     else:
                         line = f"{head}✗ 查询失败: {msg}（可勾选「查询失败也强制添加」）"
 
-                    if added:
-                        ok_count += 1
                     self.after(0, lambda l=line: append_result(l))
                     if i < len(ids):
                         time.sleep(0.6)
 
                 def done():
-                    add_btn.config(state=tk.NORMAL, text="🔍 解析并添加")
-                    refresh_manual_list()
-                    self.mt_refresh_task_combos()
-                    self._mt_after_change()
-                    append_result(f"===== 完成：成功 {ok_count}/{len(ids)} =====")
+                    add_btn.config(state=tk.NORMAL, text="🔍 解析（预览）")
+                    _update_pending_ui()
+                    append_result(f"===== 解析完成：{parsed_ok}/{len(ids)} 条待保存 =====")
+                    if parsed_ok:
+                        append_result("      ↑ 确认无误后点「保存到任务库」才会真正写入")
                 self.after(0, done)
 
             threading.Thread(target=worker, daemon=True).start()
 
-        add_btn.config(command=do_add)
+        def do_save():
+            if not pending:
+                append_result("✗ 没有待保存的任务，请先解析")
+                return
+            save_btn.config(state=tk.DISABLED, text="保存中...")
+            saved, failed = 0, []
+            for meta in list(pending):
+                ok, msg = add_manual_task(meta)
+                if ok:
+                    saved += 1
+                else:
+                    failed.append(f"{meta.get('task_id')}: {msg}")
+
+            pending.clear()
+            result_text.configure(state=tk.NORMAL)
+            result_text.delete("1.0", tk.END)
+            result_text.configure(state=tk.DISABLED)
+
+            if saved:
+                append_result(f"✓ 已保存 {saved} 条到任务库")
+            for f in failed:
+                append_result(f"⚠ 保存失败 {f}")
+
+            save_btn.config(text="💾 保存到任务库")
+            _update_pending_ui()
+            refresh_manual_list()
+            refresh_official_list()
+            self.mt_refresh_task_combos()
+            self._mt_after_change()
+
+        def do_discard():
+            n = len(pending)
+            if not n:
+                return
+            if tk.messagebox.askyesno("放弃预览", f"确定放弃这 {n} 条未保存的预览吗？", parent=dlg):
+                _clear_preview()
+                append_result(f"已放弃 {n} 条预览（未写入任务库）")
+
+        add_btn.config(command=do_parse)
+        save_btn.config(command=do_save)
+        discard_btn.config(command=do_discard)
         close_btn.config(command=lambda: (canvas.unbind_all("<MouseWheel>"), dlg.destroy()))
         dlg.protocol("WM_DELETE_WINDOW", lambda: (canvas.unbind_all("<MouseWheel>"), dlg.destroy()))
 
         refresh_manual_list()
+        refresh_official_list()
         append_result("提示：选「活动任务组」= 鸣潮3.7，该任务就会并进鸣潮3.7 这组活动任务里；")
         append_result("      下拉框里可直接输入新版本名（如 鸣潮3.8）自动新建一个活动任务组。")
 

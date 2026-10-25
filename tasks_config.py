@@ -4,7 +4,7 @@
 import json
 import time
 
-from config import ACT_ID_CACHE_FILE, MANUAL_TASKS_FILE
+from config import ACT_ID_CACHE_FILE, MANUAL_TASKS_FILE, HIDDEN_TASKS_FILE
 from storage import atomic_write_json, safe_load_json
 
 # 活动任务列表（按版本+期数+类型分类）
@@ -146,6 +146,11 @@ ALL_TASKS = [
     {"version": "绝区零3.3", "period": "全版本", "type": "直播里程碑", "name": "累计35天完成开播及互动任务", "task_id": "18ERA1wloghvc3e00", "award": "菲林*1000"},
 ]
 
+# 官方任务完整快照（不可变基准）
+# ALL_TASKS 会被「删除任务」「手动任务」等操作修改，重建时必须基于这份原始快照，
+# 否则用户删掉的任务一旦从 ALL_TASKS 移除就再也恢复不了。
+OFFICIAL_TASKS = [dict(t) for t in ALL_TASKS]
+
 # 兼容旧代码
 MINGCHAO_TASKS = [t for t in ALL_TASKS if t["version"] == "鸣潮3.7"]
 
@@ -283,18 +288,68 @@ def save_act_id_cache():
 load_act_id_cache()
 
 
-# ========== 启动时把手动任务并入 ALL_TASKS ==========
-# 放在文件末尾执行：此时 load_manual_tasks / MANUAL_TASKS 均已定义。
-# 手动任务可以归入已有版本（如 鸣潮3.7），也可以落在「手动任务」版本；
-# 两种情况下都会并入 ALL_TASKS，因此两套界面的动态下拉框都能自动出现。
-load_manual_tasks()
-for _mt in MANUAL_TASKS:
-    if not any(t.get("task_id") == _mt["task_id"] for t in ALL_TASKS):
-        ALL_TASKS.append(_mt)
+# ========== 已删除官方任务的持久化 ==========
+# 用户主动删除的官方任务，task_id 记录在此，重启/更新代码后不会自动复活。
+HIDDEN_TASK_IDS = set()
+
+
+def load_hidden_tasks():
+    """从 data/hidden_tasks.json 载入被删除的官方 task_id 集合。"""
+    global HIDDEN_TASK_IDS
+    data = safe_load_json(HIDDEN_TASKS_FILE, [])
+    if not isinstance(data, list):
+        data = []
+    HIDDEN_TASK_IDS = {str(x) for x in data if x}
+    return HIDDEN_TASK_IDS
+
+
+def save_hidden_tasks():
+    """写回 data/hidden_tasks.json（原子写）。"""
+    try:
+        atomic_write_json(HIDDEN_TASKS_FILE, sorted(HIDDEN_TASK_IDS))
+        return True
+    except Exception as e:
+        print(f"保存已删除任务列表失败: {e}")
+        return False
+
+
+def hide_official_task(task_id):
+    """记住"这个官方任务被用户删除了"，之后启动不再显示。"""
+    task_id = str(task_id or "").strip()
+    if not task_id:
+        return False
+    HIDDEN_TASK_IDS.add(task_id)
+    save_hidden_tasks()
+    ALL_TASKS[:] = [t for t in ALL_TASKS if t.get("task_id") != task_id]
+    return True
+
+
+def unhide_official_task(task_id):
+    """恢复一个之前被删除的官方任务（需调用 rebuild_all_tasks 生效）。"""
+    task_id = str(task_id or "").strip()
+    if task_id in HIDDEN_TASK_IDS:
+        HIDDEN_TASK_IDS.discard(task_id)
+        save_hidden_tasks()
+        return True
+    return False
 
 
 def rebuild_all_tasks():
-    """按「官方任务 + 手动任务」重建 ALL_TASKS（保持原对象引用不变）。"""
-    _official = [t for t in ALL_TASKS if t.get("task_id") not in {m.get("task_id") for m in MANUAL_TASKS}]
+    """按「官方任务快照(排除已删除) + 手动任务」重建 ALL_TASKS（保持原对象引用不变）。
+
+    必须基于 OFFICIAL_TASKS 快照，而不是当前 ALL_TASKS：
+    否则被删除的任务一旦移除就无法通过 unhide 恢复。
+    """
+    _manual_ids = {m.get("task_id") for m in MANUAL_TASKS}
+    _official = [t for t in OFFICIAL_TASKS
+                 if t.get("task_id") not in _manual_ids
+                 and t.get("task_id") not in HIDDEN_TASK_IDS]
     ALL_TASKS[:] = _official + list(MANUAL_TASKS)
     return ALL_TASKS
+
+
+# ========== 启动时加载并应用 ==========
+# 顺序：先载入手动任务和已删除集合，再统一重建，保证过滤生效。
+load_manual_tasks()
+load_hidden_tasks()
+rebuild_all_tasks()
