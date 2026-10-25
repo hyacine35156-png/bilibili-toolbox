@@ -17,6 +17,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from config import COLORS
+from ui.theme import sz, font as theme_font
 from tasks_config import (ALL_TASKS, MANUAL_TASKS, MANUAL_VERSION, MANUAL_PERIOD,
                           MANUAL_TYPE, OFFICIAL_TASKS, HIDDEN_TASK_IDS,
                           add_manual_task, remove_manual_task, hide_official_task)
@@ -173,9 +174,10 @@ class ManualTaskMixin:
         except Exception:
             pass
 
-        font_lbl = ("微软雅黑", 10)
-        font_btn = ("微软雅黑", 10, "bold")
-        font_input = ("微软雅黑", 10)
+        # O7: 字号统一走 theme，按 DPI 缩放
+        font_lbl = theme_font(10)
+        font_btn = theme_font(10, bold=True)
+        font_input = theme_font(10)
 
         # ===== 可滚动容器：保证任何 DPI 下都不会"显示不完全" =====
         # 关键：滚动条必须用 place 绝对定位，不能用 pack。
@@ -200,14 +202,14 @@ class ManualTaskMixin:
                 if cw <= 1 or ch <= 1:
                     return
                 vbar.place(in_=canvas, relx=1.0, rely=0, anchor="ne",
-                           y=0, width=16, height=ch)
+                           y=0, width=sz(16), height=ch)
             except Exception:
                 pass
 
         def _sync_body_width(event):
             """body 宽度扣除滚动条占位，避免文字被滚动条盖住。"""
             try:
-                reserve = 16 if vbar_visible["on"] else 0
+                reserve = sz(16) if vbar_visible["on"] else 0
                 canvas.itemconfigure(body_id, width=max(1, event.width - reserve))
                 _place_vbar()
             except Exception:
@@ -689,17 +691,16 @@ class ManualTaskMixin:
         max_w = int(screen_w * 0.92)
         max_h = int(screen_h * 0.86)
 
-        # 内容宽度 + 左右内边距(20) + 竖向滚动条(18)
-        need_w = max(content_w + 40, 780)
-        # 内容高度 + 上下内边距(16)
-        need_h = max(content_h + 16, 520)
+        # O7: 边距/最小尺寸统一走 sz()，高 DPI 下自动放大
+        need_w = max(content_w + sz(40), sz(780))
+        need_h = max(content_h + sz(16), sz(520))
 
         w = min(need_w, max_w)
         h = min(need_h, max_h)
         x = max(0, (screen_w - w) // 2)
         y = max(0, (screen_h - h) // 2)
         dlg.geometry(f"{w}x{h}+{x}+{y}")
-        dlg.minsize(min(700, w), min(420, h))
+        dlg.minsize(min(sz(700), w), min(sz(420), h))
 
         # 滚动条按需显示：只在"需要/不需要"真正切换时才动，避免抖动
         def _sync_scrollbar(event=None):
@@ -711,7 +712,7 @@ class ManualTaskMixin:
                 vis = canvas.winfo_height()
                 if vis <= 1:
                     return
-                should_show = need > vis + 2
+                should_show = need > vis + sz(2)
                 if should_show == vbar_visible["on"]:
                     return  # 状态未变，绝不重复布局
                 vbar_visible["on"] = should_show
@@ -721,7 +722,7 @@ class ManualTaskMixin:
                     vbar.place_forget()
                     canvas.yview_moveto(0)
                 # 宽度补偿：滚动条出现/消失后重新设置 body 宽度
-                reserve = 16 if should_show else 0
+                reserve = sz(16) if should_show else 0
                 canvas.itemconfigure(body_id, width=max(1, canvas.winfo_width() - reserve))
             except Exception:
                 pass

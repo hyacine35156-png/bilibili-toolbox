@@ -38,6 +38,8 @@ ACT_ID_CACHE_FILE = BASE_DIR / "act_id_cache.json"
 MANUAL_TASKS_FILE = BASE_DIR / "manual_tasks.json"
 # 用户主动删除的官方任务 task_id 集合（持久化，更新代码后不会自动复活）
 HIDDEN_TASKS_FILE = BASE_DIR / "hidden_tasks.json"
+# 官方任务表（O9：外置 JSON，更新活动无需改代码重打包）
+TASKS_FILE = BASE_DIR / "tasks_official.json"
 LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 

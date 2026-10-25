@@ -4,7 +4,7 @@
 import json
 import time
 
-from config import ACT_ID_CACHE_FILE, MANUAL_TASKS_FILE, HIDDEN_TASKS_FILE
+from config import ACT_ID_CACHE_FILE, MANUAL_TASKS_FILE, HIDDEN_TASKS_FILE, TASKS_FILE
 from storage import atomic_write_json, safe_load_json
 
 # 活动任务列表（按版本+期数+类型分类）
@@ -146,10 +146,65 @@ ALL_TASKS = [
     {"version": "绝区零3.3", "period": "全版本", "type": "直播里程碑", "name": "累计35天完成开播及互动任务", "task_id": "18ERA1wloghvc3e00", "award": "菲林*1000"},
 ]
 
+# ========== O9：任务表外置 ==========
+# 优先从 data/tasks_official.json 加载官方任务表；文件不存在或损坏时回退到
+# 代码内置的 ALL_TASKS。这样更新游戏活动只需替换 JSON，不必重新打包 exe。
+
+def load_official_tasks():
+    """从 data/tasks_official.json 加载官方任务表。
+
+    返回 (tasks, versions, source)：
+      source = "json" / "builtin" / "json_fallback_builtin"
+    """
+    global ALL_TASKS, VERSION_DEFAULT_ACT_ID
+    try:
+        data = safe_load_json(TASKS_FILE, None)
+        if not data or not isinstance(data, dict):
+            return None, None, "builtin"
+
+        tasks = data.get("tasks")
+        versions = data.get("versions")
+        if not isinstance(tasks, list) or not tasks:
+            return None, None, "builtin"
+
+        # 校验每条任务的必需字段
+        cleaned = []
+        for t in tasks:
+            if not isinstance(t, dict):
+                continue
+            if not t.get("task_id"):
+                continue
+            cleaned.append({
+                "version": str(t.get("version") or ""),
+                "period": str(t.get("period") or ""),
+                "type": str(t.get("type") or ""),
+                "name": str(t.get("name") or t["task_id"]),
+                "task_id": str(t["task_id"]),
+                "award": str(t.get("award") or ""),
+            })
+        if not cleaned:
+            return None, None, "builtin"
+
+        if not isinstance(versions, dict) or not versions:
+            versions = None
+
+        ALL_TASKS[:] = cleaned
+        if versions:
+            VERSION_DEFAULT_ACT_ID.clear() if isinstance(VERSION_DEFAULT_ACT_ID, dict) else None
+            for k, v in versions.items():
+                VERSION_DEFAULT_ACT_ID[k] = v
+        return cleaned, versions, "json"
+    except Exception as e:
+        print(f"加载外置任务表失败，回退内置: {e}")
+        return None, None, "json_fallback_builtin"
+
+
+TASKS_SOURCE = "builtin"
+
 # 官方任务完整快照（不可变基准）
 # ALL_TASKS 会被「删除任务」「手动任务」等操作修改，重建时必须基于这份原始快照，
 # 否则用户删掉的任务一旦从 ALL_TASKS 移除就再也恢复不了。
-OFFICIAL_TASKS = [dict(t) for t in ALL_TASKS]
+OFFICIAL_TASKS = []
 
 # 兼容旧代码
 MINGCHAO_TASKS = [t for t in ALL_TASKS if t["version"] == "鸣潮3.7"]
@@ -349,7 +404,16 @@ def rebuild_all_tasks():
 
 
 # ========== 启动时加载并应用 ==========
-# 顺序：先载入手动任务和已删除集合，再统一重建，保证过滤生效。
+# 顺序很重要：
+#   1) 载入官方任务（优先 JSON，回退内置）
+#   2) 用加载结果填充 OFFICIAL_TASKS 不可变快照
+#   3) 载入手动任务 / 已删除集合
+#   4) 统一 rebuild
+_tasks_from_json, _versions_from_json, TASKS_SOURCE = load_official_tasks()
+
+# 无论来自 JSON 还是内置，都要建立快照（快照是 rebuild 的唯一基准）
+OFFICIAL_TASKS[:] = [dict(t) for t in ALL_TASKS]
+
 load_manual_tasks()
 load_hidden_tasks()
 rebuild_all_tasks()
