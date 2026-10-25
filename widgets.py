@@ -7,6 +7,323 @@ import ctypes as _ctypes
 
 from config import COLORS
 
+# ========== 圆角绘制工具 ==========
+def draw_round_rect(canvas, x1, y1, x2, y2, r, **kwargs):
+    """在 Canvas 上绘制平滑圆角矩形（用于统一圆角风格）。"""
+    r = max(0, min(r, (x2 - x1) // 2, (y2 - y1) // 2))
+    points = [
+        x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r,
+        x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2,
+        x1, y2, x1, y2 - r, x1, y1 + r, x1, y1,
+    ]
+    return canvas.create_polygon(points, smooth=True, **kwargs)
+
+
+# ========== 圆角卡片容器 ==========
+class RoundCard(tk.Frame):
+    """圆角卡片：Canvas 绘制圆角底板 + 内嵌 body Frame 放内容。
+
+    用法与原 tk.Frame 一致，但内容要放进 .body：
+        card = RoundCard(parent)
+        card.pack(fill=tk.X)
+        tk.Label(card.body, text="...").pack()
+
+    设计说明：
+    - 外层 Frame 背景取父容器背景，保证圆角外缘与父容器无缝衔接
+    - Canvas 铺满外层，绘制 smooth polygon 圆角矩形（Tk 支持的唯一圆角方式）
+    - body 通过 create_window 嵌入，尺寸随卡片自适应
+    """
+
+    def __init__(self, parent, radius=8, bg=COLORS["bg_card"],
+                 border=COLORS["border"], outer_bg=None, pad=0, **kwargs):
+        self._radius = radius
+        self._card_bg = bg
+        self._border = border
+        self._pad = pad
+        self._outer_bg = outer_bg or _pick_bg(parent)
+
+        super().__init__(parent, bg=self._outer_bg, **kwargs)
+        self._cv = tk.Canvas(self, bg=self._outer_bg, highlightthickness=0, bd=0)
+        self._cv.place(x=0, y=0, relwidth=1, relheight=1)
+
+        self.body = tk.Frame(self._cv, bg=self._card_bg)
+        self._win = self._cv.create_window(pad, pad, window=self.body, anchor="nw")
+
+        self._cv.bind("<Configure>", self._redraw)
+        # 关键：body 通过 create_window 嵌入 Canvas，Canvas 不会自动按内容撑高，
+        # 必须监听 body 尺寸变化并同步卡片高度，否则卡片会塌成 1px。
+        self.body.bind("<Configure>", self._on_body_configure)
+        self.after(20, self._redraw)
+
+    def _on_body_configure(self, event=None):
+        """body 内容尺寸变化时，同步卡片自身高度。"""
+        try:
+            need_h = self.body.winfo_reqheight() + self._pad * 2
+            if need_h > 1 and abs(self.winfo_height() - need_h) > 1:
+                # 只在高度确实需要变化时调整，避免无限循环
+                self.configure(height=need_h)
+                self._cv.configure(height=need_h)
+        except Exception:
+            pass
+
+    def _redraw(self, event=None):
+        try:
+            w = self._cv.winfo_width()
+            h = self._cv.winfo_height()
+            if w <= 2 or h <= 2:
+                return
+            self._cv.delete("card")
+            draw_round_rect(self._cv, 1, 1, w - 1, h - 1, self._radius,
+                            fill=self._card_bg, outline=self._border,
+                            width=1, tags="card")
+            self._cv.tag_lower("card")
+            self._cv.itemconfigure(self._win,
+                                   width=max(1, w - self._pad * 2),
+                                   height=max(1, h - self._pad * 2))
+        except Exception:
+            pass
+
+    def set_radius(self, r):
+        self._radius = r
+        self._redraw()
+
+
+# ========== 圆角下拉框（保留 ttk.Combobox 全部 API）==========
+class RoundCombobox(tk.Frame):
+    """圆角下拉框：Canvas 画圆角外框 + 内嵌 ttk.Combobox。
+
+    设计要点：
+    - 内部 combo 通过 self.combo 访问，但本类**代理转发**了常用 API
+      (config / get / set / current / bind / cget)，因此可原样替换
+      ttk.Combobox，不会破坏现有代码。
+    - 圆角半径按高度自适应，避免小尺寸时变形。
+    """
+
+    def __init__(self, parent, radius=8, bg=None, **kwargs):
+        self._outer_bg = bg or _pick_bg(parent)
+        # 高度：默认 28（ttk 的 height 是下拉列表行数，不能拿来当控件高度）
+        self._h = int(kwargs.pop("_height", 28))
+        # 宽度：用 combo 的 width(字符数) 估算像素宽，否则父容器会塌成 1px
+        char_w = int(kwargs.get("width", 20) or 20)
+        self._font_obj = kwargs.get("font")
+        self._w = max(80, char_w * 9 + 40)
+
+        super().__init__(parent, bg=self._outer_bg,
+                         height=self._h, width=self._w)
+        # 关键：pack_propagate(False) 让 Frame 保持显式尺寸，
+        # 否则内部用 place 布局会让 Frame 塌缩到 1px。
+        self.pack_propagate(False)
+        self.grid_propagate(False)
+
+        self._radius = radius
+        self._canvas = tk.Canvas(self, bg=self._outer_bg, highlightthickness=0, bd=0)
+        self._canvas.place(x=0, y=0, relwidth=1, relheight=1)
+
+        self.combo = ttk.Combobox(self, **kwargs)
+        self._pad_x = 8
+        self._pad_y = 3
+        self.combo.place(x=self._pad_x, y=self._pad_y,
+                         relwidth=1.0, relheight=1.0,
+                         width=-self._pad_x * 2, height=-self._pad_y * 2)
+
+        self.bind("<Configure>", lambda e: self._redraw())
+        # 初始就按设定高度绘制一次，避免首帧无圆角
+        self._canvas.update_idletasks()
+        self.after(10, self._redraw)
+
+    def _redraw(self):
+        try:
+            w = self.winfo_width()
+            h = self.winfo_height()
+            if w <= 2 or h <= 2:
+                return
+            self._canvas.delete("bg")
+            draw_round_rect(self._canvas, 1, 1, w - 1, h - 1,
+                            self._radius, fill=COLORS["bg_input"],
+                            outline=COLORS["border"], width=1, tags="bg")
+            self._canvas.tag_lower("bg")
+        except Exception:
+            pass
+
+    # ---------- API 代理 ----------
+    def config(self, **kwargs):
+        if "values" in kwargs or "textvariable" in kwargs or "state" in kwargs or "width" in kwargs:
+            if "textvariable" in kwargs:
+                self.combo.config(textvariable=kwargs.pop("textvariable"))
+            if "values" in kwargs:
+                self.combo.config(values=kwargs.pop("values"))
+            if "state" in kwargs:
+                self.combo.config(state=kwargs.pop("state"))
+            if "width" in kwargs:
+                self.combo.config(width=kwargs.pop("width"))
+        if kwargs:
+            try:
+                super().config(**kwargs)
+            except Exception:
+                pass
+
+    configure = config
+
+    def cget(self, key):
+        if key in ("values", "state", "textvariable", "width"):
+            return self.combo.cget(key)
+        return super().cget(key)
+
+    def get(self):
+        return self.combo.get()
+
+    def set(self, value):
+        return self.combo.set(value)
+
+    def current(self, index=None):
+        return self.combo.current(index) if index is not None else self.combo.current()
+
+    def bind(self, sequence=None, func=None, add=None):
+        try:
+            return self.combo.bind(sequence, func, add)
+        except Exception:
+            return super().bind(sequence, func, add)
+
+    def unbind(self, sequence, funcid=None):
+        try:
+            return self.combo.unbind(sequence, funcid)
+        except Exception:
+            return super().unbind(sequence, funcid)
+
+    def event_generate(self, sequence, **kw):
+        return self.combo.event_generate(sequence, **kw)
+
+    def focus_set(self):
+        return self.combo.focus_set()
+
+    # 支持 combo["values"] = [...] 这种下标赋值（原代码大量使用）
+    def __setitem__(self, key, value):
+        self.combo[key] = value
+
+    def __getitem__(self, key):
+        return self.combo[key]
+
+
+# ========== 圆角输入框（保留 ttk.Entry 全部 API）==========
+class RoundEntry(tk.Frame):
+    """圆角输入框：Canvas 画圆角外框 + 内嵌 ttk.Entry。
+
+    保留并代理 Entry 常用 API：get / insert / delete / config / cget / bind / focus_set
+    因此可以直接替换 DarkEntry / tk.Entry。
+    """
+
+    def __init__(self, parent, radius=8, _height=28, bg=None, **kwargs):
+        self._outer_bg = bg or _pick_bg(parent)
+        self._h = int(_height)
+
+        # 宽度：用 width(字符数) 估算，否则 Frame 会塌缩
+        char_w = int(kwargs.get("width", 20) or 20)
+        self._w = max(60, char_w * 8 + 26)
+
+        super().__init__(parent, bg=self._outer_bg, height=self._h, width=self._w)
+        self.pack_propagate(False)
+        self.grid_propagate(False)
+
+        self._radius = radius
+        self._canvas = tk.Canvas(self, bg=self._outer_bg, highlightthickness=0, bd=0)
+        self._canvas.place(x=0, y=0, relwidth=1, relheight=1)
+
+        # 内部 Entry：去掉边框和背景，露出外层圆角
+        ent_kwargs = dict(kwargs)
+        ent_kwargs.setdefault("relief", tk.FLAT)
+        ent_kwargs.setdefault("bd", 0)
+        ent_kwargs.setdefault("highlightthickness", 0)
+        ent_kwargs.setdefault("bg", COLORS["bg_input"])
+        ent_kwargs.setdefault("fg", COLORS["text_primary"])
+        ent_kwargs.setdefault("insertbackground", COLORS["accent"])
+        if "font" not in ent_kwargs:
+            ent_kwargs["font"] = ("微软雅黑", 10)
+        self.entry = tk.Entry(self, **ent_kwargs)
+
+        self._pad_x = 8
+        self._pad_y = 3
+        self.entry.place(x=self._pad_x, y=self._pad_y,
+                         relwidth=1.0, relheight=1.0,
+                         width=-self._pad_x * 2, height=-self._pad_y * 2)
+
+        self.bind("<Configure>", lambda e: self._redraw())
+        self.after(10, self._redraw)
+
+    def _redraw(self):
+        try:
+            w = self.winfo_width()
+            h = self.winfo_height()
+            if w <= 2 or h <= 2:
+                return
+            self._canvas.delete("bg")
+            draw_round_rect(self._canvas, 1, 1, w - 1, h - 1,
+                            self._radius, fill=COLORS["bg_input"],
+                            outline=COLORS["border"], width=1, tags="bg")
+            self._canvas.tag_lower("bg")
+        except Exception:
+            pass
+
+    # ---------- API 代理 ----------
+    def get(self):
+        return self.entry.get()
+
+    def insert(self, index, text):
+        return self.entry.insert(index, text)
+
+    def delete(self, first, last=None):
+        return self.entry.delete(first, last)
+
+    def config(self, **kwargs):
+        if kwargs:
+            try:
+                self.entry.config(**kwargs)
+            except Exception:
+                try:
+                    super().config(**kwargs)
+                except Exception:
+                    pass
+
+    configure = config
+
+    def cget(self, key):
+        try:
+            return self.entry.cget(key)
+        except Exception:
+            return super().cget(key)
+
+    def bind(self, sequence=None, func=None, add=None):
+        return self.entry.bind(sequence, func, add)
+
+    def unbind(self, sequence, funcid=None):
+        return self.entry.unbind(sequence, funcid)
+
+    def focus_set(self):
+        return self.entry.focus_set()
+
+    def select_range(self, *a):
+        return self.entry.select_range(*a)
+
+    # 支持 entry["width"] = n 这类下标操作
+    def __setitem__(self, key, value):
+        self.entry[key] = value
+
+    def __getitem__(self, key):
+        return self.entry[key]
+
+
+def _pick_bg(widget):
+    """向上查找父容器背景色，保证圆角外框与父容器无缝。"""
+    try:
+        while widget is not None:
+            bg = widget.cget("bg")
+            if bg:
+                return bg
+            widget = widget.master
+    except Exception:
+        pass
+    return COLORS["bg_card"]
+
+
 # ========== 自定义美观组件 ==========
 class ToolTip:
     """简单的鼠标悬停提示框"""
@@ -126,7 +443,11 @@ class DarkButton(tk.Canvas):
 
 
 class DarkEntry(ttk.Entry):
-    """深色输入框"""
+    """深色输入框（保持原生外观：直角，不做圆角化）。
+
+    说明：用户明确要求下拉框/输入框这类"方框"保持原样，
+    只有卡片容器需要圆角，所以这里回退到原始 ttk 实现。
+    """
     def __init__(self, parent, **kwargs):
         style = ttk.Style()
         style.configure("Dark.TEntry",

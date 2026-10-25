@@ -771,7 +771,7 @@ class DanmakuApp:
         self._refresh_manager_room_list()
 
     def _build_guide_page(self):
-        """构建任务说明页面"""
+        """构建任务说明页面（左侧固定目录树 + 右侧内容，点击目录跳转）"""
         main = tk.Frame(self.guide_page, bg=COLORS["bg_dark"])
         main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
 
@@ -779,29 +779,124 @@ class DanmakuApp:
         tk.Label(main, text="📖 使用说明", bg=COLORS["bg_dark"], fg=COLORS["accent"],
                  font=theme.font(16, bold=True)).pack(anchor=tk.W, padx=8, pady=(0, 10))
 
-        # 内容卡片
-        card = tk.Frame(main, bg=COLORS["bg_card"], bd=0, highlightthickness=1, highlightbackground=COLORS["border"])
-        card.pack(fill=tk.BOTH, expand=True)
+        # 主体：左目录 + 右内容
+        body = tk.Frame(main, bg=COLORS["bg_dark"])
+        body.pack(fill=tk.BOTH, expand=True)
 
-        # 滚动条
+        # ---------- 左侧：目录树 ----------
+        toc_card = tk.Frame(body, bg=COLORS["bg_card"], bd=0,
+                            highlightthickness=1, highlightbackground=COLORS["border"])
+        toc_card.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
+        toc_card.pack_propagate(False)
+        toc_card.configure(width=250)
+
+        tk.Label(toc_card, text="目录", bg=COLORS["bg_card"], fg=COLORS["accent"],
+                 font=theme.font(12, bold=True)).pack(anchor=tk.W, padx=14, pady=(12, 6))
+
+        toc_frame = tk.Frame(toc_card, bg=COLORS["bg_card"])
+        toc_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+
+        toc_scroll = tk.Scrollbar(toc_frame, orient=tk.VERTICAL)
+        toc_list = tk.Listbox(
+            toc_frame, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+            selectbackground=COLORS["accent"], selectforeground="#000000",
+            font=theme.font(10), bd=0, highlightthickness=0,
+            activestyle="none", exportselection=False,
+            yscrollcommand=toc_scroll.set,
+        )
+        toc_scroll.config(command=toc_list.yview)
+        toc_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        toc_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # ---------- 右侧：内容 ----------
+        card = tk.Frame(body, bg=COLORS["bg_card"], bd=0,
+                        highlightthickness=1, highlightbackground=COLORS["border"])
+        card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
         scroll = tk.Scrollbar(card)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # 文本区域
         text = tk.Text(card, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                        font=theme.font(10), bd=0, highlightthickness=0, wrap=tk.WORD,
-                        padx=20, pady=20, yscrollcommand=scroll.set)
+                       font=theme.font(10), bd=0, highlightthickness=0, wrap=tk.WORD,
+                       padx=20, pady=20, yscrollcommand=scroll.set)
         text.pack(fill=tk.BOTH, expand=True)
         scroll.config(command=text.yview)
 
-        # 插入任务说明内容（O7: 富文本渲染，支持加粗/斜体/红色加粗）
+        # 插入任务说明内容（富文本渲染）
         try:
             theme.render_richtext(text, TASK_GUIDE_TEXT, base_size=10)
         except Exception as e:
-            # 富文本失败时回退纯文本，保证说明一定能看
             print(f"富文本渲染失败，回退纯文本: {e}")
             text.insert(tk.END, TASK_GUIDE_TEXT)
         text.config(state=tk.DISABLED)
+
+        # ---------- 建立目录索引并绑定跳转 ----------
+        # 用 Text 的 mark 精确定位每个章节标题所在行
+        toc_entries = []   # [(显示名, mark名)]
+        try:
+            lines = TASK_GUIDE_TEXT.split("\n")
+            line_no = 1
+            mark_seq = 0
+            for ln in lines:
+                stripped = ln.strip()
+                # 大章节：【一、账户管理】
+                if stripped.startswith("【") and stripped.endswith("】"):
+                    title = stripped.strip("【】")
+                    mark = f"toc_{mark_seq}"
+                    mark_seq += 1
+                    text.config(state=tk.NORMAL)
+                    text.mark_set(mark, f"{line_no}.0")
+                    text.mark_gravity(mark, tk.LEFT)
+                    text.config(state=tk.DISABLED)
+                    toc_entries.append((title, mark, 0))
+                # 小节：## 1.1 添加账户 -> 渲染后变成 "1.1 添加账户"
+                elif stripped.startswith("## "):
+                    title = stripped[3:].strip()
+                    mark = f"toc_{mark_seq}"
+                    mark_seq += 1
+                    text.config(state=tk.NORMAL)
+                    text.mark_set(mark, f"{line_no}.0")
+                    text.mark_gravity(mark, tk.LEFT)
+                    text.config(state=tk.DISABLED)
+                    toc_entries.append((title, mark, 1))
+                line_no += 1
+        except Exception as e:
+            print(f"建立目录索引失败: {e}")
+
+        # 填充目录列表（缩进区分层级）
+        for title, mark, level in toc_entries:
+            prefix = "    " if level else ""
+            toc_list.insert(tk.END, f"{prefix}{title}")
+
+        def _jump(event=None):
+            sel = toc_list.curselection()
+            if not sel:
+                return
+            idx = sel[0]
+            if idx >= len(toc_entries):
+                return
+            _, mark, _ = toc_entries[idx]
+            try:
+                pos = text.index(mark)
+                total = int(text.index("end-1c").split(".")[0])
+                cur_line = int(pos.split(".")[0])
+                # 换算滚动比例（不能到 1.0，否则内容顶端看不到）
+                frac = max(0.0, min(0.98, (cur_line - 1) / max(1, total - 1)))
+                text.yview_moveto(frac)
+                # 高亮跳转到的章节标题
+                text.tag_remove("toc_hl", "1.0", tk.END)
+                text.tag_add("toc_hl", f"{cur_line}.0", f"{cur_line}.end+1l")
+                text.tag_configure("toc_hl", background="#1f4a6d")
+            except Exception:
+                pass
+
+        toc_list.bind("<<ListboxSelect>>", _jump)
+        toc_list.bind("<Double-Button-1>", _jump)
+
+        # 记录供外部刷新
+        self._guide_toc_list = toc_list
+        self._guide_toc_entries = toc_entries
+        self._guide_text = text
 
     def _refresh_manager_room_list(self):
         """刷新直播间管理列表"""
