@@ -58,8 +58,16 @@ FONT_FAMILY = "微软雅黑"
 
 
 def font(size=10, bold=False, family=None, italic=False):
-    """按 DPI 缩放的字号元组。支持 bold / italic 组合。"""
-    s = sz(size)
+    """字号元组。支持 bold / italic 组合。
+
+    重要：字号 **不再** 乘 DPI scale。
+    原因：主程序启动时已经调用 SetProcessDpiAwareness(2)，Tk 的字号
+    已经是"逻辑单位"，Windows/字体渲染层会自动按缩放比例绘制。
+    如果再乘一次 scale，就变成双重缩放 —— 150% 缩放下 10 号会变 15 号，
+    这正是 v6.1.0 初版字体被放大的原因。这里保持与历史硬编码
+    ("微软雅黑", 10) 完全一致的行为。
+    """
+    s = int(size)
     fam = family or FONT_FAMILY
     styles = []
     if bold:
@@ -175,7 +183,8 @@ def render_richtext(text_widget, content, base_size=10, pad=0):
 
 
 def mono_font(size=9):
-    return ("Consolas", sz(size))
+    # 同上：字号不乘 DPI scale
+    return ("Consolas", int(size))
 
 
 # ---------- 统一弹窗工厂 ----------
