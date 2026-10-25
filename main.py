@@ -49,6 +49,7 @@ from ui.card_auth_page import CardAuthFrame, show_card_auth
 from card_auth import (get_machine_code, get_card_remaining_text, verify_card_online,
                       load_saved_card, is_card_expired, save_card_info, clear_saved_card,
                       CARD_FILE, CARD_API_BASE, CARD_VERIFY_URL)
+import data_guard
 
 # 自动迁移旧配置文件（从exe同目录迁移到data子目录）
 def _migrate_old_files():
@@ -85,6 +86,14 @@ try:
     _migrate_old_files()
 except Exception as e:
     print(f"配置文件迁移失败（不影响启动）: {e}")
+
+# 启动时数据自检 + 每日自动备份（O2）
+# 必须在 AccountManager / RoomManager 加载数据之前执行，才能起到自愈作用。
+_STARTUP_DATA_GUARD = None
+try:
+    _STARTUP_DATA_GUARD = data_guard.startup_maintenance()
+except Exception as e:
+    print(f"数据自检/备份失败（不影响启动）: {e}")
 
 
 class DanmakuApp:

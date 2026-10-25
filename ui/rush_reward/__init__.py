@@ -15,6 +15,7 @@ from storage import atomic_write_json, safe_load_json
 from bili_api import (check_all_tasks_finished, cookies_from_account, get_mission_info,
                       parse_stock_info, receive_reward, verify_login)
 from widgets import DarkButton, DarkEntry, ToolTip
+import rush_stats
 from .new_mode import NewModeMixin
 from .scheduled import ScheduledMixin
 from .manual_task import ManualTaskMixin, task_label, available_versions
@@ -584,6 +585,23 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         self.schedule_list_frame = tk.Frame(list_frame, bg=COLORS["bg_card"])
         self.schedule_list_frame.pack(fill=tk.X)
 
+        # 统计卡片（O4：抢码结果结构化统计）
+        stats_card = tk.Frame(main, bg=COLORS["bg_card"], highlightthickness=1,
+                              highlightbackground=COLORS["border"])
+        stats_card.pack(fill=tk.X, pady=(8, 4))
+        stats_head = tk.Frame(stats_card, bg=COLORS["bg_card"])
+        stats_head.pack(fill=tk.X, padx=15, pady=(8, 2))
+        tk.Label(stats_head, text="📊 抢码统计（今日）", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=("微软雅黑", 11, "bold")).pack(side=tk.LEFT)
+        tk.Button(stats_head, text="刷新", bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                  font=("微软雅黑", 9), relief=tk.FLAT, cursor="hand2",
+                  command=self.refresh_stats_panel).pack(side=tk.RIGHT, ipadx=8, ipady=1)
+        self.stats_label = tk.Label(stats_card, text="暂无数据（抢码后自动统计）",
+                                    bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                                    font=("微软雅黑", 10), justify=tk.LEFT, anchor=tk.W,
+                                    wraplength=1200)
+        self.stats_label.pack(fill=tk.X, padx=15, pady=(0, 8))
+
         # 下半部分：日志
         log_card = tk.Frame(main, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
         log_card.pack(fill=tk.BOTH, expand=True)
@@ -598,6 +616,45 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                                       insertbackground=COLORS["accent"], font=("Consolas", 10),
                                       bd=0, highlightthickness=0, wrap=tk.WORD, state=tk.DISABLED, height=15)
         self.rush_log_text.pack(fill=tk.BOTH, expand=True)
+
+    def refresh_stats_panel(self):
+        """刷新抢码统计面板（O4）。"""
+        try:
+            s = rush_stats.summary(today_only=True)
+            if not s or s.get("total", 0) == 0:
+                self.stats_label.config(text="暂无数据（抢码后自动统计）",
+                                        fg=COLORS["text_muted"])
+                return
+            parts = [
+                f"总尝试 {s['total']}",
+                f"成功 {s['success']}",
+                f"已领 {s['already']}",
+                f"失败 {s['failed']}",
+                f"成功率 {s['success_rate']}%",
+                f"平均延迟 {s['avg_latency_ms']}ms",
+            ]
+            line1 = " | ".join(parts)
+
+            extra = []
+            if s.get("top_codes"):
+                codes = ", ".join(f"{c['code'] or '未知'}×{c['count']}"
+                                  for c in s["top_codes"][:3])
+                extra.append(f"失败码 Top3: {codes}")
+            if s.get("by_task"):
+                top_task = s["by_task"][0]
+                extra.append(f"最活跃任务: {top_task['task'][:20]} ({top_task['total']}次)")
+            if s.get("by_hour"):
+                busy = max(s["by_hour"], key=lambda x: x["total"])
+                extra.append(f"高峰时段: {busy['hour']}点 ({busy['total']}次)")
+
+            text = line1 + "\n" + " | ".join(extra) if extra else line1
+            color = COLORS["success"] if s["success_rate"] >= 50 else COLORS["warning"]
+            self.stats_label.config(text=text, fg=color)
+        except Exception as e:
+            try:
+                self.stats_label.config(text=f"统计读取失败: {e}", fg=COLORS["danger"])
+            except Exception:
+                pass
 
     def refresh_account_list(self):
         account_names = [acc["name"] for acc in self.account_mgr.accounts]
@@ -1502,7 +1559,29 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             if act_id:
                 self.log(f"  ✓ act_id: {act_id}")
         # 直接尝试领取，不先判断状态（避免状态判断错误导致无法领取）
+        _t0 = time.time()
         status, result, data = receive_reward(task["task_id"], info, cookies, csrf)
+        _latency_ms = (time.time() - _t0) * 1000
+
+        # O4: 结构化记录
+        try:
+            _code = ""
+            _msg = str(result or "")
+            if _msg.startswith("[") and "]" in _msg:
+                _code = _msg[1:_msg.index("]")]
+            rush_stats.record(
+                task_id=task.get("task_id", ""),
+                task_name=task.get("name", ""),
+                account=account.get("name", ""),
+                act_id=(info or {}).get("act_id", ""),
+                result=status,
+                code=_code,
+                message=_msg,
+                latency_ms=_latency_ms,
+            )
+        except Exception:
+            pass
+
         if status in ("success", "already"):
             return True, result, data
         return False, result, None
@@ -2115,7 +2194,29 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         """快速领取：直接尝试领取（session可选，复用预热连接）"""
         cookies = cookies_from_account(account)
         csrf = account["bili_jct"]
+        _t0 = time.time()
         status, result, data = receive_reward(task["task_id"], task_info, cookies, csrf, session)
+        _latency_ms = (time.time() - _t0) * 1000
+
+        # O4: 结构化记录每次领取结果，供后续统计成功率/失败码分布
+        try:
+            _code = ""
+            _msg = str(result or "")
+            if _msg.startswith("[") and "]" in _msg:
+                _code = _msg[1:_msg.index("]")]
+            rush_stats.record(
+                task_id=task.get("task_id", ""),
+                task_name=task.get("name", ""),
+                account=account.get("name", ""),
+                act_id=(task_info or {}).get("act_id", ""),
+                result=status,
+                code=_code,
+                message=_msg,
+                latency_ms=_latency_ms,
+            )
+        except Exception:
+            pass
+
         if status in ("success", "already"):
             return True, result
         return False, result
