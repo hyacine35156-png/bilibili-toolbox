@@ -149,89 +149,6 @@ class ManualTaskMixin:
             except Exception:
                 pass
 
-    # ---------------- 任务组 ----------------
-
-    def mt_ensure_group(self, group_name):
-        """按名字取任务组，不存在则自动新建。返回 (group, created)。"""
-        name = (group_name or "").strip()
-        if not name:
-            return None, False
-        groups = getattr(self, "rush_groups", None)
-        if groups is None:
-            return None, False
-        for g in groups:
-            if g.get("group_name") == name:
-                return g, False
-        group = {
-            "group_id": f"group_{int(time.time() * 1000)}",
-            "group_name": name,
-            "target_time": "00:00:00.000",
-            "tasks": [],
-        }
-        groups.append(group)
-        self._mt_save_groups()
-        return group, True
-
-    def _mt_save_groups(self):
-        saver = getattr(self, "save_rush_groups", None)
-        if saver:
-            try:
-                saver()
-            except Exception:
-                pass
-
-    def mt_add_task_to_group(self, entry, group_name, account_name):
-        """把手动任务加入（或新建）精准抢码任务组。返回 (group, created, msg)。"""
-        group, created = self.mt_ensure_group(group_name)
-        if group is None:
-            return None, False, "未指定任务组"
-        if any(t.get("task_id") == entry.get("task_id") for t in group.get("tasks", [])):
-            return group, created, "该任务已在组内"
-
-        try:
-            window_seconds = int(self.nm_window_entry.get())
-        except Exception:
-            window_seconds = 15
-        try:
-            base_interval = int(self.nm_base_interval_entry.get()) / 1000.0
-            base_interval = max(0.3, min(2.0, base_interval))
-        except Exception:
-            base_interval = 0.9
-
-        tasks = group.setdefault("tasks", [])
-        priorities = [t.get("priority", 0) for t in tasks]
-        priority = (max(priorities) + 1) if priorities else 1
-        tasks.append({
-            "task_id": entry["task_id"],
-            "name": entry.get("name") or entry["task_id"],
-            "award": entry.get("award") or "",
-            "period": entry.get("period") or MANUAL_PERIOD,
-            "type": entry.get("type") or MANUAL_TYPE,
-            "version": entry.get("version") or MANUAL_VERSION,
-            "account_name": account_name or "",
-            "priority": priority,
-            "window_seconds": window_seconds,
-            "base_interval": base_interval,
-            "act_id": entry.get("act_id") or "",
-            "status_color": "gray",
-            "status_text": "查询中...",
-            "task_finished": None,
-            "stock_available": None,
-        })
-        self._mt_save_groups()
-        return group, created, f"已加入任务组（优先级{priority}）"
-
-    def _mt_refresh_after_group_change(self):
-        """任务组变化后的界面刷新（须在主线程调用）。"""
-        for fn in ("refresh_new_mode_group_list", "refresh_new_mode_task_list", "nm_update_scheduler"):
-            f = getattr(self, fn, None)
-            if f is None:
-                continue
-            try:
-                f()
-            except Exception:
-                pass
-
     # ---------------- 对话框 ----------------
 
     def mt_open_add_dialog(self):
@@ -307,10 +224,10 @@ class ManualTaskMixin:
         # 列宽策略：label 列用 minsize 固定下限，输入列可伸展且有下限。
         # 这样即使窗口被拖窄，期数/类型下拉框也不会被挤成一条线。
         _COL_CFG = {
-            0: dict(weight=0, minsize=76),   # 归类版本 / 查询账户 / 加入任务组 label
-            1: dict(weight=1, minsize=168),  # 版本 / 账户 / 组 下拉框
-            2: dict(weight=0, minsize=62),   # 期数 / act_id 兜底 / 或新建组名 label
-            3: dict(weight=1, minsize=132),  # 期数 / act_id / 新组名 输入
+            0: dict(weight=0, minsize=86),   # 活动任务组 / 查询账户 label
+            1: dict(weight=1, minsize=168),  # 活动任务组 / 账户 下拉框
+            2: dict(weight=0, minsize=62),   # 期数 / act_id 兜底 label
+            3: dict(weight=1, minsize=132),  # 期数 / act_id 输入
             4: dict(weight=0, minsize=46),   # 类型 label
             5: dict(weight=2, minsize=170),  # 类型下拉框（给足宽度显示自定义类型）
         }
@@ -318,7 +235,7 @@ class ManualTaskMixin:
             grid.columnconfigure(col, **cfg)
 
         # 行1：归类 版本/期数/类型
-        tk.Label(grid, text="归类版本", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+        tk.Label(grid, text="活动任务组", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
                  font=font_lbl).grid(row=0, column=0, sticky="w", pady=3)
         version_var = tk.StringVar(value=MANUAL_VERSION)
         version_combo = ttk.Combobox(grid, textvariable=version_var, values=available_versions(),
@@ -369,7 +286,7 @@ class ManualTaskMixin:
         version_combo.bind("<<ComboboxSelected>>", _sync_period_types)
         period_combo.bind("<<ComboboxSelected>>", _sync_types)
 
-        tk.Label(grid, text="↑ 三栏都可直接输入新名称自动创建：版本(如 鸣潮3.8) / 期数(如 限时任务) / 类型(如 里程碑)",
+        tk.Label(grid, text="↑ 归类到哪个活动任务组：选已有版本(如 鸣潮3.7)即可并入该组；也可输入新版本名自动新建一组",
                  bg=COLORS["bg_card"], fg=COLORS["success"], font=("微软雅黑", 9)
                  ).grid(row=1, column=0, columnspan=6, sticky="w", pady=(0, 4))
 
@@ -403,27 +320,6 @@ class ManualTaskMixin:
         tk.Label(grid, text="（查询账户只用来读取任务名/奖励/act_id，不会改动账号数据）",
                  bg=COLORS["bg_card"], fg=COLORS["text_muted"], font=("微软雅黑", 9)
                  ).grid(row=3, column=0, columnspan=6, sticky="w", pady=(0, 4))
-
-        # 行3：加入任务组
-        tk.Label(grid, text="加入任务组", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=font_lbl).grid(row=4, column=0, sticky="w", pady=3)
-        group_names = ["（不加入）"] + [g.get("group_name", "") for g in (getattr(self, "rush_groups", []) or [])]
-        group_var = tk.StringVar(value="（不加入）")
-        group_combo = ttk.Combobox(grid, textvariable=group_var, values=group_names,
-                                   state="readonly", width=16, font=font_input)
-        group_combo.grid(row=4, column=1, sticky="we", padx=(6, 12), pady=3)
-
-        tk.Label(grid, text="或新建组名", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=font_lbl).grid(row=4, column=2, sticky="w", pady=3)
-        new_group_var = tk.StringVar()
-        new_group_entry = tk.Entry(grid, textvariable=new_group_var, width=14,
-                                   bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                                   insertbackground=COLORS["text_primary"], relief=tk.FLAT,
-                                   font=font_input)
-        new_group_entry.grid(row=4, column=3, sticky="we", padx=(6, 12), pady=3)
-        tk.Label(grid, text="（填了就自动新建该组；留空则用上面的组）",
-                 bg=COLORS["bg_card"], fg=COLORS["text_muted"], font=("微软雅黑", 9)
-                 ).grid(row=4, column=4, columnspan=2, sticky="w", pady=3)
 
         # ---- 按钮 ----
         btn_row = tk.Frame(body, bg=COLORS["bg_dark"])
@@ -523,11 +419,6 @@ class ManualTaskMixin:
             cls_type = type_var.get().strip() or MANUAL_TYPE
             act_id_fallback = act_id_var.get().strip()
             force = bool(force_var.get())
-            target_group = ""
-            if new_group_var.get().strip():
-                target_group = new_group_var.get().strip()
-            elif group_var.get() and group_var.get() != "（不加入）":
-                target_group = group_var.get()
 
             add_btn.config(state=tk.DISABLED, text="解析中...")
             append_result(f"===== 开始解析 {len(ids)} 个 task_id | 归类 {cls_version}/{cls_period}/{cls_type} | 账户 {account_name} =====")
@@ -571,12 +462,6 @@ class ManualTaskMixin:
 
                     if added:
                         ok_count += 1
-                        if target_group:
-                            try:
-                                _g, created, gmsg = self.mt_add_task_to_group(meta, target_group, account_name)
-                                line += f" → {gmsg}" + ("（新建组）" if created else "")
-                            except Exception as exc:
-                                line += f" → 加入任务组失败: {exc}"
                     self.after(0, lambda l=line: append_result(l))
                     if i < len(ids):
                         time.sleep(0.6)
@@ -586,12 +471,6 @@ class ManualTaskMixin:
                     refresh_manual_list()
                     self.mt_refresh_task_combos()
                     self._mt_after_change()
-                    if target_group:
-                        try:
-                            group_combo.config(values=["（不加入）"] + [g.get("group_name", "") for g in (getattr(self, "rush_groups", []) or [])])
-                        except Exception:
-                            pass
-                        self._mt_refresh_after_group_change()
                     append_result(f"===== 完成：成功 {ok_count}/{len(ids)} =====")
                 self.after(0, done)
 
@@ -602,8 +481,8 @@ class ManualTaskMixin:
         dlg.protocol("WM_DELETE_WINDOW", lambda: (canvas.unbind_all("<MouseWheel>"), dlg.destroy()))
 
         refresh_manual_list()
-        append_result("提示：归类到已有版本（如 鸣潮3.7）后，该任务会和官方任务一起出现在对应下拉框；")
-        append_result("      勾选/填写任务组则同时加入精准抢码的组，可直接开抢。")
+        append_result("提示：选「活动任务组」= 鸣潮3.7，该任务就会并进鸣潮3.7 这组活动任务里；")
+        append_result("      下拉框里可直接输入新版本名（如 鸣潮3.8）自动新建一个活动任务组。")
 
         # ---- 自适应尺寸：按 body 真实内容尺寸（不是 canvas 外壳）----
         # 之前量的是 dlg.winfo_reqheight()，它只是 canvas 默认高度(264)，
