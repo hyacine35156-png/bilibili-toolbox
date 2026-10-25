@@ -16,6 +16,7 @@ from bili_api import (check_all_tasks_finished, cookies_from_account, get_missio
                       parse_stock_info, receive_reward, verify_login)
 from widgets import DarkButton, DarkEntry, ToolTip
 import rush_stats
+import rush_presets
 from .new_mode import NewModeMixin
 from .scheduled import ScheduledMixin
 from .manual_task import ManualTaskMixin, task_label, available_versions
@@ -609,7 +610,10 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                  fg=COLORS["accent"], font=("微软雅黑", 11, "bold")).pack(side=tk.LEFT)
         DarkButton(stats_head, text="刷新", command=self.refresh_stats_panel,
                   height=26, width=70, bg_color=COLORS["bg_input"],
-                  text_color=COLORS["text_primary"]).pack(side=tk.RIGHT)
+                  text_color=COLORS["text_primary"]).pack(side=tk.RIGHT, padx=(6, 0))
+        DarkButton(stats_head, text="📈 详细仪表盘", command=self.open_stats_dashboard,
+                  height=26, width=120, bg_color="#8e44ad",
+                  text_color="#ffffff").pack(side=tk.RIGHT)
         self.stats_label = tk.Label(stats_card, text="暂无数据（抢码后自动统计）",
                                     bg=COLORS["bg_card"], fg=COLORS["text_muted"],
                                     font=("微软雅黑", 10), justify=tk.LEFT, anchor=tk.W,
@@ -669,6 +673,384 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 self.stats_label.config(text=f"统计读取失败: {e}", fg=COLORS["danger"])
             except Exception:
                 pass
+
+    def _current_ui_settings_snapshot(self):
+        """抓取当前 UI 设置快照，用于存进预案。"""
+        try:
+            return {
+                "version": self.nm_version_var.get(),
+                "period": self.nm_period_var.get(),
+                "type": self.nm_type_var.get(),
+                "task": self.nm_task_var.get(),
+                "account": self.nm_account_var.get(),
+                "window": self.nm_window_entry.get(),
+                "base_interval": self.nm_base_interval_entry.get(),
+                "group": self.nm_group_var.get(),
+                "target_hour": self.nm_hour_var.get(),
+                "target_minute": self.nm_minute_var.get(),
+                "target_second": self.nm_second_var.get(),
+                "target_ms": self.nm_ms_entry.get(),
+            }
+        except Exception:
+            return {}
+
+    def open_preset_manager(self):
+        """抢码预案管理器（v6.2.0 新增）。
+
+        预案 = 整套任务组配置的快照。用于不同活动之间快速切换，
+        避免每次都手动改目标时间/窗口期/间隔。
+        """
+        dlg = tk.Toplevel(self.winfo_toplevel())
+        dlg.title("抢码预案管理")
+        dlg.configure(bg=COLORS["bg_dark"])
+        dlg.geometry("820x600")
+        try:
+            dlg.transient(self.winfo_toplevel())
+        except Exception:
+            pass
+
+        # ---- 顶部说明 ----
+        head = tk.Frame(dlg, bg=COLORS["bg_card"])
+        head.pack(fill=tk.X, padx=10, pady=(10, 6))
+        tk.Label(head, text="📦 抢码预案", bg=COLORS["bg_card"], fg=COLORS["accent"],
+                 font=("微软雅黑", 13, "bold")).pack(anchor=tk.W, padx=14, pady=(10, 2))
+        tk.Label(head, text="把当前整套任务组配置存成预案，下次一键切换，不用再手改时间/间隔",
+                 bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                 font=("微软雅黑", 9)).pack(anchor=tk.W, padx=14, pady=(0, 10))
+
+        # ---- 保存新预案 ----
+        save_row = tk.Frame(dlg, bg=COLORS["bg_dark"])
+        save_row.pack(fill=tk.X, padx=10, pady=(0, 6))
+        tk.Label(save_row, text="预案名称:", bg=COLORS["bg_dark"],
+                 fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        name_entry = tk.Entry(save_row, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                              insertbackground=COLORS["accent"], relief=tk.FLAT,
+                              font=("微软雅黑", 10), width=28)
+        name_entry.pack(side=tk.LEFT, padx=(6, 10), ipady=4)
+        tk.Label(save_row, text="备注:", bg=COLORS["bg_dark"],
+                 fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        note_entry = tk.Entry(save_row, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                              insertbackground=COLORS["accent"], relief=tk.FLAT,
+                              font=("微软雅黑", 10), width=18)
+        note_entry.pack(side=tk.LEFT, padx=(6, 0), ipady=4)
+
+        # ---- 预案列表 ----
+        list_card = tk.Frame(dlg, bg=COLORS["bg_card"])
+        list_card.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
+        tk.Label(list_card, text="已有预案（双击直接加载）", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=("微软雅黑", 10, "bold")
+                 ).pack(anchor=tk.W, padx=12, pady=(8, 4))
+        lf = tk.Frame(list_card, bg=COLORS["bg_card"])
+        lf.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 10))
+        sb = tk.Scrollbar(lf, orient=tk.VERTICAL)
+        lb = tk.Listbox(lf, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                        font=("Consolas", 9), bd=0, highlightthickness=0,
+                        selectbackground=COLORS["accent"], selectforeground="#000000",
+                        yscrollcommand=sb.set)
+        sb.config(command=lb.yview)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        presets = {"data": rush_presets.load_presets()}
+
+        def refresh_list():
+            lb.delete(0, tk.END)
+            for p in presets["data"]:
+                lb.insert(tk.END, rush_presets.summarize(p))
+            if not presets["data"]:
+                lb.insert(tk.END, "（暂无预案，填写名称后点「保存当前配置为预案」）")
+
+        def do_save():
+            name = name_entry.get().strip()
+            if not name:
+                messagebox.showwarning("提示", "请先填写预案名称", parent=dlg)
+                return
+            if not self.rush_groups:
+                messagebox.showwarning("提示", "当前没有任何任务组，无法保存预案", parent=dlg)
+                return
+            preset = rush_presets.make_preset(
+                name, self.rush_groups,
+                ui_settings=self._current_ui_settings_snapshot(),
+                note=note_entry.get().strip())
+            presets["data"], replaced = rush_presets.upsert_preset(presets["data"], preset)
+            ok = rush_presets.save_presets(presets["data"])
+            if ok:
+                self.nm_log(f"📦 预案已{'覆盖' if replaced else '保存'}: {name}"
+                            f"（{len(preset['groups'])} 组 / "
+                            f"{sum(len(g.get('tasks', [])) for g in preset['groups'])} 任务）")
+                refresh_list()
+            else:
+                messagebox.showerror("失败", "预案写入文件失败", parent=dlg)
+
+        def do_load():
+            sel = lb.curselection()
+            if not sel or not presets["data"]:
+                messagebox.showwarning("提示", "请先在列表中选择一个预案", parent=dlg)
+                return
+            idx = sel[0]
+            if idx >= len(presets["data"]):
+                return
+            p = presets["data"][idx]
+            n_groups = len(p.get("groups", []))
+            n_tasks = sum(len(g.get("tasks", [])) for g in p.get("groups", []))
+            if not messagebox.askyesno(
+                    "加载预案",
+                    f"确定加载预案「{p.get('name','')}」吗？\n\n"
+                    f"会用该预案的 {n_groups} 个任务组 / {n_tasks} 个任务\n"
+                    f"替换当前全部任务组配置。\n\n"
+                    f"（当前配置不会自动备份，如需保留请先另存为新预案）",
+                    parent=dlg):
+                return
+            # 深拷贝，避免预案数据和运行时互相污染
+            self.rush_groups = rush_presets.deep_copy_groups(p.get("groups", []))
+            if self.rush_groups:
+                self.current_group_id = self.rush_groups[0].get("group_id")
+            else:
+                self.current_group_id = None
+            self.save_rush_groups()
+
+            # 恢复 UI 设置
+            ui = p.get("ui_settings") or {}
+            try:
+                if ui.get("window"):
+                    self.nm_window_entry.delete(0, tk.END)
+                    self.nm_window_entry.insert(0, ui["window"])
+                if ui.get("base_interval"):
+                    self.nm_base_interval_entry.delete(0, tk.END)
+                    self.nm_base_interval_entry.insert(0, ui["base_interval"])
+                for key, var in (("target_hour", self.nm_hour_var),
+                                 ("target_minute", self.nm_minute_var),
+                                 ("target_second", self.nm_second_var)):
+                    if ui.get(key):
+                        var.set(ui[key])
+                if ui.get("target_ms"):
+                    self.nm_ms_entry.delete(0, tk.END)
+                    self.nm_ms_entry.insert(0, ui["target_ms"])
+            except Exception:
+                pass
+
+            # 刷新界面
+            try:
+                self.refresh_new_mode_group_list()
+                self.refresh_new_mode_task_list()
+                if hasattr(self, "nm_update_scheduler"):
+                    self.nm_update_scheduler()
+                self.nm_save_ui_settings()
+            except Exception:
+                pass
+
+            self.nm_log(f"📦 已加载预案「{p.get('name','')}」：{n_groups} 组 / {n_tasks} 任务")
+            messagebox.showinfo("已加载", f"预案「{p.get('name','')}」已加载。\n\n"
+                                          f"{n_groups} 个任务组 / {n_tasks} 个任务",
+                                parent=dlg)
+            dlg.destroy()
+
+        def do_delete():
+            sel = lb.curselection()
+            if not sel or not presets["data"]:
+                messagebox.showwarning("提示", "请先选择要删除的预案", parent=dlg)
+                return
+            idx = sel[0]
+            if idx >= len(presets["data"]):
+                return
+            p = presets["data"][idx]
+            if not messagebox.askyesno("确认删除",
+                                       f"确定删除预案「{p.get('name','')}」吗？",
+                                       parent=dlg):
+                return
+            presets["data"] = rush_presets.delete_preset(presets["data"], p.get("name", ""))
+            rush_presets.save_presets(presets["data"])
+            self.nm_log(f"📦 已删除预案: {p.get('name','')}")
+            refresh_list()
+
+        def do_export():
+            """导出预案到指定文件（方便备份/分享）"""
+            sel = lb.curselection()
+            if not sel or not presets["data"]:
+                messagebox.showwarning("提示", "请先选择要导出的预案", parent=dlg)
+                return
+            idx = sel[0]
+            if idx >= len(presets["data"]):
+                return
+            p = presets["data"][idx]
+            from tkinter import filedialog
+            path = filedialog.asksaveasfilename(
+                parent=dlg, title="导出预案",
+                defaultextension=".json",
+                initialfile=f"预案_{p.get('name','preset')}.json",
+                filetypes=[("JSON 文件", "*.json")])
+            if not path:
+                return
+            try:
+                import json as _json
+                with open(path, "w", encoding="utf-8") as f:
+                    _json.dump(p, f, ensure_ascii=False, indent=2)
+                messagebox.showinfo("导出成功", f"已导出到:\n{path}", parent=dlg)
+            except Exception as e:
+                messagebox.showerror("导出失败", str(e), parent=dlg)
+
+        # ---- 按钮区 ----
+        btn_row = tk.Frame(dlg, bg=COLORS["bg_dark"])
+        btn_row.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+        DarkButton(btn_row, text="💾 保存当前配置为预案", command=do_save,
+                   height=32, bg_color=COLORS["accent"], text_color="#000000"
+                   ).pack(side=tk.LEFT)
+        DarkButton(btn_row, text="▶ 加载选中预案", command=do_load,
+                   height=32, bg_color=COLORS["success"], text_color="#000000"
+                   ).pack(side=tk.LEFT, padx=(8, 0))
+        DarkButton(btn_row, text="📤 导出", command=do_export,
+                   height=32, bg_color="#2980b9", text_color="#ffffff"
+                   ).pack(side=tk.LEFT, padx=(8, 0))
+        DarkButton(btn_row, text="🗑 删除", command=do_delete,
+                   height=32, bg_color="#c0392b", text_color="#ffffff"
+                   ).pack(side=tk.LEFT, padx=(8, 0))
+        DarkButton(btn_row, text="关闭", command=dlg.destroy,
+                   height=32, bg_color="#7f8c8d", text_color="#ffffff"
+                   ).pack(side=tk.RIGHT)
+
+        lb.bind("<Double-Button-1>", lambda e: do_load())
+        refresh_list()
+
+    def open_stats_dashboard(self):
+        """抢码成功率仪表盘（v6.2.0 新增）。
+
+        展示三个核心分析：
+          1) 各任务历史成功率 —— 哪些任务值得优先抢
+          2) 各提前量区间成功率 —— 哪个提前量命中率最高（数据驱动调参）
+          3) 风控高发时段 —— 避开高风险时段
+        """
+        dlg = tk.Toplevel(self.winfo_toplevel())
+        dlg.title("抢码成功率仪表盘")
+        dlg.configure(bg=COLORS["bg_dark"])
+        dlg.geometry("1000x680")
+        try:
+            dlg.transient(self.winfo_toplevel())
+        except Exception:
+            pass
+
+        data = rush_stats.dashboard()
+
+        # ---- 顶部总览 ----
+        head = tk.Frame(dlg, bg=COLORS["bg_card"])
+        head.pack(fill=tk.X, padx=10, pady=(10, 6))
+        tk.Label(head, text="📈 抢码成功率仪表盘", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=("微软雅黑", 13, "bold")
+                 ).pack(anchor=tk.W, padx=14, pady=(10, 4))
+
+        ov = data.get("overview") or {}
+        if not ov.get("total"):
+            tk.Label(head, text="暂无抢码记录。抢码后这里会自动生成统计数据。",
+                     bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                     font=("微软雅黑", 10)).pack(anchor=tk.W, padx=14, pady=(0, 12))
+            DarkButton(head, text="关闭", command=dlg.destroy, height=30, width=90,
+                       bg_color="#7f8c8d").pack(anchor=tk.E, padx=14, pady=(0, 10))
+            return
+
+        rate = ov.get("success_rate", 0)
+        rate_color = COLORS["success"] if rate >= 50 else (
+            COLORS["warning"] if rate >= 20 else COLORS["danger"])
+        ov_text = (f"总请求 {ov['total']}　成功 {ov['success']}　失败 {ov['failed']}　"
+                   f"成功率 {rate}%　平均延迟 {ov['avg_latency_ms']}ms　风控 {ov['risk_count']} 次")
+        tk.Label(head, text=ov_text, bg=COLORS["bg_card"], fg=rate_color,
+                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=14, pady=(0, 12))
+
+        # ---- 三栏内容 ----
+        body = tk.Frame(dlg, bg=COLORS["bg_dark"])
+        body.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
+
+        def make_table(parent, title, headers, rows, col_w=(24, 10, 10, 10)):
+            card = tk.Frame(parent, bg=COLORS["bg_card"], highlightthickness=1,
+                            highlightbackground=COLORS["border"])
+            card.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
+            tk.Label(card, text=title, bg=COLORS["bg_card"], fg=COLORS["accent"],
+                     font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=12, pady=(8, 4))
+            inner = tk.Frame(card, bg=COLORS["bg_card"])
+            inner.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 10))
+
+            # 表头
+            hdr = tk.Frame(inner, bg=COLORS["bg_input"])
+            hdr.pack(fill=tk.X)
+            for i, (h, w) in enumerate(zip(headers, col_w)):
+                tk.Label(hdr, text=h, bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
+                         font=("微软雅黑", 9, "bold"), width=w, anchor=tk.W
+                         ).pack(side=tk.LEFT, padx=4, pady=4)
+
+            # 数据行
+            for row in rows:
+                r = tk.Frame(inner, bg=COLORS["bg_card"])
+                r.pack(fill=tk.X)
+                for i, (v, w) in enumerate(zip(row, col_w)):
+                    fg_c = COLORS["text_primary"]
+                    txt = str(v)
+                    # 成功率着色
+                    if "%" in txt:
+                        try:
+                            pct = float(txt.replace("%", ""))
+                            if i == len(row) - 1 or "率" in str(headers[i]):
+                                fg_c = (COLORS["success"] if pct >= 50 else
+                                        COLORS["warning"] if pct >= 20 else COLORS["danger"])
+                        except Exception:
+                            pass
+                    tk.Label(r, text=txt, bg=COLORS["bg_card"], fg=fg_c,
+                             font=("Consolas", 9), width=w, anchor=tk.W
+                             ).pack(side=tk.LEFT, padx=4, pady=2)
+            return card
+
+        # 1) 各任务成功率
+        task_rows = []
+        for t in data.get("by_task", [])[:10]:
+            task_rows.append([
+                t["task"][:22],
+                str(t["total"]),
+                str(t["success"]),
+                f"{t['rate']}%",
+                str(t["risk"]),
+            ])
+        make_table(body, "① 各任务历史成功率（按请求量排序）",
+                   ["任务名称", "请求数", "成功", "成功率", "风控"],
+                   task_rows, col_w=(26, 8, 8, 9, 8))
+
+        # 2) 提前量区间成功率
+        adv_rows = []
+        best = rush_stats.best_advance(data)
+        for a in data.get("by_advance", []):
+            mark = " ★最优" if best and a["advance"] == best["advance"] else ""
+            note = "" if a.get("reliable") else " (样本少)"
+            adv_rows.append([
+                f"{a['advance']}-{a['advance']+20}ms{mark}{note}",
+                str(a["total"]),
+                str(a["success"]),
+                f"{a['rate']}%",
+            ])
+        if not adv_rows:
+            adv_rows = [["（暂无提前量数据，抢码一次后生成）", "-", "-", "-"]]
+        make_table(body, "② 各提前量区间成功率（★ = 当前最优，用于数据驱动调参）",
+                   ["提前量区间", "请求数", "成功", "成功率"], adv_rows, col_w=(32, 8, 8, 9))
+
+        # 3) 风控高发时段
+        hour_rows = []
+        risk_sorted = rush_stats.risk_hours(data)
+        for h in risk_sorted[:8]:
+            hour_rows.append([
+                f"{h['hour']}:00 - {h['hour']}:59",
+                str(h["total"]),
+                str(h["risk"]),
+                f"{h['success_rate']}%",
+            ])
+        if not hour_rows:
+            hour_rows = [["（暂无数据）", "-", "-", "-"]]
+        make_table(body, "③ 风控高发时段（风控次数从高到低）",
+                   ["时段", "请求数", "风控次数", "成功率"], hour_rows, col_w=(24, 8, 10, 9))
+
+        # ---- 底部 ----
+        foot = tk.Frame(dlg, bg=COLORS["bg_dark"])
+        foot.pack(fill=tk.X, padx=10, pady=(0, 10))
+        tk.Label(foot, text="提示：提前量样本 <5 次标记为「样本少」，建议多抢几次再看结论",
+                 bg=COLORS["bg_dark"], fg=COLORS["text_muted"],
+                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+        DarkButton(foot, text="关闭", command=dlg.destroy, height=30, width=90,
+                   bg_color="#7f8c8d").pack(side=tk.RIGHT)
 
     def refresh_account_list(self):
         account_names = [acc["name"] for acc in self.account_mgr.accounts]
@@ -879,6 +1261,11 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         self.nm_del_group_btn = DarkButton(grow1, text="删除当前组", command=self.nm_del_group,
                                            height=32, bg_color="#c0392b", text_color="#ffffff")
         self.nm_del_group_btn.pack(side=tk.LEFT, padx=5)
+
+        # v6.2.0: 抢码预案（一键切换整套配置）
+        self.nm_preset_btn = DarkButton(grow1, text="📦 预案", command=self.open_preset_manager,
+                                        height=32, bg_color="#8e44ad", text_color="#ffffff")
+        self.nm_preset_btn.pack(side=tk.LEFT, padx=(15, 0))
 
         # 第二行：目标时间设置（自动保存）
         grow2 = tk.Frame(group_inner, bg=COLORS["bg_card"])
@@ -2214,8 +2601,11 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             "reward_info": {"award_name": task["award"]},
         }
 
-    def do_receive_fast(self, task, task_info, account, session=None):
-        """快速领取：直接尝试领取（session可选，复用预热连接）"""
+    def do_receive_fast(self, task, task_info, account, session=None, advance_ms=0):
+        """快速领取：直接尝试领取（session可选，复用预热连接）
+
+        advance_ms: 本次使用的提前量（v6.2.0 新增，用于统计最优提前量）
+        """
         cookies = cookies_from_account(account)
         csrf = account["bili_jct"]
         _t0 = time.time()
@@ -2237,6 +2627,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 code=_code,
                 message=_msg,
                 latency_ms=_latency_ms,
+                advance_ms=advance_ms,
             )
         except Exception:
             pass

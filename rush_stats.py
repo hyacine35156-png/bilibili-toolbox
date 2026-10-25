@@ -37,8 +37,11 @@ def _rollover_if_needed():
 
 def record(task_id="", task_name="", account="", act_id="",
            result="failed", code="", message="", latency_ms=0, attempt=1,
-           extra=None):
-    """追加一条抢码结果。任何异常都吞掉，绝不影响抢码主流程。"""
+           advance_ms=0, extra=None):
+    """追加一条抢码结果。任何异常都吞掉，绝不影响抢码主流程。
+
+    v6.2.0 新增 advance_ms：本次使用的提前量，用于统计"哪个提前量抢中最多"。
+    """
     entry = {
         "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
         "task_id": str(task_id or ""),
@@ -50,6 +53,7 @@ def record(task_id="", task_name="", account="", act_id="",
         "message": str(message or "")[:200],
         "latency_ms": round(float(latency_ms or 0), 1),
         "attempt": int(attempt or 1),
+        "advance_ms": round(float(advance_ms or 0), 1),
     }
     if extra and isinstance(extra, dict):
         try:
@@ -149,6 +153,131 @@ def summary(today_only=True, limit=5000):
         "by_task": by_task,
         "by_hour": by_hour,
     }
+
+
+def dashboard(limit=20000):
+    """抢码成功率仪表盘数据（v6.2.0 新增）。
+
+    返回：
+      overview     总览（总数/成功率/平均延迟）
+      by_task      各任务历史成功率
+      by_advance   各提前量区间的成功率（找出最优提前量）
+      by_hour      风控高发时段（按小时统计失败率与风控次数）
+      top_codes    失败码 Top10
+    """
+    records = load_results(limit=limit)
+    total = len(records)
+
+    def _is_ok(r):
+        return r.get("result") in ("success", "already")
+
+    def _is_risk(r):
+        c = str(r.get("code", ""))
+        m = str(r.get("message", ""))
+        return c in ("-702", "-509", "-705") or "频繁" in m or "风控" in m
+
+    if total == 0:
+        return {"total": 0, "overview": {}, "by_task": [],
+                "by_advance": [], "by_hour": [], "top_codes": []}
+
+    ok_cnt = sum(1 for r in records if _is_ok(r))
+    lat = [float(r.get("latency_ms") or 0) for r in records if r.get("latency_ms")]
+    overview = {
+        "total": total,
+        "success": ok_cnt,
+        "failed": total - ok_cnt,
+        "success_rate": round(100.0 * ok_cnt / total, 1),
+        "avg_latency_ms": round(sum(lat) / len(lat), 1) if lat else 0,
+        "risk_count": sum(1 for r in records if _is_risk(r)),
+    }
+
+    # ---- 各任务成功率 ----
+    task_map = {}
+    for r in records:
+        key = r.get("task_name") or r.get("task_id") or "?"
+        d = task_map.setdefault(key, {"task": key, "total": 0, "success": 0, "risk": 0})
+        d["total"] += 1
+        if _is_ok(r):
+            d["success"] += 1
+        if _is_risk(r):
+            d["risk"] += 1
+    by_task = sorted(task_map.values(), key=lambda x: x["total"], reverse=True)[:15]
+    for d in by_task:
+        d["rate"] = round(100.0 * d["success"] / d["total"], 1) if d["total"] else 0
+
+    # ---- 各提前量区间成功率（找最优提前量）----
+    # 按 20ms 分桶
+    adv_map = {}
+    for r in records:
+        a = float(r.get("advance_ms") or 0)
+        if a <= 0:
+            continue
+        bucket = int(a // 20 * 20)
+        d = adv_map.setdefault(bucket, {"advance": bucket, "total": 0, "success": 0})
+        d["total"] += 1
+        if _is_ok(r):
+            d["success"] += 1
+    by_advance = sorted(adv_map.values(), key=lambda x: x["advance"])
+    for d in by_advance:
+        d["rate"] = round(100.0 * d["success"] / d["total"], 1) if d["total"] else 0
+    # 给每个提前量标注样本是否足够（<5 次视为样本不足）
+    for d in by_advance:
+        d["reliable"] = d["total"] >= 5
+
+    # ---- 风控高发时段 ----
+    hour_map = {}
+    for r in records:
+        ts = str(r.get("ts", ""))
+        hh = ts[11:13] if len(ts) >= 13 else "?"
+        d = hour_map.setdefault(hh, {"hour": hh, "total": 0, "success": 0, "risk": 0})
+        d["total"] += 1
+        if _is_ok(r):
+            d["success"] += 1
+        if _is_risk(r):
+            d["risk"] += 1
+    by_hour = sorted(hour_map.values(), key=lambda x: x["hour"])
+    for d in by_hour:
+        d["success_rate"] = round(100.0 * d["success"] / d["total"], 1) if d["total"] else 0
+
+    # ---- 失败码 Top10 ----
+    code_map = {}
+    for r in records:
+        if _is_ok(r):
+            continue
+        c = str(r.get("code", "")).strip() or "未知"
+        code_map[c] = code_map.get(c, 0) + 1
+    top_codes = sorted(code_map.items(), key=lambda x: x[1], reverse=True)[:10]
+    top_codes = [{"code": c, "count": n} for c, n in top_codes]
+
+    return {
+        "total": total,
+        "overview": overview,
+        "by_task": by_task,
+        "by_advance": by_advance,
+        "by_hour": by_hour,
+        "top_codes": top_codes,
+    }
+
+
+def best_advance(dashboard_data=None):
+    """从仪表盘数据里挑出"样本足够且成功率最高"的提前量。"""
+    d = dashboard_data or dashboard()
+    best = None
+    best_rate = -1
+    for item in d.get("by_advance", []):
+        if not item.get("reliable"):
+            continue
+        if item["rate"] > best_rate:
+            best_rate = item["rate"]
+            best = item
+    return best
+
+
+def risk_hours(dashboard_data=None, min_samples=3):
+    """返回风控次数最多的小时列表。"""
+    d = dashboard_data or dashboard()
+    hours = [h for h in d.get("by_hour", []) if h.get("total", 0) >= min_samples]
+    return sorted(hours, key=lambda x: x.get("risk", 0), reverse=True)
 
 
 def clear_results():

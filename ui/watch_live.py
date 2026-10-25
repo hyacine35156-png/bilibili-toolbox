@@ -576,7 +576,7 @@ class WatchLiveFrame(tk.Frame):
             messagebox.showerror("导出失败", f"导出Excel失败: {e}")
 
     def load_watch_config(self):
-        default = {"room_id": "1791983148", "daily_minutes": 30, "heartbeat_interval": 60, "selected_accounts": [], "room_history": []}
+        default = {"room_id": "1791983148", "daily_minutes": 10, "heartbeat_interval": 60, "selected_accounts": [], "room_history": []}
         config_file = BASE_DIR / "watch_config.json"
         if config_file.exists():
             try:
@@ -877,8 +877,11 @@ class WatchLiveFrame(tk.Frame):
         self.refresh_room_btn = DarkButton(row1, text="↻ 刷新", command=self._refresh_room_combo_values, bg_color=COLORS["bg_input"], text_color=COLORS["text_primary"], height=32)
         self.refresh_room_btn.pack(side=tk.LEFT, padx=(0, 20))
         tk.Label(row1, text="每日时长(分):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
-        self.duration_var = tk.IntVar(value=30)
-        self.duration_combo = ttk.Combobox(row1, textvariable=self.duration_var, width=8, values=[10, 15, 20, 30, 45, 60, 90, 120], state="readonly")
+        self.duration_var = tk.IntVar(value=10)
+        # v6.2.0: 新增 3 分钟选项（用户需求）
+        self.duration_combo = ttk.Combobox(row1, textvariable=self.duration_var, width=8,
+                                           values=[3, 5, 10, 15, 20, 30, 45, 60, 90, 120],
+                                           state="readonly")
         self.duration_combo.pack(side=tk.LEFT, padx=(8, 0))
 
         row2 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
@@ -1909,24 +1912,30 @@ class WatchLiveFrame(tk.Frame):
         last_refresh_time = 0  # P2-F: 防止同一秒重复刷新
         last_ws_check_time = 0  # P2-F: 防止同一秒重复检查WS
         while not self.stop_flag["stop"]:
+            # v6.2.0 修复：每轮循环先刷新本地计时（monotonic，不受系统改时间影响）
+            _elapsed = int(time.monotonic() - watch_start_time)
+            for _n, _s in self.account_stats.items():
+                if _s.get("status") == "观看中":
+                    _s["watch_seconds"] = _elapsed
+
             all_done = True
             has_watching = False
             has_failed = False
             for name, stats in self.account_stats.items():
                 if stats["status"] == "观看中":
                     has_watching = True
-                    # P2-I: 优先用服务端确认的beat_count计算观看时长，无心跳时回退到客户端估算的watch_seconds
-                    beat_count = stats.get("beat_count", 0)
-                    beat_interval = stats.get("heartbeat_interval", 0)
-                    if beat_count > 0 and beat_interval > 0:
-                        confirmed_seconds = beat_count * beat_interval
-                        if confirmed_seconds < target_seconds:
-                            all_done = False
-                            break
-                    else:
-                        if stats["watch_seconds"] < target_seconds:
-                            all_done = False
-                            break
+                    # v6.2.0 修复：两个计时源取"任一达标"即算完成。
+                    # 原来只用 beat_count * beat_interval（服务端确认时长）判断，
+                    # 但 watch_seconds（local monotonic，也是界面显示值）会先到达目标，
+                    # 两者相差一个心跳周期（通常60秒），导致界面显示"已观看10分53秒"
+                    # 已超目标，但 beat_count 只有 9 次（540<600）判不达标，于是永远不停。
+                    _watch_sec = stats.get("watch_seconds", 0)
+                    _beat_count = stats.get("beat_count", 0)
+                    _beat_interval = stats.get("heartbeat_interval", 0)
+                    _confirmed_sec = _beat_count * _beat_interval if (_beat_count > 0 and _beat_interval > 0) else 0
+                    if _watch_sec < target_seconds and _confirmed_sec < target_seconds:
+                        all_done = False
+                        break
                 elif stats["status"] == "进入失败":
                     has_failed = True
             # P2-A: 如果没有观看中的账户且有进入失败的，不应标记为完成

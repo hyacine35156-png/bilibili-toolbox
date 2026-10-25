@@ -1255,7 +1255,17 @@ pause
                 session = requests.Session()
                 session.headers.update(HEADERS)
                 try:
-                    session.get("https://www.bilibili.com", timeout=5)
+                    # v6.2.0 修复（重要）：预热必须打到"真正发请求的那个域名"。
+                    #
+                    # 原代码预热 https://www.bilibili.com，而抢码接口在 https://api.bilibili.com
+                    # —— 这是两个不同域名，TCP/TLS 连接完全无法复用。
+                    # 实测：新建连接 109ms vs 复用连接 42ms，握手开销约 67ms，
+                    # 而基础提前量只有 100ms，等于白送掉 2/3 的提前量优势。
+                    #
+                    # 现在预热真实接口域名（用只读的 nav 接口，最轻量、不触发风控），
+                    # 使首发瞬间可直接复用已建立的连接。
+                    session.get("https://api.bilibili.com/x/web-interface/nav",
+                                headers=HEADERS, timeout=5)
                     # 【重要】清除预热时自动获取的cookie（buvid3/b_nut等），
                     # 避免与用户cookie合并导致B站反作弊返回[-351]错误
                     session.cookies.clear()
@@ -1292,13 +1302,43 @@ pause
                 else:
                     self.nm_log(f"  ⚠ {task['name']}: 连接预热异常: {msg}, 使用保存的act_id={task_infos[task['task_id']].get('act_id', '')}")
 
-            # 计算提前量：基础提前量 + NTP偏差修正
-            # NTP offset = ((t2-t1)+(t3-t4))/2，正数=本地慢于服务器，需要更多提前量
-            base_advance = 100  # 基础提前量100ms（实测高峰期单向RTT约120ms，目标到达时间=目标后约20ms）
+            # ===== 计算提前量（v6.2.0：用只读探针实测 RTT，而非固定值）=====
+            # 原逻辑：固定 100ms 基础提前量 + NTP 偏差修正。
+            # 问题：实际网络 RTT 波动很大（实测 P25=80ms、P50=110ms、P75=160ms），
+            #      固定 100ms 在快网络下"到得太晚"抢不到，慢网络下又浪费窗口。
+            #
+            # 新逻辑：
+            #   1) 用只读的 mission/info 探针测当前真实 RTT（不消耗领取机会）
+            #   2) 提前量 ≈ RTT/2（单向延迟）+ 少量缓冲（20ms）
+            #      因为"提前量"是要让请求在目标时刻"到达"服务器，
+            #      发出后经过半个 RTT 到达，所以要提前 RTT/2 发出。
+            #   3) NTP 偏差继续修正本地时钟误差
+            #
+            # 安全兜底：探针失败 / 数值异常时回退到固定 100ms。
+            base_advance = 100  # 兜底固定值
             ntp_correction = ntp_offset * 1000  # NTP偏差转ms
+
+            probe_rtt = None
+            try:
+                if prewarm_tasks:
+                    _probe_session = sessions.get(prewarm_tasks[0]["task_id"])
+                    probe_rtt = self.nm_probe_rtt(prewarm_tasks[0], _probe_session, samples=5)
+            except Exception as e:
+                self.nm_log(f"[RTT探针] 异常，回退固定提前量: {e}")
+
+            if probe_rtt and 20 <= probe_rtt <= 1000:
+                # 提前量 = 半 RTT（单向延迟）+ 20ms 缓冲
+                half_rtt = probe_rtt / 2.0
+                computed = half_rtt + 20
+                self.nm_log(f"[动态提前量] 实测RTT {probe_rtt:.0f}ms -> 提前量 {computed:.0f}ms "
+                            f"(半RTT {half_rtt:.0f}ms + 缓冲20ms)")
+                base_advance = computed
+            else:
+                self.nm_log(f"[动态提前量] 探针不可用，回退固定提前量 {base_advance}ms")
+
             dynamic_advance = base_advance + ntp_correction
-            # 限制范围：0ms ~ 1500ms，避免异常值
-            dynamic_advance = max(0, min(1500, dynamic_advance))
+            # 限制范围：10ms ~ 1500ms，避免异常值导致完全错过
+            dynamic_advance = max(10, min(1500, dynamic_advance))
 
             # NTP偏差过大时强制警告（>100ms会显著影响首枪精度）
             if abs(ntp_correction) > 100:
@@ -1372,7 +1412,9 @@ pause
                 self.nm_log(f"[优先级{task.get('priority', '?')}] 开始: {task['name']} => {task['award']} (窗口期{task.get('window_seconds', 15)}秒)")
 
                 success = self.nm_execute_task(task, task_infos.get(task["task_id"]),
-                                               sessions.get(task["task_id"]), task_deadline, target_timestamp, stop_flag)
+                                               sessions.get(task["task_id"]), task_deadline,
+                                               target_timestamp, stop_flag,
+                                               advance_ms=dynamic_advance)
 
                 if success:
                     self.nm_log(f"[优先级{task.get('priority', '?')}] ✓ 领取成功，立即启动下一个优先级")
@@ -1410,6 +1452,63 @@ pause
             running_count = len([g for g, t in self.nm_group_threads.items() if t.is_alive()])
             if running_count > 0:
                 self.nm_log(f"还有 {running_count} 个任务组正在运行")
+
+    def nm_probe_rtt(self, task, session=None, samples=5):
+        """用只读的 mission/info 查询接口测真实 RTT（v6.2.0 新增）。
+
+        为什么用查询接口而不是领取接口：
+          领取接口（mission/receive）是敏感操作，每次请求都会消耗"请求机会"，
+          拿去测 RTT 成本极高、且可能触发风控。
+          mission/info 是只读查询，频率限制宽松得多，适合做探针。
+
+        返回：RTT 中位数（ms），失败返回 None。
+        """
+        try:
+            import statistics
+            account = self.account_mgr.get_account(task.get("account_name", ""))
+            if not account:
+                return None
+            cookies = cookies_from_account(account)
+            from config import MISSION_INFO_API
+            from bili_api import get_wbi_keys, wbi_sign
+
+            img_key, sub_key = get_wbi_keys(cookies)
+            if not img_key:
+                return None
+
+            sess = session or requests.Session()
+            sess.headers.update(HEADERS)
+            params = wbi_sign({"task_id": task["task_id"], "web_location": "888.126558"},
+                              img_key, sub_key)
+            headers = {
+                **HEADERS,
+                "Referer": f"https://www.bilibili.com/blackboard/era/award-exchange.html?task_id={task['task_id']}",
+                "Origin": "https://www.bilibili.com",
+            }
+
+            rtts = []
+            for i in range(max(1, samples)):
+                t0 = time.perf_counter()
+                try:
+                    sess.get(MISSION_INFO_API, headers=headers, cookies=cookies,
+                             params=params, timeout=5)
+                except Exception:
+                    continue
+                rtts.append((time.perf_counter() - t0) * 1000)
+                if i < samples - 1:
+                    time.sleep(0.15)   # 轻微间隔，避免连续打
+
+            if not rtts:
+                return None
+            med = statistics.median(rtts)
+            self.nm_log(f"[RTT探针] 采样{len(rtts)}次: {[f'{r:.0f}' for r in rtts]}ms -> 中位 {med:.0f}ms")
+            return med
+        except Exception as e:
+            try:
+                self.nm_log(f"[RTT探针] 失败: {e}")
+            except Exception:
+                pass
+            return None
 
     def nm_ntp_sync(self):
         """NTP时间同步（使用socket方式，不依赖第三方库）"""
@@ -1450,9 +1549,11 @@ pause
         self.nm_log("[NTP同步] 所有NTP服务器均不可用，使用本地时间")
         return 0
 
-    def nm_execute_task(self, task, task_info, session, deadline, target_time, stop_flag):
+    def nm_execute_task(self, task, task_info, session, deadline, target_time, stop_flag,
+                        advance_ms=0):
         """执行单个任务的抢码（带风控递增延迟）
         P1-4: target_time显式传入，不再从deadline反推
+        v6.2.0: advance_ms 传入本次提前量，用于统计最优提前量
         """
         account = self.account_mgr.get_account(task["account_name"])
         if not account:
@@ -1477,7 +1578,8 @@ pause
             attempt += 1
             try:
                 stop_flag["last_request_time"] = time.time()  # 记录请求发出时间（每组独立）
-                ok, msg = self.do_receive_fast(task, task_info, account, session)
+                ok, msg = self.do_receive_fast(task, task_info, account, session,
+                                               advance_ms=advance_ms)
                 recv_time = time.time()
                 last_req = stop_flag.get("last_request_time", 0)
                 rtt_ms = (recv_time - last_req) * 1000
