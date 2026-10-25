@@ -18,6 +18,23 @@ try:
 except ImportError:
     WEBSOCKET_AVAILABLE = False
 
+# ---------- O5: 统一日志（模块级缓存，避免重复创建 logger）----------
+def _get_logger_cached(owner, name):
+    """按实例缓存 logger，避免每次 log 都重建。"""
+    try:
+        cache = getattr(owner, "_o5_loggger_cache", None)
+        if cache is None:
+            cache = {}
+            setattr(owner, "_o5_loggger_cache", cache)
+        lg = cache.get(name)
+        if lg is None:
+            import logging_util
+            lg = logging_util.get_logger(name)
+            cache[name] = lg
+        return lg
+    except Exception:
+        return None
+
 
 class WatchLiveFrame(tk.Frame):
     """看播任务工具：模拟观看B站直播间，完成看播里程碑任务"""
@@ -1048,7 +1065,7 @@ class WatchLiveFrame(tk.Frame):
             self.status_tree.insert("", tk.END, values=(name, status_text, f"{watch_min}分{watch_sec}秒", stats.get("heartbeat_count", 0), f"{self.duration_var.get()}分钟"))
 
     def log(self, msg):
-        """线程安全的日志输出"""
+        """线程安全的日志输出（O5: 同时写文件，便于排障）"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_msg = f"[{timestamp}] {msg}\n"
         def _update():
@@ -1068,6 +1085,11 @@ class WatchLiveFrame(tk.Frame):
                 _update()
         except Exception:
             _update()
+        # O5: 落文件（原实现只写 UI，重启即丢）
+        try:
+            _get_logger_cached(self, "watch_live").log(msg)
+        except Exception:
+            pass
 
     def get_danmu_token(self, account, room_id):
         """用登录cookie获取弹幕服务器token"""

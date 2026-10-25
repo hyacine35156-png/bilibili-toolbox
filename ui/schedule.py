@@ -10,6 +10,23 @@ from config import COLORS, BASE_DIR
 from storage import atomic_write_json, safe_load_json
 from widgets import DarkButton, DarkEntry, custom_askyesno
 
+# ---------- O5: 统一日志（模块级缓存，避免重复创建 logger）----------
+def _get_logger_cached(owner, name):
+    """按实例缓存 logger，避免每次 log 都重建。"""
+    try:
+        cache = getattr(owner, "_o5_loggger_cache", None)
+        if cache is None:
+            cache = {}
+            setattr(owner, "_o5_loggger_cache", cache)
+        lg = cache.get(name)
+        if lg is None:
+            import logging_util
+            lg = logging_util.get_logger(name)
+            cache[name] = lg
+        return lg
+    except Exception:
+        return None
+
 # ========== 日程任务 ==========
 class ScheduleFrame(tk.Frame):
     """日程任务：定时执行抢码/看播/发弹幕"""
@@ -168,7 +185,7 @@ class ScheduleFrame(tk.Frame):
         self.selected_task_id = None
 
     def log(self, msg):
-        """线程安全的日志输出"""
+        """线程安全的日志输出（O5: 同时写文件，便于排障）"""
         timestamp = time.strftime("%H:%M:%S")
         line = f"[{timestamp}] {msg}\n"
         def _update():
@@ -188,6 +205,11 @@ class ScheduleFrame(tk.Frame):
                 _update()
         except Exception:
             _update()
+        # O5: 落文件（原实现只写 UI，重启即丢）
+        try:
+            _get_logger_cached(self, "schedule").log(msg)
+        except Exception:
+            pass
 
     def sync_log_to_modules(self, msg):
         """将日志同步到所有相关模块页面"""

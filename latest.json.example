@@ -1,0 +1,7 @@
+{
+  "_说明": "把本文件上传到任意可公开访问的地址（GitHub raw / 你的下载中心），再把地址填到 updater.py 的 UPDATE_INDEX_URL。程序只做版本比对并提示，不会自动替换 exe。",
+  "version": "v6.2.0",
+  "url": "https://example.com/download/B站工具箱_v6.2.0.exe",
+  "notes": "1. 新增 xxx\n2. 修复 yyy",
+  "sha256": ""
+}

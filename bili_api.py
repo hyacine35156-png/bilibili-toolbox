@@ -14,6 +14,7 @@ from config import (
     _last_claim_data_global, _last_claim_result_global,
 )
 from tasks_config import ALL_TASKS, VERSION_DEFAULT_ACT_ID
+import http_client
 
 
 def verify_login(cookie_str):
@@ -114,7 +115,15 @@ def get_mission_info(task_id, cookies_dict):
     try:
         # P2-Q: wbi_sign移到try内，避免签名异常导致函数崩溃
         signed_params = wbi_sign(params, img_key, sub_key)
-        resp = requests.get(MISSION_INFO_API, headers=headers, cookies=cookies_dict, params=signed_params, timeout=10)
+        # O6: 走统一客户端（连接池复用 + 耗时统计）。
+        # 注意：这里**禁用自动重试** —— 该接口返回 -702 是风控信号，
+        # 自动重试只会加剧风控。重试策略由上层（check_all_tasks_finished）负责。
+        resp, err = http_client.http_get(
+            MISSION_INFO_API, headers=headers, cookies=cookies_dict,
+            params=signed_params, timeout=(5, 10), allow_retry=False,
+        )
+        if resp is None:
+            return None, f"网络异常: {err}"
         data = resp.json()
         if data.get("code") == 0:
             return data.get("data"), "成功"

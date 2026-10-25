@@ -50,6 +50,8 @@ from card_auth import (get_machine_code, get_card_remaining_text, verify_card_on
                       load_saved_card, is_card_expired, save_card_info, clear_saved_card,
                       CARD_FILE, CARD_API_BASE, CARD_VERIFY_URL)
 import data_guard
+from ui import theme
+import updater
 
 # 自动迁移旧配置文件（从exe同目录迁移到data子目录）
 def _migrate_old_files():
@@ -282,9 +284,9 @@ class DanmakuApp:
         style.theme_use("clam")
         style.configure("Dark.TFrame", background=COLORS["bg_dark"])
         style.configure("Card.TFrame", background=COLORS["bg_card"])
-        style.configure("Dark.TLabel", background=COLORS["bg_card"], foreground=COLORS["text_primary"], font=("微软雅黑", 9))
-        style.configure("Title.TLabel", background=COLORS["bg_card"], foreground=COLORS["accent"], font=("微软雅黑", 11, "bold"))
-        style.configure("Dark.TRadiobutton", background=COLORS["bg_card"], foreground=COLORS["text_primary"], font=("微软雅黑", 9))
+        style.configure("Dark.TLabel", background=COLORS["bg_card"], foreground=COLORS["text_primary"], font=theme.font(9))
+        style.configure("Title.TLabel", background=COLORS["bg_card"], foreground=COLORS["accent"], font=theme.font(11, bold=True))
+        style.configure("Dark.TRadiobutton", background=COLORS["bg_card"], foreground=COLORS["text_primary"], font=theme.font(9))
         style.configure("Dark.Horizontal.TScrollbar", background=COLORS["bg_input"], troughcolor=COLORS["bg_card"], bordercolor=COLORS["bg_card"], arrowcolor=COLORS["accent"])
 
     def build_ui(self):
@@ -297,12 +299,12 @@ class DanmakuApp:
         title_frame.pack(side=tk.LEFT, padx=20)
 
         tk.Label(title_frame, text="● B站工具箱", bg=COLORS["bg_card"],
-                 fg=COLORS["accent"], font=("微软雅黑", 16, "bold")).pack(side=tk.LEFT)
+                 fg=COLORS["accent"], font=theme.font(16, bold=True)).pack(side=tk.LEFT)
         tk.Label(title_frame, text="  弹幕+抢码+定时关机", bg=COLORS["bg_card"],
-                 fg=COLORS["text_muted"], font=("微软雅黑", 11)).pack(side=tk.LEFT, padx=(8, 0))
+                 fg=COLORS["text_muted"], font=theme.font(11)).pack(side=tk.LEFT, padx=(8, 0))
 
         self.header_status = tk.Label(header, text="● 未运行", bg=COLORS["bg_card"],
-                                       fg=COLORS["text_muted"], font=("微软雅黑", 11))
+                                       fg=COLORS["text_muted"], font=theme.font(11))
         self.header_status.pack(side=tk.RIGHT, padx=20)
 
         # 标签切换栏
@@ -311,43 +313,43 @@ class DanmakuApp:
         tab_bar.pack_propagate(False)
 
         self.tab_rush = tk.Label(tab_bar, text="⚡ 抢码工具", bg=COLORS["accent"], fg="#000000",
-                                  font=("微软雅黑", 12, "bold"), padx=24, pady=10, cursor="hand2")
+                                  font=theme.font(12, bold=True), padx=24, pady=10, cursor="hand2")
         self.tab_rush.pack(side=tk.LEFT, padx=(15, 5), pady=6)
         self.tab_rush.bind("<Button-1>", lambda e: self.switch_tab("rush"))
 
         self.tab_danmaku = tk.Label(tab_bar, text="💬 弹幕工具", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                     font=("微软雅黑", 12), padx=24, pady=10, cursor="hand2")
+                                     font=theme.font(12), padx=24, pady=10, cursor="hand2")
         self.tab_danmaku.pack(side=tk.LEFT, padx=(0, 5), pady=6)
         self.tab_danmaku.bind("<Button-1>", lambda e: self.switch_tab("danmaku"))
 
         self.tab_shutdown = tk.Label(tab_bar, text="⏻ 定时关机", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                      font=("微软雅黑", 12), padx=24, pady=10, cursor="hand2")
+                                      font=theme.font(12), padx=24, pady=10, cursor="hand2")
         self.tab_shutdown.pack(side=tk.LEFT, padx=(0, 5), pady=6)
         self.tab_shutdown.bind("<Button-1>", lambda e: self.switch_tab("shutdown"))
 
         self.tab_watch = tk.Label(tab_bar, text="📺 看播任务", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                   font=("微软雅黑", 12), padx=24, pady=10, cursor="hand2")
+                                   font=theme.font(12), padx=24, pady=10, cursor="hand2")
         self.tab_watch.pack(side=tk.LEFT, padx=(0, 5), pady=6)
         self.tab_watch.bind("<Button-1>", lambda e: self.switch_tab("watch"))
 
         self.tab_code_export = tk.Label(tab_bar, text="🎁 兑换码", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                         font=("微软雅黑", 12), padx=24, pady=10, cursor="hand2")
+                                         font=theme.font(12), padx=24, pady=10, cursor="hand2")
         self.tab_code_export.pack(side=tk.LEFT, padx=(0, 5), pady=6)
         self.tab_code_export.bind("<Button-1>", lambda e: self.switch_tab("code_export"))
 
         self.tab_schedule = tk.Label(tab_bar, text="📅 日程任务", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                      font=("微软雅黑", 12), padx=24, pady=10, cursor="hand2")
+                                      font=theme.font(12), padx=24, pady=10, cursor="hand2")
         self.tab_schedule.pack(side=tk.LEFT, padx=(0, 5), pady=6)
         self.tab_schedule.bind("<Button-1>", lambda e: self.switch_tab("schedule"))
 
         self.tab_account = tk.Label(tab_bar, text="👤 账户管理", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                     font=("微软雅黑", 12), padx=24, pady=10, cursor="hand2")
+                                     font=theme.font(12), padx=24, pady=10, cursor="hand2")
         self.tab_account.pack(side=tk.LEFT, padx=(0, 5), pady=6)
         self.tab_account.bind("<Button-1>", lambda e: self.switch_tab("account"))
 
         # 任务说明标签
         self.tab_guide = tk.Label(tab_bar, text="📖 使用说明", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                  font=("微软雅黑", 12), padx=24, pady=10, cursor="hand2")
+                                  font=theme.font(12), padx=24, pady=10, cursor="hand2")
         self.tab_guide.pack(side=tk.LEFT, padx=(0, 15), pady=6)
         self.tab_guide.bind("<Button-1>", lambda e: self.switch_tab("guide"))
 
@@ -361,10 +363,10 @@ class DanmakuApp:
         left_info.pack(side=tk.LEFT, padx=20)
         tk.Label(left_info, text=f"{APP_VERSION}", 
                 bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=(0, 15))
+                font=theme.font(10)).pack(side=tk.LEFT, padx=(0, 15))
         self.footer_card_label = tk.Label(left_info, text=self.card_text, 
                 bg=COLORS["bg_card"], fg=COLORS["success"],
-                font=("微软雅黑", 10))
+                font=theme.font(10))
         self.footer_card_label.pack(side=tk.LEFT)
         
         # 右侧：设备码 + 复制按钮
@@ -373,7 +375,7 @@ class DanmakuApp:
         machine_code = get_machine_code()
         tk.Label(right_info, text="设备码:", 
                 bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=(0, 8))
+                font=theme.font(10)).pack(side=tk.LEFT, padx=(0, 8))
         self.footer_machine_label = tk.Label(right_info, 
                 text=f"{machine_code[:8]}...{machine_code[-8:]}", 
                 bg=COLORS["bg_card"], fg=COLORS["accent"],
@@ -381,7 +383,7 @@ class DanmakuApp:
         self.footer_machine_label.pack(side=tk.LEFT, padx=(0, 8))
         copy_machine_btn = tk.Button(right_info, text="📋 复制", 
                 bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                font=("微软雅黑", 9), relief=tk.FLAT, cursor="hand2",
+                font=theme.font(9), relief=tk.FLAT, cursor="hand2",
                 command=lambda: self._copy_machine_code())
         copy_machine_btn.pack(side=tk.LEFT, ipadx=8, ipady=2)
 
@@ -442,19 +444,19 @@ class DanmakuApp:
         left_card.configure(width=280)
 
         tk.Label(left_card, text="选择发送账户", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=15, pady=(12, 4))
+                 font=theme.font(11, bold=True)).pack(anchor=tk.W, padx=15, pady=(12, 4))
         tk.Label(left_card, text="（打钩多选，可全选）", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 8)).pack(anchor=tk.W, padx=15, pady=(0, 4))
+                 font=theme.font(8)).pack(anchor=tk.W, padx=15, pady=(0, 4))
 
         # 全选/取消全选按钮
         danmaku_btn_frame = tk.Frame(left_card, bg=COLORS["bg_card"])
         danmaku_btn_frame.pack(fill=tk.X, padx=12, pady=(0, 4))
         self.danmaku_select_all_btn = tk.Button(danmaku_btn_frame, text="全选", bg=COLORS["bg_input"],
-                                                  fg=COLORS["text_secondary"], font=("微软雅黑", 8), bd=0,
+                                                  fg=COLORS["text_secondary"], font=theme.font(8), bd=0,
                                                   padx=8, pady=2, cursor="hand2", command=self._danmaku_select_all)
         self.danmaku_select_all_btn.pack(side=tk.LEFT, padx=(0, 4))
         self.danmaku_deselect_all_btn = tk.Button(danmaku_btn_frame, text="取消全选", bg=COLORS["bg_input"],
-                                                     fg=COLORS["text_secondary"], font=("微软雅黑", 8), bd=0,
+                                                     fg=COLORS["text_secondary"], font=theme.font(8), bd=0,
                                                      padx=8, pady=2, cursor="hand2", command=self._danmaku_deselect_all)
         self.danmaku_deselect_all_btn.pack(side=tk.LEFT)
 
@@ -473,7 +475,7 @@ class DanmakuApp:
         settings_card.pack(fill=tk.X, pady=(0, 6))
 
         tk.Label(settings_card, text="发送设置", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 8))
+                 font=theme.font(11, bold=True)).pack(anchor=tk.W, padx=15, pady=(10, 8))
 
         settings_inner = tk.Frame(settings_card, bg=COLORS["bg_card"])
         settings_inner.pack(fill=tk.X, padx=15, pady=(0, 12))
@@ -483,17 +485,17 @@ class DanmakuApp:
         row1.pack(fill=tk.X, pady=3)
 
         tk.Label(row1, text="直播间:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT)
+                 font=theme.font(10)).pack(side=tk.LEFT)
         self.room_combo = ttk.Combobox(row1, width=28, values=[], state="readonly")
         self.room_combo.pack(side=tk.LEFT, padx=(8, 4))
         # 刷新直播间下拉框按钮
         refresh_btn = tk.Button(row1, text="↻", width=3, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                                relief=tk.FLAT, cursor="hand2", font=("微软雅黑", 10),
+                                relief=tk.FLAT, cursor="hand2", font=theme.font(10),
                                 command=self._refresh_danmaku_room_combo_values)
         refresh_btn.pack(side=tk.LEFT, padx=(0, 20))
 
         tk.Label(row1, text="发送间隔", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=theme.font(9)).pack(side=tk.LEFT)
         self.interval_min = DarkEntry(row1, width=5)
         self.interval_min.insert(0, "5")
         self.interval_min.pack(side=tk.LEFT, padx=(8, 4))
@@ -503,7 +505,7 @@ class DanmakuApp:
         self.interval_max.pack(side=tk.LEFT, padx=(4, 20))
 
         tk.Label(row1, text="模式", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=theme.font(9)).pack(side=tk.LEFT)
         self.mode_var = tk.StringVar(value="random")
         ttk.Radiobutton(row1, text="随机", variable=self.mode_var, value="random", style="Dark.TRadiobutton").pack(side=tk.LEFT, padx=(8, 8))
         ttk.Radiobutton(row1, text="顺序", variable=self.mode_var, value="sequence", style="Dark.TRadiobutton").pack(side=tk.LEFT)
@@ -513,24 +515,24 @@ class DanmakuApp:
         row2.pack(fill=tk.X, pady=3)
 
         tk.Label(row2, text="账户模式", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=theme.font(9)).pack(side=tk.LEFT)
         self.account_mode_var = tk.StringVar(value="single")
         ttk.Radiobutton(row2, text="单账户", variable=self.account_mode_var, value="single", style="Dark.TRadiobutton").pack(side=tk.LEFT, padx=(8, 8))
         ttk.Radiobutton(row2, text="多账户轮流", variable=self.account_mode_var, value="rotate", style="Dark.TRadiobutton").pack(side=tk.LEFT)
         tk.Label(row2, text="（所有账户依次轮流发）", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 8)).pack(side=tk.LEFT, padx=(8, 0))
+                 font=theme.font(8)).pack(side=tk.LEFT, padx=(8, 0))
 
         # 第三行：发送条数限制
         row3 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         row3.pack(fill=tk.X, pady=3)
 
         tk.Label(row3, text="发送限制", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=theme.font(9)).pack(side=tk.LEFT)
         self.max_send_entry = DarkEntry(row3, width=8)
         self.max_send_entry.insert(0, "0")
         self.max_send_entry.pack(side=tk.LEFT, padx=(8, 4))
         tk.Label(row3, text="条后停止（0=不限制）", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 8)).pack(side=tk.LEFT)
+                 font=theme.font(8)).pack(side=tk.LEFT)
 
         # ===== 底部容器：日志 + 控制栏（固定高度，先pack到BOTTOM）=====
         bottom_container = tk.Frame(right, bg=COLORS["bg_dark"])
@@ -543,7 +545,7 @@ class DanmakuApp:
         log_card.configure(height=160)
 
         tk.Label(log_card, text="运行日志", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=15, pady=(8, 4))
+                 font=theme.font(11, bold=True)).pack(anchor=tk.W, padx=15, pady=(8, 4))
 
         log_frame = tk.Frame(log_card, bg=COLORS["bg_card"])
         log_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 10))
@@ -580,7 +582,7 @@ class DanmakuApp:
         status_row.pack(fill=tk.X, pady=(6, 0))
 
         self.status_label = tk.Label(status_row, text="状态：就绪，等待启动", bg=COLORS["bg_card"],
-                                      fg=COLORS["text_muted"], font=("微软雅黑", 9))
+                                      fg=COLORS["text_muted"], font=theme.font(9))
         self.status_label.pack(side=tk.LEFT)
 
         # ===== 中间：弹幕列表卡片（expand=True，占据剩余空间）=====
@@ -594,7 +596,7 @@ class DanmakuApp:
         header_row1 = tk.Frame(danmaku_header, bg=COLORS["bg_card"])
         header_row1.pack(fill=tk.X)
         tk.Label(header_row1, text="弹幕列表（三列显示，每行一条）", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 11, "bold")).pack(side=tk.LEFT)
+                 font=theme.font(11, bold=True)).pack(side=tk.LEFT)
 
         # 第二排：按钮
         header_row2 = tk.Frame(danmaku_header, bg=COLORS["bg_card"])
@@ -623,7 +625,7 @@ class DanmakuApp:
 
             # 列标题
             tk.Label(col_frame, text=f"第{i+1}列", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                     font=("微软雅黑", 8)).grid(row=0, column=0, sticky="w", pady=(0, 2))
+                     font=theme.font(8)).grid(row=0, column=0, sticky="w", pady=(0, 2))
 
             text_with_scroll = tk.Frame(col_frame, bg=COLORS["bg_card"])
             text_with_scroll.grid(row=1, column=0, sticky="nsew")
@@ -631,7 +633,7 @@ class DanmakuApp:
             text_with_scroll.grid_columnconfigure(0, weight=1)
 
             text_widget = tk.Text(text_with_scroll, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                                  insertbackground=COLORS["accent"], font=("微软雅黑", 9),
+                                  insertbackground=COLORS["accent"], font=theme.font(9),
                                   bd=0, highlightthickness=0, wrap=tk.WORD, width=20)
             text_widget.grid(row=0, column=0, sticky="nsew")
             self.danmaku_texts.append(text_widget)
@@ -662,14 +664,14 @@ class DanmakuApp:
         left_card.configure(width=300)
 
         tk.Label(left_card, text="账户列表", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 12, "bold")).pack(anchor=tk.W, padx=15, pady=(12, 8))
+                 font=theme.font(12, bold=True)).pack(anchor=tk.W, padx=15, pady=(12, 8))
 
         # 账户列表（Listbox）
         list_frame = tk.Frame(left_card, bg=COLORS["bg_card"])
         list_frame.pack(fill=tk.BOTH, expand=True, padx=12)
         self.manager_account_listbox = tk.Listbox(list_frame, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
                                                     selectbackground=COLORS["accent"], selectforeground="#000000",
-                                                    font=("微软雅黑", 10), bd=0, highlightthickness=0,
+                                                    font=theme.font(10), bd=0, highlightthickness=0,
                                                     activestyle="none", exportselection=False)
         self.manager_account_listbox.pack(fill=tk.BOTH, expand=True)
         self.manager_account_listbox.bind("<<ListboxSelect>>", self._on_manager_account_select)
@@ -686,7 +688,9 @@ class DanmakuApp:
         DarkButton(btn_frame, "验证登录", command=self._manager_verify_account,
                    width=270, height=38, bg_color="#444466", text_color="#ffffff").pack(pady=(0, 6))
         DarkButton(btn_frame, "刷新信息", command=self._manager_refresh_info,
-                   width=270, height=38, bg_color="#2980b9", text_color="#ffffff").pack()
+                   width=270, height=38, bg_color="#2980b9", text_color="#ffffff").pack(pady=(0, 6))
+        DarkButton(btn_frame, "🛡 数据备份与恢复", command=self._open_backup_manager,
+                   width=270, height=38, bg_color="#7d3c98", text_color="#ffffff").pack()
 
         # 右侧：账户详细信息
         right_card = tk.Frame(main, bg=COLORS["bg_card"], bd=0, highlightthickness=1, highlightbackground=COLORS["border"])
@@ -695,7 +699,7 @@ class DanmakuApp:
         right_card.configure(width=400)
 
         tk.Label(right_card, text="账户详细信息", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 12, "bold")).pack(anchor=tk.W, padx=15, pady=(12, 8))
+                 font=theme.font(12, bold=True)).pack(anchor=tk.W, padx=15, pady=(12, 8))
 
         info_frame = tk.Frame(right_card, bg=COLORS["bg_card"])
         info_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
@@ -721,7 +725,7 @@ class DanmakuApp:
         room_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 0))
 
         tk.Label(room_card, text="直播间管理", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 12, "bold")).pack(anchor=tk.W, padx=15, pady=(12, 8))
+                 font=theme.font(12, bold=True)).pack(anchor=tk.W, padx=15, pady=(12, 8))
 
         room_inner = tk.Frame(room_card, bg=COLORS["bg_card"])
         room_inner.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
@@ -732,7 +736,7 @@ class DanmakuApp:
 
         self.manager_room_listbox = tk.Listbox(room_left, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
                                                   selectbackground=COLORS["accent"], selectforeground="#000000",
-                                                  font=("微软雅黑", 10), bd=0, highlightthickness=0,
+                                                  font=theme.font(10), bd=0, highlightthickness=0,
                                                   activestyle="none", exportselection=False)
         self.manager_room_listbox.pack(fill=tk.BOTH, expand=True)
         self.manager_room_listbox.bind("<<ListboxSelect>>", self._on_manager_room_select)
@@ -743,17 +747,17 @@ class DanmakuApp:
         room_right.pack_propagate(False)
 
         tk.Label(room_right, text="直播间号:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(anchor=tk.W)
+                 font=theme.font(9)).pack(anchor=tk.W)
         self.room_id_entry = DarkEntry(room_right, width=28)
         self.room_id_entry.pack(fill=tk.X, pady=(2, 8))
 
         tk.Label(room_right, text="显示名称:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(anchor=tk.W)
+                 font=theme.font(9)).pack(anchor=tk.W)
         self.room_name_entry = DarkEntry(room_right, width=28)
         self.room_name_entry.pack(fill=tk.X, pady=(2, 8))
 
         tk.Label(room_right, text="备注:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(anchor=tk.W)
+                 font=theme.font(9)).pack(anchor=tk.W)
         self.room_remark_entry = DarkEntry(room_right, width=28)
         self.room_remark_entry.pack(fill=tk.X, pady=(2, 10))
 
@@ -773,7 +777,7 @@ class DanmakuApp:
 
         # 标题
         tk.Label(main, text="📖 使用说明", bg=COLORS["bg_dark"], fg=COLORS["accent"],
-                 font=("微软雅黑", 16, "bold")).pack(anchor=tk.W, padx=8, pady=(0, 10))
+                 font=theme.font(16, bold=True)).pack(anchor=tk.W, padx=8, pady=(0, 10))
 
         # 内容卡片
         card = tk.Frame(main, bg=COLORS["bg_card"], bd=0, highlightthickness=1, highlightbackground=COLORS["border"])
@@ -785,7 +789,7 @@ class DanmakuApp:
 
         # 文本区域
         text = tk.Text(card, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                        font=("微软雅黑", 10), bd=0, highlightthickness=0, wrap=tk.WORD,
+                        font=theme.font(10), bd=0, highlightthickness=0, wrap=tk.WORD,
                         padx=20, pady=20, yscrollcommand=scroll.set)
         text.pack(fill=tk.BOTH, expand=True)
         scroll.config(command=text.yview)
@@ -866,6 +870,142 @@ class DanmakuApp:
         if hasattr(self, 'watch_page') and hasattr(self.watch_page, '_refresh_room_combo_values'):
             self.watch_page._refresh_room_combo_values()
         messagebox.showinfo("提示", f"从账户导入完成，共新增 {count} 个直播间")
+
+    def _open_backup_manager(self):
+        """打开数据备份与恢复管理器（O2 用户界面）。"""
+        existing = getattr(self, "_backup_dialog", None)
+        try:
+            if existing is not None and existing.winfo_exists():
+                existing.deiconify()
+                existing.lift()
+                existing.focus_force()
+                return
+        except Exception:
+            pass
+
+        dlg = tk.Toplevel(self.root)
+        self._backup_dialog = dlg
+        dlg.title("数据备份与恢复")
+        dlg.configure(bg=COLORS["bg_dark"])
+        dlg.transient(self.root)
+        try:
+            dlg.geometry("820x560")
+        except Exception:
+            pass
+
+        # 顶部说明
+        head = tk.Frame(dlg, bg=COLORS["bg_card"])
+        head.pack(fill=tk.X, padx=10, pady=(10, 6))
+        tk.Label(head, text="程序每天首次启动会自动备份 data/，保留最近 7 份",
+                 bg=COLORS["bg_card"], fg=COLORS["accent"],
+                 font=theme.font(11, bold=True)).pack(anchor=tk.W, padx=12, pady=(8, 2))
+        tk.Label(head, text="恢复会用备份覆盖当前 data/，建议先手动备份当前数据再恢复",
+                 bg=COLORS["bg_card"], fg=COLORS["warning"],
+                 font=theme.font(9)).pack(anchor=tk.W, padx=12, pady=(0, 8))
+
+        # 状态行
+        status_frame = tk.Frame(dlg, bg=COLORS["bg_dark"])
+        status_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
+        status_label = tk.Label(status_frame, text="", bg=COLORS["bg_dark"],
+                                fg=COLORS["text_secondary"], font=theme.font(10),
+                                justify=tk.LEFT, anchor=tk.W)
+        status_label.pack(fill=tk.X)
+
+        # 备份列表
+        list_card = tk.Frame(dlg, bg=COLORS["bg_card"])
+        list_card.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
+        tk.Label(list_card, text="已有备份（新→旧）", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=theme.font(10, bold=True)
+                 ).pack(anchor=tk.W, padx=12, pady=(8, 4))
+        lf = tk.Frame(list_card, bg=COLORS["bg_card"])
+        lf.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 10))
+        sb = tk.Scrollbar(lf, orient=tk.VERTICAL)
+        lb = tk.Listbox(lf, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+                        font=("Consolas", 10), bd=0, highlightthickness=0,
+                        selectbackground=COLORS["accent"], selectforeground="#000000",
+                        yscrollcommand=sb.set)
+        sb.config(command=lb.yview)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        backups = []
+
+        def refresh_list():
+            backups.clear()
+            lb.delete(0, tk.END)
+            items = data_guard.list_backups()
+            for b in items:
+                backups.append(b)
+                lb.insert(tk.END, f'{b["time"]}   {b["size_kb"]:>8.1f} KB   {b["name"]}')
+            if not items:
+                lb.insert(tk.END, "（暂无备份，点下方「立即备份」创建第一份）")
+            try:
+                s = data_guard.list_backups()
+                total = len(s)
+                latest = s[0]["time"] if s else "无"
+                status_label.config(text=f"当前备份数: {total}    最近备份: {latest}")
+            except Exception:
+                pass
+
+        # 操作按钮
+        btn_row = tk.Frame(dlg, bg=COLORS["bg_dark"])
+        btn_row.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+        def do_backup_now():
+            ok, path, msg = data_guard.daily_backup(force=True)
+            if ok:
+                messagebox.showinfo("备份完成", f"{msg}\n\n{path}", parent=dlg)
+            else:
+                messagebox.showwarning("备份失败", msg, parent=dlg)
+            refresh_list()
+
+        def do_restore():
+            sel = lb.curselection()
+            if not sel or not backups:
+                messagebox.showwarning("提示", "请先在列表中选择一个备份", parent=dlg)
+                return
+            idx = sel[0]
+            if idx >= len(backups):
+                return
+            target = backups[idx]
+            if not messagebox.askyesno(
+                    "确认恢复",
+                    f"确定用以下备份恢复吗？\n\n{target['time']}\n{target['name']}\n\n"
+                    f"注意：会用备份内容覆盖当前 data/ 下的同名文件。\n"
+                    f"建议先点「立即备份」保存当前数据。",
+                    parent=dlg):
+                return
+            ok, msgs = data_guard.restore_from_backup(target["path"])
+            if ok:
+                messagebox.showinfo("恢复完成",
+                                    "已从备份恢复:\n" + "\n".join(msgs) +
+                                    "\n\n请重启程序以使恢复的数据完全生效。",
+                                    parent=dlg)
+            else:
+                messagebox.showerror("恢复失败", "\n".join(msgs), parent=dlg)
+            refresh_list()
+
+        def do_open_folder():
+            try:
+                import subprocess
+                subprocess.Popen(["explorer", str(data_guard.BACKUP_DIR)])
+            except Exception as e:
+                messagebox.showwarning("提示", f"无法打开目录: {e}", parent=dlg)
+
+        DarkButton(btn_row, "💾 立即备份", command=do_backup_now,
+                   width=150, height=36).pack(side=tk.LEFT)
+        DarkButton(btn_row, "♻ 恢复选中备份", command=do_restore,
+                   width=170, height=36, bg_color="#e67e22", text_color="#ffffff"
+                   ).pack(side=tk.LEFT, padx=(8, 0))
+        DarkButton(btn_row, "📂 打开备份目录", command=do_open_folder,
+                   width=170, height=36, bg_color="#2980b9", text_color="#ffffff"
+                   ).pack(side=tk.LEFT, padx=(8, 0))
+        DarkButton(btn_row, "关闭", command=dlg.destroy,
+                   width=100, height=36, bg_color="#7f8c8d", text_color="#ffffff"
+                   ).pack(side=tk.RIGHT)
+
+        dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
+        refresh_list()
 
     def refresh_account_manager_list(self):
         """刷新账户管理页面的账户列表"""
@@ -1120,7 +1260,7 @@ bili_jct: {jct_preview}
             cb = tk.Checkbutton(self.danmaku_account_frame, text=name, variable=var,
                                 bg=COLORS["bg_input"], fg=COLORS["text_primary"],
                                 selectcolor=COLORS["accent"], activebackground=COLORS["bg_input"],
-                                activeforeground=COLORS["text_primary"], font=("微软雅黑", 9),
+                                activeforeground=COLORS["text_primary"], font=theme.font(9),
                                 anchor="w", padx=8, pady=4,
                                 command=self._on_danmaku_account_changed)
             cb.pack(fill=tk.X, anchor="w")
@@ -1285,58 +1425,58 @@ bili_jct: {jct_preview}
         self.guide_page.pack_forget()
 
         # 重置所有标签样式
-        self.tab_rush.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
-        self.tab_danmaku.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
-        self.tab_shutdown.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
-        self.tab_watch.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
-        self.tab_code_export.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
-        self.tab_schedule.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
-        self.tab_account.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 10))
-        self.tab_guide.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 12))
+        self.tab_rush.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(10))
+        self.tab_danmaku.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(10))
+        self.tab_shutdown.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(10))
+        self.tab_watch.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(10))
+        self.tab_code_export.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(10))
+        self.tab_schedule.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(10))
+        self.tab_account.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(10))
+        self.tab_guide.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(12))
 
         if tab_name == "danmaku":
             self.danmaku_page.pack(fill=tk.BOTH, expand=True)
-            self.tab_danmaku.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 10, "bold"))
+            self.tab_danmaku.config(bg=COLORS["accent"], fg="#000000", font=theme.font(10, bold=True))
             self.current_tab = "danmaku"
             # 切换到弹幕工具时刷新账户列表
             self._refresh_danmaku_account_checkboxes()
         elif tab_name == "rush":
             self.rush_page.pack(fill=tk.BOTH, expand=True)
-            self.tab_rush.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 10, "bold"))
+            self.tab_rush.config(bg=COLORS["accent"], fg="#000000", font=theme.font(10, bold=True))
             self.current_tab = "rush"
             # 切换到抢码工具时刷新账户列表
             self.rush_page.refresh_account_list()
         elif tab_name == "shutdown":
             self.shutdown_page.pack(fill=tk.BOTH, expand=True)
-            self.tab_shutdown.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 10, "bold"))
+            self.tab_shutdown.config(bg=COLORS["accent"], fg="#000000", font=theme.font(10, bold=True))
             self.current_tab = "shutdown"
             # 刷新关机任务列表
             self.refresh_shutdown_task_list()
         elif tab_name == "watch":
             self.watch_page.pack(fill=tk.BOTH, expand=True)
-            self.tab_watch.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 10, "bold"))
+            self.tab_watch.config(bg=COLORS["accent"], fg="#000000", font=theme.font(10, bold=True))
             self.current_tab = "watch"
             # 切换到看播任务时刷新账户列表
             self.watch_page.refresh_account_list()
         elif tab_name == "code_export":
             self.code_export_page.pack(fill=tk.BOTH, expand=True)
-            self.tab_code_export.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 10, "bold"))
+            self.tab_code_export.config(bg=COLORS["accent"], fg="#000000", font=theme.font(10, bold=True))
             self.current_tab = "code_export"
             # 切换到兑换码页面时刷新列表
             self.code_export_page.refresh_list()
         elif tab_name == "schedule":
             self.schedule_page.pack(fill=tk.BOTH, expand=True)
-            self.tab_schedule.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 10, "bold"))
+            self.tab_schedule.config(bg=COLORS["accent"], fg="#000000", font=theme.font(10, bold=True))
             self.current_tab = "schedule"
         elif tab_name == "account":
             self.account_page.pack(fill=tk.BOTH, expand=True)
-            self.tab_account.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 10, "bold"))
+            self.tab_account.config(bg=COLORS["accent"], fg="#000000", font=theme.font(10, bold=True))
             self.current_tab = "account"
             # 切换到账户管理页面时刷新列表
             self.refresh_account_manager_list()
         elif tab_name == "guide":
             self.guide_page.pack(fill=tk.BOTH, expand=True)
-            self.tab_guide.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 12, "bold"))
+            self.tab_guide.config(bg=COLORS["accent"], fg="#000000", font=theme.font(12, bold=True))
             self.current_tab = "guide"
         # 保存当前标签页
         self.save_config()
@@ -1353,7 +1493,7 @@ bili_jct: {jct_preview}
         setup_card.pack(fill=tk.X, pady=(0, 8))
 
         tk.Label(setup_card, text="⏻ 定时关机设置", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 12, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 8))
+                 font=theme.font(12, bold=True)).pack(anchor=tk.W, padx=15, pady=(10, 8))
 
         setup_content = tk.Frame(setup_card, bg=COLORS["bg_card"])
         setup_content.pack(fill=tk.X, padx=15, pady=(0, 12))
@@ -1362,53 +1502,53 @@ bili_jct: {jct_preview}
         mode_frame = tk.Frame(setup_content, bg=COLORS["bg_card"])
         mode_frame.pack(fill=tk.X, pady=4)
         tk.Label(mode_frame, text="关机模式:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT)
+                 font=theme.font(10)).pack(side=tk.LEFT)
         self.shutdown_mode_var = tk.StringVar(value="none")
         tk.Radiobutton(mode_frame, text="不关机", variable=self.shutdown_mode_var, value="none",
                        bg=COLORS["bg_card"], fg=COLORS["text_primary"], selectcolor=COLORS["bg_input"],
                        activebackground=COLORS["bg_card"], activeforeground=COLORS["text_primary"],
-                       font=("微软雅黑", 10), command=self.on_shutdown_mode_change).pack(side=tk.LEFT, padx=(15, 0))
+                       font=theme.font(10), command=self.on_shutdown_mode_change).pack(side=tk.LEFT, padx=(15, 0))
         tk.Radiobutton(mode_frame, text="定时关机", variable=self.shutdown_mode_var, value="scheduled",
                        bg=COLORS["bg_card"], fg=COLORS["text_primary"], selectcolor=COLORS["bg_input"],
                        activebackground=COLORS["bg_card"], activeforeground=COLORS["text_primary"],
-                       font=("微软雅黑", 10), command=self.on_shutdown_mode_change).pack(side=tk.LEFT, padx=(15, 0))
+                       font=theme.font(10), command=self.on_shutdown_mode_change).pack(side=tk.LEFT, padx=(15, 0))
         tk.Radiobutton(mode_frame, text="延时关机", variable=self.shutdown_mode_var, value="delay",
                        bg=COLORS["bg_card"], fg=COLORS["text_primary"], selectcolor=COLORS["bg_input"],
                        activebackground=COLORS["bg_card"], activeforeground=COLORS["text_primary"],
-                       font=("微软雅黑", 10), command=self.on_shutdown_mode_change).pack(side=tk.LEFT, padx=(15, 0))
+                       font=theme.font(10), command=self.on_shutdown_mode_change).pack(side=tk.LEFT, padx=(15, 0))
 
         # 定时关机时间设置
         self.scheduled_shutdown_frame = tk.Frame(setup_content, bg=COLORS["bg_card"])
         self.scheduled_shutdown_frame.pack(fill=tk.X, pady=4)
         tk.Label(self.scheduled_shutdown_frame, text="关机时间:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT)
+                 font=theme.font(10)).pack(side=tk.LEFT)
         self.shutdown_hour = DarkEntry(self.scheduled_shutdown_frame, width=5)
         self.shutdown_hour.insert(0, "23")
         self.shutdown_hour.pack(side=tk.LEFT, padx=(10, 2))
         tk.Label(self.scheduled_shutdown_frame, text=":", bg=COLORS["bg_card"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
+                 font=theme.font(12, bold=True)).pack(side=tk.LEFT)
         self.shutdown_minute = DarkEntry(self.scheduled_shutdown_frame, width=5)
         self.shutdown_minute.insert(0, "00")
         self.shutdown_minute.pack(side=tk.LEFT, padx=(2, 10))
         tk.Label(self.scheduled_shutdown_frame, text="（如果时间已过，将在第二天同一时间关机）", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 8)).pack(side=tk.LEFT)
+                 font=theme.font(8)).pack(side=tk.LEFT)
 
         # 延时关机时间设置
         self.delay_shutdown_frame = tk.Frame(setup_content, bg=COLORS["bg_card"])
         self.delay_shutdown_frame.pack(fill=tk.X, pady=4)
         tk.Label(self.delay_shutdown_frame, text="延时分钟:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT)
+                 font=theme.font(10)).pack(side=tk.LEFT)
         self.shutdown_delay = DarkEntry(self.delay_shutdown_frame, width=8)
         self.shutdown_delay.insert(0, "60")
         self.shutdown_delay.pack(side=tk.LEFT, padx=(10, 10))
         tk.Label(self.delay_shutdown_frame, text="分钟后关机", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT)
+                 font=theme.font(10)).pack(side=tk.LEFT)
 
         # 任务名称
         name_frame = tk.Frame(setup_content, bg=COLORS["bg_card"])
         name_frame.pack(fill=tk.X, pady=4)
         tk.Label(name_frame, text="任务名称:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT)
+                 font=theme.font(10)).pack(side=tk.LEFT)
         self.shutdown_task_name = DarkEntry(name_frame, width=30)
         self.shutdown_task_name.insert(0, "定时关机任务")
         self.shutdown_task_name.pack(side=tk.LEFT, padx=(10, 0))
@@ -1427,9 +1567,9 @@ bili_jct: {jct_preview}
         status_frame = tk.Frame(setup_content, bg=COLORS["bg_card"])
         status_frame.pack(fill=tk.X, pady=(8, 0))
         tk.Label(status_frame, text="当前状态:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT)
+                 font=theme.font(10)).pack(side=tk.LEFT)
         self.shutdown_status_label = tk.Label(status_frame, text="● 无运行中的关机任务", bg=COLORS["bg_card"],
-                                               fg=COLORS["text_muted"], font=("微软雅黑", 10, "bold"))
+                                               fg=COLORS["text_muted"], font=theme.font(10, bold=True))
         self.shutdown_status_label.pack(side=tk.LEFT, padx=(10, 0))
 
         # 初始隐藏定时和延时设置
@@ -1443,9 +1583,9 @@ bili_jct: {jct_preview}
         list_header = tk.Frame(list_card, bg=COLORS["bg_card"])
         list_header.pack(fill=tk.X, padx=15, pady=(10, 6))
         tk.Label(list_header, text="📋 关机任务列表", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
+                 font=theme.font(12, bold=True)).pack(side=tk.LEFT)
         tk.Label(list_header, text="（点击「取消」可单独取消某个任务）", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 8)).pack(side=tk.LEFT, padx=(10, 0))
+                 font=theme.font(8)).pack(side=tk.LEFT, padx=(10, 0))
 
         # 任务列表容器
         self.shutdown_task_list_frame = tk.Frame(list_card, bg=COLORS["bg_card"])
@@ -1576,11 +1716,11 @@ bili_jct: {jct_preview}
                         confirm_win.geometry(f"360x200+{x}+{y}")
 
                         tk.Label(confirm_win, text="⏻ 定时关机", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                                 font=("微软雅黑", 16, "bold")).pack(pady=(20, 10))
+                                 font=theme.font(16, bold=True)).pack(pady=(20, 10))
                         tk.Label(confirm_win, text=f"任务「{task['name']}」时间到", bg=COLORS["bg_card"],
-                                 fg=COLORS["text_primary"], font=("微软雅黑", 11)).pack()
+                                 fg=COLORS["text_primary"], font=theme.font(11)).pack()
                         countdown_label = tk.Label(confirm_win, text="60秒后自动关机...", bg=COLORS["bg_card"],
-                                                   fg=COLORS["warning"], font=("微软雅黑", 12, "bold"))
+                                                   fg=COLORS["warning"], font=theme.font(12, bold=True))
                         countdown_label.pack(pady=(8, 15))
 
                         def do_confirm():
@@ -1701,7 +1841,7 @@ bili_jct: {jct_preview}
 
         if not self.shutdown_tasks:
             tk.Label(self.shutdown_task_list_frame, text="暂无关机任务，设置好参数后点击「+ 添加关机任务」",
-                     bg=COLORS["bg_card"], fg=COLORS["text_muted"], font=("微软雅黑", 10)).pack(pady=30)
+                     bg=COLORS["bg_card"], fg=COLORS["text_muted"], font=theme.font(10)).pack(pady=30)
             return
 
         for idx, task in enumerate(self.shutdown_tasks):
@@ -1710,17 +1850,17 @@ bili_jct: {jct_preview}
 
             # 任务名称
             name_label = tk.Label(row_frame, text=task["name"], bg=row_frame["bg"], fg=COLORS["text_primary"],
-                                  font=("微软雅黑", 10, "bold"), width=20, anchor=tk.W)
+                                  font=theme.font(10, bold=True), width=20, anchor=tk.W)
             name_label.pack(side=tk.LEFT, padx=(10, 0), pady=8)
 
             # 关机时间
             time_label = tk.Label(row_frame, text=task["time_desc"], bg=row_frame["bg"], fg=COLORS["text_secondary"],
-                                  font=("微软雅黑", 9), width=15, anchor=tk.W)
+                                  font=theme.font(9), width=15, anchor=tk.W)
             time_label.pack(side=tk.LEFT, padx=(10, 0))
 
             # 目标时间
             target_label = tk.Label(row_frame, text=task["target_time"], bg=row_frame["bg"], fg=COLORS["text_muted"],
-                                    font=("微软雅黑", 9), width=20, anchor=tk.W)
+                                    font=theme.font(9), width=20, anchor=tk.W)
             target_label.pack(side=tk.LEFT, padx=(10, 0))
 
             # 倒计时/状态
@@ -1733,16 +1873,16 @@ bili_jct: {jct_preview}
                 else:
                     countdown_str = f"{minutes:02d}:{seconds:02d}"
                 status_label = tk.Label(row_frame, text=f"⏳ {countdown_str}", bg=row_frame["bg"], fg=COLORS["warning"],
-                                        font=("微软雅黑", 10, "bold"), width=12, anchor=tk.W)
+                                        font=theme.font(10, bold=True), width=12, anchor=tk.W)
             elif task["status"] == "已取消":
                 status_label = tk.Label(row_frame, text="■ 已取消", bg=row_frame["bg"], fg=COLORS["text_muted"],
-                                        font=("微软雅黑", 9), width=12, anchor=tk.W)
+                                        font=theme.font(9), width=12, anchor=tk.W)
             elif task["status"] == "执行中":
                 status_label = tk.Label(row_frame, text="⚡ 执行中", bg=row_frame["bg"], fg=COLORS["danger"],
-                                        font=("微软雅黑", 10, "bold"), width=12, anchor=tk.W)
+                                        font=theme.font(10, bold=True), width=12, anchor=tk.W)
             else:
                 status_label = tk.Label(row_frame, text=f"● {task['status']}", bg=row_frame["bg"], fg=COLORS["text_muted"],
-                                        font=("微软雅黑", 9), width=12, anchor=tk.W)
+                                        font=theme.font(9), width=12, anchor=tk.W)
             status_label.pack(side=tk.LEFT, padx=(10, 0))
 
             # 取消按钮
@@ -2243,6 +2383,29 @@ def main():
     
     root = tk.Tk()
     app = DanmakuApp(root)
+
+    # O10: 后台检查更新（不阻塞启动、不自动替换 exe）
+    # 未配置 UPDATE_INDEX_URL 时 check_for_update 会直接跳过，无副作用。
+    def _on_update_result(result):
+        """更新检查结果回调（在后台线程，需投递回主线程弹窗）。"""
+        try:
+            if not result or not result.get("has_update"):
+                return
+            def _show():
+                try:
+                    updater.show_update_dialog(root, result)
+                except Exception:
+                    pass
+            root.after(1200, _show)
+        except Exception:
+            pass
+
+    try:
+        # 延迟 3 秒再检查，避免和主界面初始化抢资源
+        root.after(3000, lambda: updater.check_in_background(_on_update_result))
+    except Exception as e:
+        print(f"更新检查启动失败（不影响使用）: {e}")
+
     root.mainloop()
 
 

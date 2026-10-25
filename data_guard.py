@@ -208,6 +208,59 @@ def daily_backup(force=False, keep=BACKUP_KEEP):
         return False, None, f"备份失败: {e}"
 
 
+def restore_from_backup(zip_path, create_safety_backup=True):
+    """从指定备份 zip 恢复 data/ 下的文件（供 UI 调用）。
+
+    安全策略：
+      1. 恢复前先自动做一份当前数据的「恢复前快照」，避免恢复错了没退路
+      2. 只恢复 zip 内的 data 根文件，不碰 backup/ logs/ 子目录
+      3. 逐个文件恢复，单个失败不影响其他
+
+    返回 (是否成功, 消息列表)
+    """
+    msgs = []
+    try:
+        zp = Path(zip_path)
+        if not zp.exists():
+            return False, [f"备份文件不存在: {zp}"]
+
+        # 1) 恢复前快照
+        if create_safety_backup:
+            try:
+                stamp = time.strftime("%Y%m%d_%H%M%S")
+                safe_path = BACKUP_DIR / f"data_beforerestore_{stamp}.zip"
+                BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(safe_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for item in BASE_DIR.iterdir():
+                        if item.is_file() and not item.name.startswith(".last_backup"):
+                            zf.write(item, item.name)
+                msgs.append(f"已创建恢复前快照: {safe_path.name}")
+            except Exception as e:
+                msgs.append(f"恢复前快照创建失败（继续恢复）: {e}")
+
+        # 2) 逐个恢复
+        restored = 0
+        failed = 0
+        with zipfile.ZipFile(zp, "r") as zf:
+            for name in zf.namelist():
+                # 跳过目录、跳过子目录内的文件
+                if name.endswith("/") or "/" in name or "\\" in name:
+                    continue
+                try:
+                    target = BASE_DIR / name
+                    with zf.open(name) as src, open(target, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    restored += 1
+                except Exception as e:
+                    failed += 1
+                    msgs.append(f"{name} 恢复失败: {e}")
+
+        msgs.append(f"共恢复 {restored} 个文件" + (f"，{failed} 个失败" if failed else ""))
+        return (failed == 0), msgs
+    except Exception as e:
+        return False, [f"恢复异常: {e}"]
+
+
 def list_backups():
     """列出所有数据备份（新到旧）。"""
     try:
