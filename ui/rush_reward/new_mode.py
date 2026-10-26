@@ -1831,6 +1831,25 @@ pause
                 elif "202129" in msg or "奖励领取已结束" in msg:
                     self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 奖励领取已结束，切下一个优先级")
                     break
+                elif "202032" in msg or "无资格领取" in msg or "暂无领取资格" in msg:
+                    # v6.2.2 新增：无资格领取奖励 -> 说明该任务本身没完成，重试毫无意义
+                    #
+                    # 实测教训（2026-10-26 18:00 那次）：
+                    #   任务 status=7（任务未完成），程序没有识别这个码，
+                    #   结果在窗口期内发了 82 次请求，其中 64 次都是 202032，
+                    #   既浪费请求次数、又白白累积风控(-705 x14)，
+                    #   还挡住了后面优先级2/3 的执行机会。
+                    #
+                    # 这类错误是"任务资格问题"，不是"抢的时机问题"，
+                    # 立刻切换到下一个优先级才有意义。
+                    _no_qualify_count = stop_flag.get("no_qualify_count", 0) + 1
+                    stop_flag["no_qualify_count"] = _no_qualify_count
+                    self.nm_log(
+                        f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: "
+                        f"⚠ 无资格领取（任务未完成/不满足条件），立即切换下一个优先级")
+                    if attempt >= 2:
+                        self.nm_log(f"     （累计{_no_qualify_count}次无资格，该优先级已放弃）")
+                    break
                 elif "-705" in msg or "-509" in msg or "-702" in msg or "请求过于频繁" in msg or "请求频率过高" in msg:
                     # 风控，间隔保持基础间隔不变（靠±30ms波动）
                     consecutive_risk_control += 1
