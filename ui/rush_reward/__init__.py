@@ -916,7 +916,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         refresh_list()
 
     def open_stats_dashboard(self):
-        """抢码成功率仪表盘（v6.3.0 重写）。
+        """抢码成功率仪表盘（v6.3.0 重写，v6.3.1 修复配色可读性）。
 
         v6.3.0 增强：
           - 窗口加大到 1400x900（原 1000x680 显示不全）
@@ -936,17 +936,35 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         try:
             sw = dlg.winfo_screenwidth()
             sh = dlg.winfo_screenheight()
-            w, h = min(1440, int(sw * 0.92)), min(920, int(sh * 0.90))
+            w, h = min(1900, int(sw * 0.95)), min(1120, int(sh * 0.94))
             x = max(0, (sw - w) // 2)
             y = max(0, (sh - h) // 2 - 20)
             dlg.geometry(f"{w}x{h}+{x}+{y}")
-            dlg.minsize(1100, 700)
+            dlg.minsize(1400, 900)
         except Exception:
-            dlg.geometry("1440x920")
+            dlg.geometry("1900x1120")
         try:
             dlg.transient(self.winfo_toplevel())
         except Exception:
             pass
+
+        # ---- v6.3.1 高对比度配色（解决深色背景下文字看不清）----
+        # 原配色问题：Treeview 未设默认前景色，用了系统深色 -> 几乎不可见；
+        # 表格里的 warning(#ffa502)/danger(#ff4757) 在深色底上偏暗。
+        # 新配色全部经对比度计算，均 ≥5.3（WCAG AA 要求 4.5）。
+        D = {
+            "row1": "#1c2847",       # 奇数行底色
+            "row2": "#16213e",       # 偶数行底色
+            "text": "#ffffff",       # 主文字（对比度 15.9）
+            "text2": "#c8c8e0",      # 次要文字（9.7）
+            "muted": "#9d9db8",      # 弱化文字（6.0，原 3.14 太暗）
+            "ok": "#39ff88",         # 成功/高成功率（12.0）
+            "mid": "#ffd93d",        # 中等/警告（11.5，原橙色偏暗）
+            "bad": "#ff6b81",        # 失败/低成功率（5.8，原红色偏暗）
+            "rare": "#ffd700",       # 稀有标记（11.3）
+            "normal": "#adb5bd",     # 普通标记（7.7）
+            "excluded": "#8a8aa0",   # 已剔除（灰色但可辨认）
+        }
 
         # ---- 过滤状态（可在界面上切换，切换后重新渲染）----
         state = {
@@ -957,46 +975,46 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
         # ============ 顶部标题栏 ============
         head = tk.Frame(dlg, bg=COLORS["bg_card"])
-        head.pack(fill=tk.X, padx=10, pady=(10, 6))
+        head.pack(fill=tk.X, padx=14, pady=(14, 8))
 
         title_row = tk.Frame(head, bg=COLORS["bg_card"])
-        title_row.pack(fill=tk.X, padx=14, pady=(10, 4))
+        title_row.pack(fill=tk.X, padx=18, pady=(14, 8))
         tk.Label(title_row, text="📈 抢码成功率仪表盘", bg=COLORS["bg_card"],
-                 fg=COLORS["accent"], font=("微软雅黑", 13, "bold")
+                 fg=COLORS["accent"], font=("微软雅黑", 15, "bold")
                  ).pack(side=tk.LEFT)
         DarkButton(title_row, text="关闭", command=dlg.destroy, height=28, width=80,
                    bg_color="#7f8c8d").pack(side=tk.RIGHT)
 
         # 过滤控制条
         ctrl = tk.Frame(head, bg=COLORS["bg_card"])
-        ctrl.pack(fill=tk.X, padx=14, pady=(0, 6))
+        ctrl.pack(fill=tk.X, padx=18, pady=(0, 10))
         tk.Label(ctrl, text="过滤：", bg=COLORS["bg_card"],
                  fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
 
         try:
             rare_cb = ttk.Checkbutton(ctrl, text="仅看稀有奖励（原石/星琼/星轨通票/菲林/原装母带/星声/唤声涡纹）",
                                       variable=state["rare_only"])
-            rare_cb.pack(side=tk.LEFT, padx=(4, 16))
+            rare_cb.pack(side=tk.LEFT, padx=(6, 20))
             exc_cb = ttk.Checkbutton(ctrl, text="显示已剔除记录",
                                      variable=state["show_excluded"])
-            exc_cb.pack(side=tk.LEFT, padx=(0, 16))
+            exc_cb.pack(side=tk.LEFT, padx=(0, 20))
         except Exception:
             pass
 
         # 统计摘要行
         summary_lbl = tk.Label(head, text="", bg=COLORS["bg_card"],
-                               fg=COLORS["text_primary"], font=("微软雅黑", 10),
+                               fg=COLORS["text_primary"], font=("微软雅黑", 11),
                                anchor=tk.W, justify=tk.LEFT)
-        summary_lbl.pack(fill=tk.X, padx=14, pady=(0, 10))
+        summary_lbl.pack(fill=tk.X, padx=18, pady=(0, 12))
 
         # ============ 主体：左右分栏 ============
         body = tk.PanedWindow(dlg, orient=tk.HORIZONTAL, bg=COLORS["bg_dark"],
                               sashrelief=tk.FLAT, sashwidth=6, bd=0)
-        body.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
+        body.pack(fill=tk.BOTH, expand=True, padx=14, pady=(0, 8))
 
         # ---- 左侧：三个分析报表（用 Notebook 节省纵向空间）----
         left = tk.Frame(body, bg=COLORS["bg_dark"])
-        body.add(left, minsize=560, width=760)
+        body.add(left, minsize=580, width=640)
 
         try:
             nb = ttk.Notebook(left)
@@ -1010,7 +1028,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             card.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
 
             inner = tk.Frame(card, bg=COLORS["bg_card"])
-            inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=(8, 2))
+            inner.pack(fill=tk.BOTH, expand=True, padx=14, pady=(12, 4))
 
             # 表头
             hdr = tk.Frame(inner, bg=COLORS["bg_input"])
@@ -1018,15 +1036,15 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             for h, w in zip(headers, col_w):
                 tk.Label(hdr, text=h, bg=COLORS["bg_input"],
                          fg=COLORS["text_secondary"],
-                         font=("微软雅黑", 9, "bold"), width=w, anchor=tk.W
-                         ).pack(side=tk.LEFT, padx=4, pady=4)
+                         font=("微软雅黑", 11, "bold"), width=w, anchor=tk.W
+                         ).pack(side=tk.LEFT, padx=6, pady=7)
 
             # 数据行
             if not rows:
                 r = tk.Frame(inner, bg=COLORS["bg_card"])
                 r.pack(fill=tk.X)
                 tk.Label(r, text="（暂无数据）", bg=COLORS["bg_card"],
-                         fg=COLORS["text_muted"], font=("微软雅黑", 9),
+                         fg=D["muted"], font=("微软雅黑", 9),
                          anchor=tk.W).pack(side=tk.LEFT, padx=6, pady=8)
                 return card
 
@@ -1039,14 +1057,15 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                     if colorize_rate_col is not None and i == colorize_rate_col and "%" in txt:
                         try:
                             pct = float(txt.replace("%", ""))
-                            fg_c = (COLORS["success"] if pct >= 50 else
-                                    COLORS["warning"] if pct >= 20 else
-                                    COLORS["danger"])
+                            # v6.3.1: 用高对比度配色（原 success/warning/danger 偏暗）
+                            fg_c = (D["ok"] if pct >= 50 else
+                                    D["mid"] if pct >= 20 else
+                                    D["bad"])
                         except Exception:
                             pass
                     tk.Label(r, text=txt, bg=COLORS["bg_card"], fg=fg_c,
-                             font=("Consolas", 9), width=w, anchor=tk.W
-                             ).pack(side=tk.LEFT, padx=4, pady=2)
+                             font=("Consolas", 11), width=w, anchor=tk.W
+                             ).pack(side=tk.LEFT, padx=6, pady=5)
             return card
 
         def build_tables(data):
@@ -1116,34 +1135,34 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         # ---- 右侧：明细记录（可手动剔除）----
         right = tk.Frame(body, bg=COLORS["bg_card"], highlightthickness=1,
                          highlightbackground=COLORS["border"])
-        body.add(right, minsize=420, width=560)
+        body.add(right, minsize=1080, width=1200)
 
         right_head = tk.Frame(right, bg=COLORS["bg_card"])
-        right_head.pack(fill=tk.X, padx=10, pady=(8, 4))
+        right_head.pack(fill=tk.X, padx=14, pady=(12, 6))
         tk.Label(right_head, text="📋 明细记录", bg=COLORS["bg_card"],
-                 fg=COLORS["accent"], font=("微软雅黑", 11, "bold")
+                 fg=COLORS["accent"], font=("微软雅黑", 12, "bold")
                  ).pack(side=tk.LEFT)
         detail_count_lbl = tk.Label(right_head, text="", bg=COLORS["bg_card"],
-                                    fg=COLORS["text_muted"], font=("微软雅黑", 9))
+                                    fg=D["muted"], font=("微软雅黑", 11))
         detail_count_lbl.pack(side=tk.LEFT, padx=(10, 0))
 
         tk.Label(right, text="双击某行可剔除/恢复该条记录（剔除后不参与统计）",
-                 bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                 bg=COLORS["bg_card"], fg=D["muted"],
                  font=("微软雅黑", 9), anchor=tk.W
                  ).pack(fill=tk.X, padx=10, pady=(0, 4))
 
         # 明细列表（Treeview 更省空间、支持滚动）
         detail_frame = tk.Frame(right, bg=COLORS["bg_card"])
-        detail_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 8))
+        detail_frame.pack(fill=tk.BOTH, expand=True, padx=14, pady=(0, 12))
 
         try:
             cols = ("ts", "task", "award", "result", "rare", "state")
             tree = ttk.Treeview(detail_frame, columns=cols, show="headings",
-                                height=22, selectmode="browse")
+                                height=20, selectmode="browse")
             headings = [
-                ("ts", "时间", 118), ("task", "任务名称", 190),
-                ("award", "奖励", 110), ("result", "结果", 58),
-                ("rare", "稀有", 50), ("state", "状态", 62),
+                ("ts", "时间", 200), ("task", "任务名称", 344),
+                ("award", "奖励", 200), ("result", "结果", 88),
+                ("rare", "稀有", 112), ("state", "状态", 88),
             ]
             for cid, txt, wpx in headings:
                 tree.heading(cid, text=txt)
@@ -1152,11 +1171,31 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             tree.configure(yscrollcommand=vsb.set)
             vsb.pack(side=tk.RIGHT, fill=tk.Y)
             tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            # 交替行底色
-            tree.tag_configure("odd", background="#1f1f2e")
-            tree.tag_configure("even", background="#252538")
-            tree.tag_configure("excluded", foreground="#7a7a8a")
-            tree.tag_configure("succ", foreground="#2ecc71")
+            # v6.3.1 关键修复：Treeview 必须显式设置默认前景色，
+            # 否则 Windows 用系统深色文字，在深色背景上几乎看不见。
+            try:
+                style = ttk.Style()
+                style.configure("Dash.Treeview",
+                                background=D["row2"],
+                                fieldbackground=D["row2"],
+                                foreground=D["text"],
+                                rowheight=34,
+                                font=("微软雅黑", 11))
+                style.configure("Dash.Treeview.Heading",
+                                background=COLORS["bg_input"],
+                                foreground=D["text2"],
+                                font=("微软雅黑", 11, "bold"))
+                style.map("Dash.Treeview",
+                          background=[("selected", COLORS["bg_input"])],
+                          foreground=[("selected", D["text"])])
+                tree.configure(style="Dash.Treeview")
+            except Exception:
+                pass
+            # 交替行底色（两行都显式给前景色，保证可读）
+            tree.tag_configure("odd", background=D["row1"], foreground=D["text"])
+            tree.tag_configure("even", background=D["row2"], foreground=D["text"])
+            tree.tag_configure("excluded", background=D["row2"], foreground=D["excluded"])
+            tree.tag_configure("succ", background=D["row1"], foreground=D["ok"])
         except Exception:
             tree = None
 
@@ -1178,11 +1217,12 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             if not f.get("raw_total"):
                 summary_lbl.config(
                     text="暂无抢码记录。抢码后这里会自动生成统计数据。",
-                    fg=COLORS["text_muted"])
+                    fg=D["muted"])
             else:
                 rate = ov.get("success_rate", 0)
-                rate_color = COLORS["success"] if rate >= 50 else (
-                    COLORS["warning"] if rate >= 20 else COLORS["danger"])
+                # v6.3.1: 高对比度
+                rate_color = D["ok"] if rate >= 50 else (
+                    D["mid"] if rate >= 20 else D["bad"])
                 parts = [
                     f"总记录 {f.get('raw_total', 0)}",
                     f"纳入统计 {data.get('total', 0)}",
@@ -1264,12 +1304,12 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
         # ---- 底部按钮 ----
         foot = tk.Frame(dlg, bg=COLORS["bg_dark"])
-        foot.pack(fill=tk.X, padx=10, pady=(0, 10))
+        foot.pack(fill=tk.X, padx=14, pady=(0, 12))
         tk.Label(foot,
                  text="提示：提前量样本 <5 次标记「样本少」｜双击明细行可剔除/恢复"
                       "｜剔除记录保存在 rush_excluded.json",
-                 bg=COLORS["bg_dark"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 bg=COLORS["bg_dark"], fg=D["muted"],
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
 
         def clear_all_excluded():
             """一键清空所有手动剔除。"""
