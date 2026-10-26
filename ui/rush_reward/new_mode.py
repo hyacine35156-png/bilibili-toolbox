@@ -210,6 +210,76 @@ class NewModeMixin:
             self.nm_update_scheduler()
         self.nm_log(f"新建任务组: {name}")
 
+    def nm_rename_group(self):
+        """重命名当前任务组（v6.2.1 新增）。
+
+        校验规则：
+          - 不能为空
+          - 不能与已有组重名（否则下拉框会混淆，且预案按名字查找会出错）
+          - 长度不超过 30 字符
+        """
+        from tkinter import simpledialog, messagebox
+        if not self.current_group_id:
+            messagebox.showwarning("提示", "请先选择要改名的任务组", parent=self.winfo_toplevel())
+            return
+        group = next((g for g in self.rush_groups if g["group_id"] == self.current_group_id), None)
+        if not group:
+            messagebox.showwarning("提示", "当前任务组不存在", parent=self.winfo_toplevel())
+            return
+
+        old_name = group["group_name"]
+        new_name = simpledialog.askstring(
+            "重命名任务组",
+            f"请输入新的任务组名称（当前：{old_name}）：",
+            initialvalue=old_name,
+            parent=self.winfo_toplevel()
+        )
+        if new_name is None:
+            return   # 用户取消
+        new_name = new_name.strip()
+        if not new_name:
+            messagebox.showwarning("提示", "任务组名称不能为空", parent=self.winfo_toplevel())
+            return
+        if new_name == old_name:
+            return   # 没变化
+        if len(new_name) > 30:
+            messagebox.showwarning("提示", "任务组名称不能超过 30 个字符",
+                                   parent=self.winfo_toplevel())
+            return
+        # 重名校验
+        dup = next((g for g in self.rush_groups
+                    if g["group_id"] != self.current_group_id and g.get("group_name") == new_name), None)
+        if dup:
+            messagebox.showwarning("提示", f"已存在同名任务组「{new_name}」，请换一个名称",
+                                   parent=self.winfo_toplevel())
+            return
+
+        group["group_name"] = new_name
+        # 保存并立即验证，确保真正写入文件
+        self.save_rush_groups()
+        try:
+            from config import BASE_DIR
+            groups_file = BASE_DIR / "rush_groups.json"
+            with open(groups_file, "r", encoding="utf-8") as f:
+                verify_data = json.load(f)
+            found = next((g for g in verify_data if g.get("group_id") == self.current_group_id), None)
+            if not found or found.get("group_name") != new_name:
+                self.nm_log(f"⚠ 改名验证失败，重试保存...")
+                self.save_rush_groups()
+        except Exception as e:
+            self.nm_log(f"⚠ 改名验证异常: {e}")
+
+        # 刷新界面
+        if hasattr(self, 'nm_group_var'):
+            self.nm_group_var.set(new_name)
+        self.refresh_new_mode_group_list()
+        if hasattr(self, 'nm_update_scheduler'):
+            self.nm_update_scheduler()
+        self.nm_log(f"任务组改名: 「{old_name}」-> 「{new_name}」")
+        messagebox.showinfo("改名成功",
+                            f"任务组已重命名为「{new_name}」",
+                            parent=self.winfo_toplevel())
+
     def nm_del_group(self):
         """删除当前任务组"""
         if not self.current_group_id:

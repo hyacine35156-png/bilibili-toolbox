@@ -1275,6 +1275,10 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         self.nm_new_group_btn = DarkButton(grow1, text="+ 新建组", command=self.nm_new_group,
                                            height=32, bg_color=COLORS["accent"], text_color="#000000")
         self.nm_new_group_btn.pack(side=tk.LEFT, padx=5)
+        # v6.2.1: 任务组改名
+        self.nm_rename_group_btn = DarkButton(grow1, text="✎ 改名", command=self.nm_rename_group,
+                                              height=32, bg_color="#2980b9", text_color="#ffffff")
+        self.nm_rename_group_btn.pack(side=tk.LEFT, padx=5)
         self.nm_del_group_btn = DarkButton(grow1, text="删除当前组", command=self.nm_del_group,
                                            height=32, bg_color="#c0392b", text_color="#ffffff")
         self.nm_del_group_btn.pack(side=tk.LEFT, padx=5)
