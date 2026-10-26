@@ -7,16 +7,15 @@ self.rush_groups / self.nm_group_threads / self.account_mgr 等属性。
 
 import ctypes
 import json, os, random, struct, subprocess, threading, time
-from datetime import datetime, timedelta
 import tkinter as tk
 from tkinter import ttk, messagebox
 
 import requests
 
-from config import (COLORS, BASE_DIR, HEADERS, LOG_DIR)
+from config import (COLORS, BASE_DIR, HEADERS)
 from tasks_config import ALL_TASKS, VERSION_DEFAULT_ACT_ID
-from storage import atomic_write_json, safe_load_json
-from bili_api import (check_all_tasks_finished, cookies_from_account, get_mission_info,
+from storage import atomic_write_json
+from bili_api import (cookies_from_account, get_mission_info,
                       parse_stock_info, receive_reward, verify_login)
 from widgets import DarkButton, DarkEntry, ToolTip, _SHELLEXECUTEINFOW
 from .manual_task import task_label, available_versions
@@ -219,7 +218,7 @@ class NewModeMixin:
         if not group:
             return
         from tkinter import messagebox
-        if not messagebox.askyesno("确认删除", f"确定删除任务组「{group['group_name']}」吗？"):
+        if not messagebox.askyesno("确认删除", f"确定删除任务组「{group['group_name']}」吗？", parent=self.winfo_toplevel()):
             return
         deleted_name = group['group_name']
         self.rush_groups = [g for g in self.rush_groups if g["group_id"] != self.current_group_id]
@@ -768,22 +767,22 @@ class NewModeMixin:
                         avg = sum(offs) / len(offs)
                         if avg < 100:
                             self.nm_log(f"✓ 同步成功，当前NTP偏差{avg:.0f}ms")
-                            messagebox.showinfo("同步成功", f"系统时间同步完成！\n\n当前NTP偏差: {avg:.0f}ms\n（安全阈值 100ms）")
+                            messagebox.showinfo("同步成功", f"系统时间同步完成！\n\n当前NTP偏差: {avg:.0f}ms\n（安全阈值 100ms）", parent=self.winfo_toplevel())
                         else:
                             self.nm_log(f"⚠ 同步完成但偏差仍有{avg:.0f}ms")
-                            messagebox.showwarning("同步完成", f"同步已执行，但偏差仍较大:\n\n当前NTP偏差: {avg:.0f}ms\n建议再次同步")
+                            messagebox.showwarning("同步完成", f"同步已执行，但偏差仍较大:\n\n当前NTP偏差: {avg:.0f}ms\n建议再次同步", parent=self.winfo_toplevel())
                     else:
                         self.nm_log("✓ 同步命令已执行")
-                        messagebox.showinfo("同步完成", "同步命令已执行，请查看抢码日志NTP偏差")
+                        messagebox.showinfo("同步完成", "同步命令已执行，请查看抢码日志NTP偏差", parent=self.winfo_toplevel())
                 except Exception as e:
                     self.nm_log(f"✓ 同步已执行（状态查询失败: {e}）")
-                    messagebox.showinfo("同步完成", "同步命令已执行完成")
+                    messagebox.showinfo("同步完成", "同步命令已执行完成", parent=self.winfo_toplevel())
             else:
                 self.nm_log("✗ 同步失败或用户取消UAC")
-                messagebox.showerror("同步失败", "同步失败或用户取消了UAC授权")
+                messagebox.showerror("同步失败", "同步失败或用户取消了UAC授权", parent=self.winfo_toplevel())
         except Exception as e:
             self.nm_log(f"✗ 同步系统时间失败: {e}")
-            messagebox.showerror("同步失败", f"同步系统时间失败:\n{e}")
+            messagebox.showerror("同步失败", f"同步系统时间失败:\n{e}", parent=self.winfo_toplevel())
 
     def nm_query_time_status(self):
         """查询系统时间同步状态"""
@@ -899,23 +898,23 @@ pause
                         avg = sum(offs) / len(offs)
                         if avg < 100:
                             self.nm_log(f"✓ 修复成功！当前NTP偏差{avg:.0f}ms")
-                            messagebox.showinfo("修复成功", f"时间服务修复完成！\n\n当前NTP偏差: {avg:.0f}ms\n（已恢复正常）")
+                            messagebox.showinfo("修复成功", f"时间服务修复完成！\n\n当前NTP偏差: {avg:.0f}ms\n（已恢复正常）", parent=self.winfo_toplevel())
                         else:
                             self.nm_log(f"⚠ 修复完成但偏差仍有{avg:.0f}ms")
-                            messagebox.showwarning("修复完成", f"修复已执行，但偏差仍较大:\n\n当前NTP偏差: {avg:.0f}ms\n\n建议:\n1. 检查网络是否能访问NTP服务器\n2. 检查是否有其他软件修改系统时间\n3. 重启电脑后再试")
+                            messagebox.showwarning("修复完成", f"修复已执行，但偏差仍较大:\n\n当前NTP偏差: {avg:.0f}ms\n\n建议:\n1. 检查网络是否能访问NTP服务器\n2. 检查是否有其他软件修改系统时间\n3. 重启电脑后再试", parent=self.winfo_toplevel())
                     else:
                         self.nm_log("✓ 修复命令已执行")
-                        messagebox.showinfo("修复完成", "时间服务修复已执行，请查看抢码日志NTP偏差")
+                        messagebox.showinfo("修复完成", "时间服务修复已执行，请查看抢码日志NTP偏差", parent=self.winfo_toplevel())
                 except Exception as e:
                     self.nm_log(f"✓ 修复已执行（查询偏差失败: {e}）")
-                    messagebox.showinfo("修复完成", "时间服务修复已执行")
+                    messagebox.showinfo("修复完成", "时间服务修复已执行", parent=self.winfo_toplevel())
             else:
                 self.nm_log("✗ 修复失败或用户取消UAC")
-                messagebox.showerror("修复失败", "修复失败或用户取消了UAC授权")
+                messagebox.showerror("修复失败", "修复失败或用户取消了UAC授权", parent=self.winfo_toplevel())
             self.nm_log("=" * 50)
         except Exception as e:
             self.nm_log(f"✗ 修复时间服务失败: {e}")
-            messagebox.showerror("修复失败", f"修复时间服务失败:\n{e}")
+            messagebox.showerror("修复失败", f"修复时间服务失败:\n{e}", parent=self.winfo_toplevel())
 
     def nm_update_ui_state(self):
         """更新UI状态（启动按钮/停止按钮/状态标签）"""

@@ -2,12 +2,12 @@
 """日程任务页面：定时执行抢码/看播/弹幕/关机。"""
 
 import json, threading, time
-from datetime import datetime, timedelta
+from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox
 
 from config import COLORS, BASE_DIR
-from storage import atomic_write_json, safe_load_json
+from storage import atomic_write_json
 from widgets import DarkButton, DarkEntry, custom_askyesno
 
 # ---------- O5: 统一日志（模块级缓存，避免重复创建 logger）----------
@@ -271,7 +271,7 @@ class ScheduleFrame(tk.Frame):
     def add_schedule_task(self):
         name = self.task_name_entry.get().strip()
         if not name:
-            messagebox.showwarning("提示", "请输入任务名称")
+            messagebox.showwarning("提示", "请输入任务名称", parent=self.winfo_toplevel())
             return
 
         task_type = self.task_type_var.get()
@@ -294,7 +294,7 @@ class ScheduleFrame(tk.Frame):
                 if not (0 <= hour <= 23 and 0 <= minute <= 59):
                     raise ValueError
             except ValueError:
-                messagebox.showwarning("提示", "请输入有效的时间（时: 0-23，分: 0-59）")
+                messagebox.showwarning("提示", "请输入有效的时间（时: 0-23，分: 0-59）", parent=self.winfo_toplevel())
                 return
             time_str = f"{hour:02d}:{minute:02d}"
 
@@ -457,7 +457,7 @@ class ScheduleFrame(tk.Frame):
     def delete_selected_tasks(self):
         """批量删除勾选的任务"""
         if not self.selected_ids:
-            messagebox.showwarning("提示", "请先勾选要删除的任务（每行左侧复选框）")
+            messagebox.showwarning("提示", "请先勾选要删除的任务（每行左侧复选框）", parent=self.winfo_toplevel())
             return
         count = len(self.selected_ids)
         if custom_askyesno(self.app.root, "确认", f"确定删除选中的 {count} 个任务吗？"):
@@ -472,7 +472,7 @@ class ScheduleFrame(tk.Frame):
 
     def delete_selected_task(self):
         if not self.selected_task_id:
-            messagebox.showwarning("提示", "请先选中要删除的任务")
+            messagebox.showwarning("提示", "请先选中要删除的任务", parent=self.winfo_toplevel())
             return
         task = next((t for t in self.schedule_tasks if t["id"] == self.selected_task_id), None)
         if task and custom_askyesno(self.app.root, "确认", f"确定删除任务「{task['name']}」吗？"):
@@ -485,7 +485,7 @@ class ScheduleFrame(tk.Frame):
     def edit_selected_task(self):
         """编辑选中的日程任务"""
         if not self.selected_task_id:
-            messagebox.showwarning("提示", "请先选中要编辑的任务")
+            messagebox.showwarning("提示", "请先选中要编辑的任务", parent=self.winfo_toplevel())
             return
         task = next((t for t in self.schedule_tasks if t["id"] == self.selected_task_id), None)
         if not task:
@@ -605,7 +605,7 @@ class ScheduleFrame(tk.Frame):
 
     def run_selected_task(self):
         if not self.selected_task_id:
-            messagebox.showwarning("提示", "请先选中要执行的任务")
+            messagebox.showwarning("提示", "请先选中要执行的任务", parent=self.winfo_toplevel())
             return
         task = next((t for t in self.schedule_tasks if t["id"] == self.selected_task_id), None)
         if task:
@@ -615,7 +615,7 @@ class ScheduleFrame(tk.Frame):
         """全部启用：让所有任务按设定时间执行（不立即执行）"""
         disabled_tasks = [t for t in self.schedule_tasks if not t["enabled"]]
         if not disabled_tasks:
-            messagebox.showinfo("提示", "所有日程任务都已启用")
+            messagebox.showinfo("提示", "所有日程任务都已启用", parent=self.winfo_toplevel())
             return
         if not custom_askyesno(self.app.root, "确认", f"确定启用全部 {len(disabled_tasks)} 个已取消的日程任务吗？\n启用后任务将按设定时间自动执行"):
             return
@@ -1041,30 +1041,34 @@ class ScheduleFrame(tk.Frame):
             pass
 
     def save_schedule_preset(self):
-        """保存当前日程为方案"""
-        preset_name = self.preset_name_entry.get().strip()
-        if not preset_name:
-            messagebox.showwarning("提示", "请输入方案名称")
-            return
+        """保存当前日程为方案（v6.2.0: 补异常保护）"""
+        try:
+            preset_name = self.preset_name_entry.get().strip()
+            if not preset_name:
+                messagebox.showwarning("提示", "请输入方案名称", parent=self.winfo_toplevel())
+                return
 
-        # 深拷贝当前日程任务，避免后续修改影响方案
-        import copy
-        preset_data = {
-            "name": preset_name,
-            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "tasks": copy.deepcopy(self.schedule_tasks)
-        }
+            # 深拷贝当前日程任务，避免后续修改影响方案
+            import copy
+            preset_data = {
+                "name": preset_name,
+                "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "tasks": copy.deepcopy(self.schedule_tasks)
+            }
 
-        self.schedule_presets[preset_name] = preset_data
-        self.save_schedule_presets_to_file()
-        self._refresh_preset_combo()
-        self.log(f"💾 已保存方案「{preset_name}」（包含 {len(self.schedule_tasks)} 个任务）")
+            self.schedule_presets[preset_name] = preset_data
+            self.save_schedule_presets_to_file()
+            self._refresh_preset_combo()
+            self.log(f"💾 已保存方案「{preset_name}」（包含 {len(self.schedule_tasks)} 个任务）")
+        except Exception as e:
+            messagebox.showerror("保存失败", f"保存方案时出错：\n{e}",
+                                 parent=self.winfo_toplevel())
 
     def load_schedule_preset(self):
         """加载方案到当前日程"""
         preset_name = self.preset_var.get()
         if not preset_name or preset_name not in self.schedule_presets:
-            messagebox.showwarning("提示", "请选择要加载的方案")
+            messagebox.showwarning("提示", "请选择要加载的方案", parent=self.winfo_toplevel())
             return
 
         # 确认是否覆盖当前日程
@@ -1091,7 +1095,7 @@ class ScheduleFrame(tk.Frame):
         """删除选中的方案"""
         preset_name = self.preset_var.get()
         if not preset_name or preset_name not in self.schedule_presets:
-            messagebox.showwarning("提示", "请选择要删除的方案")
+            messagebox.showwarning("提示", "请选择要删除的方案", parent=self.winfo_toplevel())
             return
 
         result = custom_askyesno(self.app.root, "确认", f"确定要删除方案「{preset_name}」吗？")

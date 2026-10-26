@@ -1,17 +1,15 @@
 # -*- coding: utf-8 -*-
 """抢码工具页面：旧版监控 + 新版精准抢码（并存，需互斥）。"""
 
-import json, os, random, threading, time
+import json, random, threading, time
 from datetime import datetime, timedelta
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-import requests
-
-from config import (COLORS, BASE_DIR, APP_VERSION, LOG_DIR,
+from config import (COLORS, BASE_DIR, LOG_DIR,
                     HEADERS, MIXIN_KEY_ENC_TAB, _GLOBAL_LOCK)
 from tasks_config import ALL_TASKS, VERSION_DEFAULT_ACT_ID, get_manual_task
-from storage import atomic_write_json, safe_load_json
+from storage import atomic_write_json
 from bili_api import (check_all_tasks_finished, cookies_from_account, get_mission_info,
                       parse_stock_info, receive_reward, verify_login)
 from widgets import DarkButton, DarkEntry, ToolTip
@@ -333,7 +331,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         header = tk.Frame(self, bg=COLORS["bg_card"], height=50)
         header.pack(fill=tk.X)
         header.pack_propagate(False)
-        tk.Label(header, text="⚡ 自动抢码工具", bg=COLORS["bg_card"],
+        tk.Label(header, text="◈ 自动抢码工具", bg=COLORS["bg_card"],
                  fg=COLORS["accent"], font=("微软雅黑", 15, "bold")).pack(side=tk.LEFT, padx=20)
         self.rush_status = tk.Label(header, text="● 未运行", bg=COLORS["bg_card"],
                                      fg=COLORS["text_muted"], font=("微软雅黑", 11))
@@ -359,8 +357,13 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         main = self.old_mode_frame
 
         # 新模式内容区（默认隐藏）
+        # v6.2.0 性能优化：延迟构建。
+        # build_new_mode_ui 实测耗时约 1.2-1.8 秒，主要开销是首次渲染 emoji
+        # 时 Windows 加载 emoji 字体（单个含 emoji 的控件可达 900ms）。
+        # 而程序默认显示旧模式，新模式往往整场都不用 —— 没必要在启动时付这个代价。
+        # 改为首次切换到新模式时才构建，启动时间直接省下 1.2 秒以上。
         self.new_mode_frame = tk.Frame(self, bg=COLORS["bg_dark"])
-        self.build_new_mode_ui()
+        self._new_mode_ui_built = False
 
         # 上半部分：设置
         settings_card = tk.Frame(main, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
@@ -1089,7 +1092,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         """启动定时关机"""
         mode = self.shutdown_mode_var.get()
         if mode == "none":
-            messagebox.showwarning("提示", "请先选择关机模式（定时关机或延时关机）")
+            messagebox.showwarning("提示", "请先选择关机模式（定时关机或延时关机）", parent=self.winfo_toplevel())
             return
 
         # 如果已经有关机线程在运行，先取消
@@ -1105,7 +1108,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 if not (0 <= hour <= 23 and 0 <= minute <= 59):
                     raise ValueError
             except ValueError:
-                messagebox.showwarning("提示", "请输入有效的时间（时: 0-23，分: 0-59）")
+                messagebox.showwarning("提示", "请输入有效的时间（时: 0-23，分: 0-59）", parent=self.winfo_toplevel())
                 return
             target_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
             if target_time <= now:
@@ -1118,7 +1121,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 if delay_minutes <= 0:
                     raise ValueError
             except ValueError:
-                messagebox.showwarning("提示", "请输入有效的延时分钟数（大于0）")
+                messagebox.showwarning("提示", "请输入有效的延时分钟数（大于0）", parent=self.winfo_toplevel())
                 return
             delay_seconds = delay_minutes * 60
             target_time = now + timedelta(seconds=delay_seconds)
@@ -1226,6 +1229,20 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             self.new_mode_btn.config(bg=COLORS["accent"], fg="#000000", font=("微软雅黑", 11, "bold"))
             self.old_mode_btn.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=("微软雅黑", 11))
             self.old_mode_frame.pack_forget()
+            # v6.2.0 延迟构建：首次进入新模式时才真正创建 UI（省约1.2秒启动时间）
+            if not getattr(self, "_new_mode_ui_built", False):
+                try:
+                    self.build_new_mode_ui()
+                    self._new_mode_ui_built = True
+                    # 构建后应用保存的 UI 设置
+                    try:
+                        self.nm_load_ui_settings()
+                    except Exception:
+                        pass
+                except Exception as e:
+                    self.log(f"构建精准抢码界面失败: {e}")
+                    import traceback
+                    self.log(traceback.format_exc())
             self.new_mode_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
             self.refresh_new_mode_group_list()
             self.refresh_new_mode_task_list()
@@ -1858,11 +1875,11 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         """手动查询任务状态"""
         task = self.get_current_task()
         if not task:
-            messagebox.showwarning("提示", "请先选择任务")
+            messagebox.showwarning("提示", "请先选择任务", parent=self.winfo_toplevel())
             return
         accounts = self.get_selected_accounts()
         if not accounts:
-            messagebox.showwarning("提示", "请先选择至少一个账户")
+            messagebox.showwarning("提示", "请先选择至少一个账户", parent=self.winfo_toplevel())
             return
 
         self.stock_label.config(text="库存：查询中...", fg=COLORS["text_muted"])
@@ -2003,7 +2020,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             # 获取选中的账户
             selected_accounts = self.get_selected_accounts()
             if not selected_accounts:
-                messagebox.showwarning("提示", "请先选择一个账户")
+                messagebox.showwarning("提示", "请先选择一个账户", parent=self.winfo_toplevel())
                 return
 
             account = selected_accounts[0]
@@ -2049,7 +2066,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
             threading.Thread(target=check_thread, daemon=True).start()
         except Exception as e:
-            messagebox.showerror("错误", f"查询失败: {str(e)}")
+            messagebox.showerror("错误", f"查询失败: {str(e)}", parent=self.winfo_toplevel())
             self.check_claimable_btn.config(state="normal", text="📋 查询可领取")
 
     def _on_check_claimable_all(self, details):
@@ -2058,7 +2075,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
         if not details:
             self.log("查询结果: 无匹配的任务")
-            messagebox.showinfo("查询结果", "无匹配的任务")
+            messagebox.showinfo("查询结果", "无匹配的任务", parent=self.winfo_toplevel())
             return
 
         # 筛选真正可领取的任务：已完成且 剩余总量 > 0 且 (status in [0,1] 或 status=2每日库存上限)
@@ -2127,7 +2144,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             result_text += "\n详细信息请查看日志"
         else:
             result_text = "没有可领取的任务\n\n详细信息请查看日志"
-        messagebox.showinfo("可领取任务查询结果", result_text)
+        messagebox.showinfo("可领取任务查询结果", result_text, parent=self.winfo_toplevel())
 
     def check_all_finished(self):
         """查询当前选择类型的所有任务是否全部完成"""
@@ -2139,7 +2156,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             # 获取选中的账户
             selected_accounts = self.get_selected_accounts()
             if not selected_accounts:
-                messagebox.showwarning("提示", "请先选择一个账户")
+                messagebox.showwarning("提示", "请先选择一个账户", parent=self.winfo_toplevel())
                 return
 
             account = selected_accounts[0]
@@ -2170,7 +2187,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             print(f"[DEBUG] check_all_finished exception: {str(e)}")
             import traceback
             traceback.print_exc()
-            messagebox.showerror("错误", f"查询失败: {str(e)}")
+            messagebox.showerror("错误", f"查询失败: {str(e)}", parent=self.winfo_toplevel())
 
     def _on_check_all_finished(self, all_finished, details):
         """查询全部完成的回调"""
@@ -2178,7 +2195,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
         if not details:
             self.log("查询结果: 无匹配的任务")
-            messagebox.showinfo("查询结果", "无匹配的任务")
+            messagebox.showinfo("查询结果", "无匹配的任务", parent=self.winfo_toplevel())
             return
 
         # 统计
@@ -2234,7 +2251,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             else:
                 status_icon = "?"
             result_text += f"{status_icon} {d['name']}\n"
-        messagebox.showinfo("任务完成情况", result_text)
+        messagebox.showinfo("任务完成情况", result_text, parent=self.winfo_toplevel())
 
     def claim_all_finished(self):
         """一键领取当前类型下所有已完成的任务"""
@@ -2246,14 +2263,14 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             # 获取选中的账户
             selected_accounts = self.get_selected_accounts()
             if not selected_accounts:
-                messagebox.showwarning("提示", "请先选择一个账户")
+                messagebox.showwarning("提示", "请先选择一个账户", parent=self.winfo_toplevel())
                 return
 
             account = selected_accounts[0]
 
             # 确认对话框
             confirm_msg = f"确定要一键领取 [{version}][{period}][{task_type}] 下所有已完成的任务吗？\n\n账户：{account['name']}"
-            if not messagebox.askyesno("确认", confirm_msg):
+            if not messagebox.askyesno("确认", confirm_msg, parent=self.winfo_toplevel()):
                 return
 
             self.log(f"一键全部领取: [{version}][{period}][{task_type}]")
@@ -2329,7 +2346,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             threading.Thread(target=claim_thread, daemon=True).start()
 
         except Exception as e:
-            messagebox.showerror("错误", f"一键领取失败: {str(e)}")
+            messagebox.showerror("错误", f"一键领取失败: {str(e)}", parent=self.winfo_toplevel())
             self.claim_all_btn.config(state="normal", text="🎁 一键全部领取")
 
     def _on_claim_all_finished(self, results, success_count, fail_count, skip_count, error):
@@ -2338,7 +2355,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
         if error:
             self.log(f"一键全部领取失败: {error}")
-            messagebox.showerror("错误", error)
+            messagebox.showerror("错误", error, parent=self.winfo_toplevel())
             return
 
         self.log("=" * 50)
@@ -2358,17 +2375,17 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         for r in results:
             icon = "✓" if r["success"] else ("○" if "未完成" in r["status"] else "✗")
             result_text += f"{icon} {r['name']}\n"
-        messagebox.showinfo("一键全部领取结果", result_text)
+        messagebox.showinfo("一键全部领取结果", result_text, parent=self.winfo_toplevel())
 
     def manual_receive(self):
         """手动领取：立即尝试领取一次"""
         task = self.get_current_task()
         if not task:
-            messagebox.showwarning("提示", "请先选择任务")
+            messagebox.showwarning("提示", "请先选择任务", parent=self.winfo_toplevel())
             return
         accounts = self.get_selected_accounts()
         if not accounts:
-            messagebox.showwarning("提示", "请先选择至少一个账户")
+            messagebox.showwarning("提示", "请先选择至少一个账户", parent=self.winfo_toplevel())
             return
         acc = accounts[0]
         self.log(f"手动领取: [{task['period']}][{task['type']}] {task['name']} => {task['award']}")
@@ -2385,11 +2402,11 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         """开始领取：点击后立即按上面设置的数据持续领取（不等待定时时间）"""
         task = self.get_current_task()
         if not task:
-            messagebox.showwarning("提示", "请先选择任务")
+            messagebox.showwarning("提示", "请先选择任务", parent=self.winfo_toplevel())
             return
         accounts = self.get_selected_accounts()
         if not accounts:
-            messagebox.showwarning("提示", "请先选择至少一个账户")
+            messagebox.showwarning("提示", "请先选择至少一个账户", parent=self.winfo_toplevel())
             return
 
         # 解析参数（领取时长、间隔）
@@ -2410,7 +2427,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 if min_interval > max_interval:
                     min_interval, max_interval = max_interval, min_interval
         except ValueError:
-            messagebox.showwarning("提示", "请输入有效的领取时长（秒）和间隔（毫秒）")
+            messagebox.showwarning("提示", "请输入有效的领取时长（秒）和间隔（毫秒）", parent=self.winfo_toplevel())
             return
 
         # 验证账户
@@ -2422,7 +2439,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             else:
                 self.log(f"⚠ 账户「{acc['name']}」登录失效，已跳过")
         if not valid_accounts:
-            messagebox.showerror("登录失效", "所有账户登录验证都失败了")
+            messagebox.showerror("登录失效", "所有账户登录验证都失败了", parent=self.winfo_toplevel())
             return
 
         self.running = True
@@ -2641,16 +2658,16 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         # P1-6: 新旧抢码互斥闸门
         nm_running = any(t.is_alive() for t in self.nm_group_threads.values()) if hasattr(self, 'nm_group_threads') else False
         if nm_running:
-            messagebox.showwarning("提示", "精准抢码正在运行中，请先停止后再启动监控抢码")
+            messagebox.showwarning("提示", "精准抢码正在运行中，请先停止后再启动监控抢码", parent=self.winfo_toplevel())
             return
         task = self.get_current_task()
         if not task:
-            messagebox.showwarning("提示", "请先选择任务")
+            messagebox.showwarning("提示", "请先选择任务", parent=self.winfo_toplevel())
             return
 
         accounts = self.get_selected_accounts()
         if not accounts:
-            messagebox.showwarning("提示", "请先选择一个账户")
+            messagebox.showwarning("提示", "请先选择一个账户", parent=self.winfo_toplevel())
             return
         rush_accounts = [accounts[0]]
 
@@ -2659,7 +2676,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             if interval <= 0:
                 raise ValueError
         except ValueError:
-            messagebox.showwarning("提示", "请输入有效的查询间隔（秒）")
+            messagebox.showwarning("提示", "请输入有效的查询间隔（秒）", parent=self.winfo_toplevel())
             return
 
         # 验证账户
@@ -2672,7 +2689,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 self.log(f"⚠ 账户「{acc['name']}」登录失效，已跳过")
 
         if not valid_accounts:
-            messagebox.showerror("登录失效", "所有账户登录验证都失败了")
+            messagebox.showerror("登录失效", "所有账户登录验证都失败了", parent=self.winfo_toplevel())
             return
 
         self.running = True

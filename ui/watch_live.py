@@ -9,8 +9,8 @@ from tkinter import ttk, messagebox
 import requests
 
 from config import (COLORS, BASE_DIR, HEADERS)
-from storage import atomic_write_json, safe_load_json
-from widgets import DarkButton, DarkEntry, custom_askyesno
+from storage import atomic_write_json
+from widgets import DarkButton
 
 try:
     import websocket
@@ -246,7 +246,7 @@ class WatchLiveFrame(tk.Frame):
                 f"账户数: {len(record.get('accounts', []))}\n"
                 f"已观看: {record.get('duration_seconds', 0)}秒\n\n"
                 f"该记录已保存到历史记录中（标记为异常中断）。"
-            ))
+            , parent=self.winfo_toplevel()))
         except Exception as e:
             self.log(f"⚠ 检查看播快照失败: {e}")
         finally:
@@ -567,13 +567,13 @@ class WatchLiveFrame(tk.Frame):
             wb.save(file_path)
             self.log(f"✓ 已导出Excel: {file_path}")
             from tkinter import messagebox
-            messagebox.showinfo("导出成功", f"看播历史记录已导出到:\n{file_path}")
+            messagebox.showinfo("导出成功", f"看播历史记录已导出到:\n{file_path}", parent=self.winfo_toplevel())
         except Exception as e:
             import traceback
             self.log(f"[错误] 导出Excel失败: {e}")
             self.log(traceback.format_exc())
             from tkinter import messagebox
-            messagebox.showerror("导出失败", f"导出Excel失败: {e}")
+            messagebox.showerror("导出失败", f"导出Excel失败: {e}", parent=self.winfo_toplevel())
 
     def load_watch_config(self):
         default = {"room_id": "1791983148", "daily_minutes": 10, "heartbeat_interval": 60, "selected_accounts": [], "room_history": []}
@@ -1735,16 +1735,16 @@ class WatchLiveFrame(tk.Frame):
                 return
             room_ids = self._get_watch_room_ids()
             if not room_ids:
-                messagebox.showwarning("提示", "请至少选择一个直播间（可在账户管理页面添加）")
+                messagebox.showwarning("提示", "请至少选择一个直播间（可在账户管理页面添加）", parent=self.winfo_toplevel())
                 return
             # 从复选框获取选中账户
             selected_names = [name for name, var in self.account_vars.items() if var.get()]
             if not selected_names:
-                messagebox.showwarning("提示", "请至少勾选一个账户")
+                messagebox.showwarning("提示", "请至少勾选一个账户", parent=self.winfo_toplevel())
                 return
             selected_accounts = [acc for acc in self.account_mgr.accounts if acc.get("name", "") in selected_names]
             if not selected_accounts:
-                messagebox.showwarning("提示", "未找到选中的账户")
+                messagebox.showwarning("提示", "未找到选中的账户", parent=self.winfo_toplevel())
                 return
             self.running = True
             self.stop_flag["stop"] = False  # P1-A: 不换对象，只改key，防止旧线程复活
@@ -1797,7 +1797,7 @@ class WatchLiveFrame(tk.Frame):
             except Exception:
                 pass
             self._reset_watch_ui()
-            messagebox.showerror("错误", f"启动看播失败: {e}")
+            messagebox.showerror("错误", f"启动看播失败: {e}", parent=self.winfo_toplevel())
 
     def stop_watch(self):
         if not self.running:
@@ -2188,7 +2188,7 @@ class WatchLiveFrame(tk.Frame):
             f"每次数量: 牛蛙牛蛙x{gift_num}\n"
             f"单个价格: 1电池/个\n\n"
             f"是否继续？",
-            icon="warning")
+            icon="warning", parent=self.winfo_toplevel())
         if not confirm:
             self.log("⏹ 已取消送礼操作")
             return

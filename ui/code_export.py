@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """兑换码导出页面。"""
 
-import csv, json, os, time
+import json, os, time
 import re, threading
 from storage import atomic_write_json
 import tkinter as tk
@@ -12,7 +12,7 @@ from tasks_config import VERSION_DEFAULT_ACT_ID
 from storage import (load_redeem_codes, save_redeem_code, update_redeem_code_status,
                      delete_redeem_code, clear_redeem_codes, extract_redeem_codes, _ensure_code_dir)
 from bili_api import get_award_record, cookies_from_account
-from widgets import DarkButton, DarkEntry, custom_askyesno
+from widgets import DarkButton, custom_askyesno
 
 # ========== 兑换码导出模块 ==========
 class CodeExportFrame(tk.Frame):
@@ -243,7 +243,7 @@ class CodeExportFrame(tk.Frame):
         # 过滤掉空的act_id
         valid_pairs = [(name, aid) for name, aid in zip(activity_names, act_id_list) if aid]
         if not valid_pairs:
-            messagebox.showwarning("提示", "未找到有效的活动ID")
+            messagebox.showwarning("提示", "未找到有效的活动ID", parent=self.winfo_toplevel())
             return
 
         # 获取所有账户
@@ -257,11 +257,11 @@ class CodeExportFrame(tk.Frame):
                     with open(str(ACCOUNTS_FILE), "r", encoding="utf-8") as f:
                         accounts = json.load(f)
         except Exception as e:
-            messagebox.showerror("错误", f"读取账户失败: {e}")
+            messagebox.showerror("错误", f"读取账户失败: {e}", parent=self.winfo_toplevel())
             return
 
         if not accounts:
-            messagebox.showwarning("提示", "没有可用的账户，请先导入账户")
+            messagebox.showwarning("提示", "没有可用的账户，请先导入账户", parent=self.winfo_toplevel())
             return
 
         # 遍历所有活动和账户，调用领取记录API（后台线程执行，避免卡住UI）
@@ -339,7 +339,7 @@ class CodeExportFrame(tk.Frame):
         if hasattr(self, 'import_btn'):
             self.import_btn.config(state=tk.NORMAL, text="从领取记录导入")
         result_msg = f"导入完成！\n\n共导入 {total_imported} 个兑换码\n跳过 {total_skipped} 个（重复）\n\n详情：\n" + "\n".join(account_results)
-        messagebox.showinfo("导入结果", result_msg)
+        messagebox.showinfo("导入结果", result_msg, parent=self.winfo_toplevel())
     def refresh_list(self):
         """刷新兑换码列表"""
         # 清空现有内容
