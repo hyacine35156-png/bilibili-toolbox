@@ -1023,7 +1023,8 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             nb = None
 
         def make_table(parent, headers, rows, col_w, colorize_rate_col=None,
-                       row_tags=None, on_row_double_click=None):
+                       row_tags=None, on_row_click=None, selected_rows=None,
+                       rows_widget_store=None):
             """在 parent 里生成一个表格，返回外层 Frame。
 
             v6.3.2 重构：用 grid + weight 自适应容器宽度。
@@ -1032,7 +1033,9 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             现在改为 grid，列宽按权重分配，最小宽度保证不被压缩。
 
             row_tags              每行状态标签（"excluded"= 已剔除，整行灰显）
-            on_row_double_click   双击某行的回调，参数是行号
+            selected_rows         已选中的行号集合（用于高亮）
+            rows_widget_store     可选 dict，用于回存每行的控件（供外部刷新高亮）
+            on_row_click          单击某行的回调，参数是 (行号, 是否Ctrl多选)
             """
             card = tk.Frame(parent, bg=COLORS["bg_card"])
             card.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
@@ -1073,15 +1076,27 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 body.grid_columnconfigure(i, weight=weights[i], minsize=min_px[i])
 
             for ridx, row in enumerate(rows):
-                # v6.3.2: 已剔除的行整行灰显
+                # v6.3.2/3.3: 已剔除灰显 + 选中高亮
                 row_excluded = bool(row_tags and ridx < len(row_tags)
                                     and "excluded" in row_tags[ridx])
-                row_bg = D["row2"] if row_excluded else COLORS["bg_card"]
+                row_selected = bool(selected_rows and ridx in selected_rows)
+                if row_selected:
+                    row_bg = COLORS["bg_input"]      # 选中：蓝色高亮
+                elif row_excluded:
+                    row_bg = D["row2"]               # 已剔除：暗底
+                else:
+                    row_bg = COLORS["bg_card"]
                 row_widgets = []
                 for i, v in enumerate(row):
-                    fg_c = D["excluded"] if row_excluded else D["text"]
+                    if row_selected:
+                        fg_c = D["text"]
+                    elif row_excluded:
+                        fg_c = D["excluded"]
+                    else:
+                        fg_c = D["text"]
                     txt = str(v)
-                    if (not row_excluded and colorize_rate_col is not None
+                    if (not row_excluded and not row_selected
+                            and colorize_rate_col is not None
                             and i == colorize_rate_col and "%" in txt):
                         try:
                             pct = float(txt.replace("%", ""))
@@ -1093,18 +1108,29 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                                   font=("Consolas", 11), anchor=tk.W)
                     lb.grid(row=ridx, column=i, sticky="w", padx=(6, 10), pady=4)
                     row_widgets.append(lb)
-                # v6.3.2: 双击该行任意单元格 -> 回调（用于剔除该任务的全部记录）
-                if on_row_double_click is not None:
+                if rows_widget_store is not None:
+                    rows_widget_store[ridx] = row_widgets
+                # v6.3.3: 行选中机制（单击选中/取消，Ctrl 多选）
+                # 不再双击直接剔除，改为选中后点底部按钮确认
+                if on_row_click is not None:
                     def _mk(ridx=ridx, widgets=row_widgets):
-                        def _handler(_e=None):
+                        def _handler(event=None):
                             try:
-                                on_row_double_click(ridx)
+                                ctrl = False
+                                try:
+                                    ctrl = bool(event and (event.state & 0x0004))
+                                except Exception:
+                                    ctrl = False
+                                on_row_click(ridx, ctrl)
                             except Exception:
                                 pass
                         return _handler
                     _handler = _mk()
                     for _wdg in row_widgets:
-                        _wdg.bind("<Double-Button-1>", _handler)
+                        _wdg.bind("<Button-1>", _handler)
+                        _wdg.bind("<Enter>", lambda e, wl=row_widgets: [
+                            x.config(cursor="hand2") for x in wl])
+
             return card
 
 
@@ -1144,7 +1170,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 else:
                     frame.pack(fill=tk.BOTH, expand=True)
 
-            # --- ① 各任务成功率（双击任务行可剔除该任务的全部记录）---
+            # --- ① 各任务成功率（v6.3.3: 单击选中 -> 点按钮确认剔除）---
             f1 = tk.Frame(left, bg=COLORS["bg_card"])
             task_rows = []
             task_names = []
@@ -1157,7 +1183,6 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 nm = t["task"]
                 task_names.append(nm)
                 recs = by_task_recs.get(nm, [])
-                # 该任务全部记录都已被剔除 -> 整行灰显
                 all_excl = bool(recs) and all(x.get("excluded") for x in recs)
                 task_tags.append(["excluded"] if all_excl else [])
                 task_rows.append([
@@ -1168,37 +1193,173 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                     str(t["risk"]),
                 ])
 
-            def _toggle_task_row(ridx, _names=task_names, _map=by_task_recs):
-                """双击任务行 -> 剔除/恢复该任务的全部记录。"""
+            # 左侧任务的选中集合（行号 -> 任务名），支持 Ctrl 多选
+            left_sel = {"rows": set()}
+
+            def _on_task_click(ridx, ctrl, _names=task_names):
+                """单击任务行：选中/取消（Ctrl 切换多选，非 Ctrl 单选）。"""
                 if ridx < 0 or ridx >= len(_names):
                     return
-                nm = _names[ridx]
-                recs = _map.get(nm, [])
-                if not recs:
+                if ctrl:
+                    if ridx in left_sel["rows"]:
+                        left_sel["rows"].discard(ridx)
+                    else:
+                        left_sel["rows"].add(ridx)
+                else:
+                    if left_sel["rows"] == {ridx}:
+                        left_sel["rows"].clear()
+                    else:
+                        left_sel["rows"] = {ridx}
+                _refresh_left_buttons()
+                render_marks()
+
+            def _confirmed_exclude_tasks():
+                """确认后剔除【选中任务】的全部记录。"""
+                if not left_sel["rows"]:
+                    messagebox.showwarning("未选择",
+                                           "请先选中要剔除的任务行\n\n"
+                                           "（按住 Ctrl 可多选任务）",
+                                           parent=dlg)
+                    return
+                sel_names = [_names for _i, _names in
+                             ((i, task_names[i]) for i in sorted(left_sel["rows"])
+                              if 0 <= i < len(task_names))]
+                # 收集这些任务的全部记录
+                all_recs = []
+                for nm in sel_names:
+                    all_recs.extend(by_task_recs.get(nm, []))
+                if not all_recs:
+                    messagebox.showinfo("提示", "选中的任务没有可剔除的记录", parent=dlg)
+                    return
+                lines = []
+                for nm in sel_names[:6]:
+                    cnt = len(by_task_recs.get(nm, []))
+                    lines.append("  · " + str(nm)[:26] + "  (" + str(cnt) + " 条)")
+                if len(sel_names) > 6:
+                    lines.append("  · ... 共 " + str(len(sel_names)) + " 个任务")
+                ok = messagebox.askyesno(
+                    "确认剔除",
+                    "确定要剔除以下任务的【全部记录】吗？\n\n"
+                    + "\n".join(lines)
+                    + "\n\n合计 " + str(len(all_recs)) + " 条记录。\n"
+                    "剔除后不参与统计，可随时恢复。",
+                    parent=dlg)
+                if not ok:
                     return
                 excl = rush_stats.load_excluded()
-                all_excl = all(rush_stats.make_record_key(x) in excl for x in recs)
                 new_set = set(excl)
-                if all_excl:
-                    for x in recs:
-                        new_set.discard(rush_stats.make_record_key(x))
-                    msg = f"恢复任务「{nm[:20]}」的 {len(recs)} 条记录"
-                else:
-                    for x in recs:
-                        new_set.add(rush_stats.make_record_key(x))
-                    msg = f"剔除任务「{nm[:20]}」的 {len(recs)} 条记录"
+                for r in all_recs:
+                    new_set.add(rush_stats.make_record_key(r))
                 rush_stats.save_excluded(new_set)
-                self.nm_log(msg)
+                self.nm_log("剔除 " + str(len(sel_names)) + " 个任务的 "
+                            + str(len(all_recs)) + " 条记录")
+                left_sel["rows"].clear()
                 render()
 
-            make_table(f1, ["任务名称", "请求", "成功", "成功率", "风控"],
-                       task_rows, (34, 8, 8, 9, 8), colorize_rate_col=3,
-                       row_tags=task_tags, on_row_double_click=_toggle_task_row)
-            tk.Label(f1, text="双击任意任务行可剔除/恢复该任务的全部记录",
-                     bg=COLORS["bg_card"], fg=D["muted"],
-                     font=("微软雅黑", 10), anchor=tk.W
-                     ).pack(fill=tk.X, padx=16, pady=(0, 8))
+            def _confirmed_restore_tasks():
+                """确认后恢复【选中任务】的全部记录。"""
+                if not left_sel["rows"]:
+                    messagebox.showwarning("未选择", "请先选中要恢复的任务行", parent=dlg)
+                    return
+                sel_names = [task_names[i] for i in sorted(left_sel["rows"])
+                             if 0 <= i < len(task_names)]
+                all_recs = []
+                for nm in sel_names:
+                    all_recs.extend(by_task_recs.get(nm, []))
+                if not all_recs:
+                    return
+                excl = rush_stats.load_excluded()
+                removable = [r for r in all_recs if rush_stats.make_record_key(r) in excl]
+                if not removable:
+                    messagebox.showinfo("提示", "选中的任务没有被剔除的记录，无需恢复",
+                                        parent=dlg)
+                    return
+                if not messagebox.askyesno(
+                        "确认恢复",
+                        "确定要恢复以下任务的记录吗？\n\n"
+                        "  " + "\n  ".join(str(n)[:26] for n in sel_names[:6])
+                        + "\n\n合计 " + str(len(removable)) + " 条记录。",
+                        parent=dlg):
+                    return
+                new_set = set(excl)
+                for r in removable:
+                    new_set.discard(rush_stats.make_record_key(r))
+                rush_stats.save_excluded(new_set)
+                self.nm_log("恢复 " + str(len(removable)) + " 条记录")
+                left_sel["rows"].clear()
+                render()
+
+            task_widgets = {}
+            tkf = make_table(f1, ["任务名称", "请求", "成功", "成功率", "风控"],
+                             task_rows, (34, 8, 8, 9, 8), colorize_rate_col=3,
+                             row_tags=task_tags, on_row_click=_on_task_click,
+                             selected_rows=left_sel["rows"],
+                             rows_widget_store=task_widgets)
+
+            def render_marks():
+                """刷新任务表的选中高亮（不重建控件，性能好）。"""
+                try:
+                    for ridx, widgets in task_widgets.items():
+                        sel = ridx in left_sel["rows"]
+                        excl = bool(task_tags and ridx < len(task_tags)
+                                    and "excluded" in task_tags[ridx])
+                        if sel:
+                            bg = COLORS["bg_input"]
+                            fg = D["text"]
+                        elif excl:
+                            bg = D["row2"]
+                            fg = D["excluded"]
+                        else:
+                            bg = COLORS["bg_card"]
+                            fg = D["text"]
+                        for i, w in enumerate(widgets):
+                            w.config(bg=bg)
+                            if sel or excl:
+                                w.config(fg=fg)
+                            elif i == 3 and "%" in str(task_rows[ridx][i]):
+                                try:
+                                    pct = float(str(task_rows[ridx][i]).replace("%", ""))
+                                    w.config(fg=(D["ok"] if pct >= 50 else
+                                                 D["mid"] if pct >= 20 else D["bad"]))
+                                except Exception:
+                                    w.config(fg=D["text"])
+                            else:
+                                w.config(fg=D["text"])
+                except Exception:
+                    pass
+
+            # 选中状态标签 + 确认按钮（放在任务表下方）
+            left_btn_row = tk.Frame(f1, bg=COLORS["bg_card"])
+            left_btn_row.pack(fill=tk.X, padx=14, pady=(6, 10))
+            left_sel_lbl = tk.Label(left_btn_row, text="未选中任务",
+                                    bg=COLORS["bg_card"], fg=D["muted"],
+                                    font=("微软雅黑", 10, "bold"))
+            left_sel_lbl.pack(side=tk.LEFT)
+
+            # 右侧按钮（从右往左排）
+            DarkButton(left_btn_row, text="恢复所选任务",
+                       command=_confirmed_restore_tasks,
+                       height=28, width=124, bg_color="#8e44ad").pack(side=tk.RIGHT, padx=(6, 0))
+            DarkButton(left_btn_row, text="剔除所选任务",
+                       command=_confirmed_exclude_tasks,
+                       height=28, width=124, bg_color="#e67e22").pack(side=tk.RIGHT)
+
+            def _refresh_left_buttons():
+                try:
+                    n = len(left_sel["rows"])
+                    if n == 0:
+                        left_sel_lbl.config(text="未选中任务（单击行选中，Ctrl 多选）",
+                                            fg=D["muted"])
+                    else:
+                        left_sel_lbl.config(text="已选中 " + str(n) + " 个任务",
+                                            fg=D["mid"])
+                except Exception:
+                    pass
+
+            _refresh_left_buttons()
+
             add_tab(f1, " ① 各任务成功率 ")
+
 
             # --- ② 提前量区间 ---
             f2 = tk.Frame(left, bg=COLORS["bg_card"])
@@ -1247,7 +1408,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                                     fg=D["muted"], font=("微软雅黑", 11))
         detail_count_lbl.pack(side=tk.LEFT, padx=(10, 0))
 
-        tk.Label(right, text="双击某行可剔除/恢复该条记录（剔除后不参与统计）",
+        tk.Label(right, text="选中记录（Ctrl 多选 / Shift 连选），再点底部「剔除所选」；勾选「显示已剔除记录」可恢复",
                  bg=COLORS["bg_card"], fg=D["muted"],
                  font=("微软雅黑", 9), anchor=tk.W
                  ).pack(fill=tk.X, padx=10, pady=(0, 4))
@@ -1259,7 +1420,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         try:
             cols = ("ts", "task", "award", "result", "rare", "state")
             tree = ttk.Treeview(detail_frame, columns=cols, show="headings",
-                                height=20, selectmode="browse")
+                                height=20, selectmode="extended")
             headings = [
                 ("ts", "时间", 200), ("task", "任务名称", 344),
                 ("award", "奖励", 200), ("result", "结果", 88),
@@ -1367,34 +1528,110 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                                         rare_txt,
                                         "已剔除" if r.get("excluded") else "正常"))
 
-        def on_toggle_record(event=None):
-            """双击明细行 -> 剔除/恢复该条记录。"""
+        # ---- v6.3.3: 选中 + 确认后才剔除（不再双击直接生效）----
+        def _selected_indices():
+            """取当前明细列表选中的行号列表（支持多选）。"""
             if tree is None:
+                return []
+            out = []
+            for iid in tree.selection():
+                try:
+                    out.append(int(iid))
+                except Exception:
+                    pass
+            return out
+
+        def _current_records():
+            """按当前过滤条件取明细记录列表。"""
+            d = rush_stats.dashboard(rare_only=bool(state["rare_only"].get()),
+                                     include_excluded=bool(state["show_excluded"].get()))
+            return d.get("records", [])
+
+        def exclude_selected():
+            """剔除【选中的】记录（多选支持，需二次确认）。"""
+            idxs = _selected_indices()
+            if not idxs:
+                messagebox.showwarning("未选择",
+                                       "请先在明细列表中选中要剔除的记录\\n\\n"
+                                       "（按住 Ctrl 可多选，Shift 可连选）",
+                                       parent=dlg)
                 return
-            sel = tree.selection()
-            if not sel:
+            recs = _current_records()
+            targets = [recs[i] for i in idxs if 0 <= i < len(recs)]
+            if not targets:
+                messagebox.showwarning("提示", "选中的记录已失效，请刷新后重试", parent=dlg)
                 return
-            try:
-                idx = int(sel[0])
-            except Exception:
+            lines = []
+            for r in targets[:6]:
+                lines.append("  · " + str(r.get("ts", "")) + " " + str(r.get("task_name", ""))[:24])
+            preview = "\n".join(lines)
+            if len(targets) > 6:
+                preview += "\n  · ... 共 " + str(len(targets)) + " 条"
+            ok = messagebox.askyesno(
+                "确认剔除",
+                "确定要剔除以下 " + str(len(targets)) + " 条记录吗？\n\n"
+                + preview
+                + "\n\n剔除后不参与统计，可随时恢复。",
+                parent=dlg)
+            if not ok:
                 return
-            data = rush_stats.dashboard(rare_only=bool(state["rare_only"].get()),
-                                        include_excluded=bool(state["show_excluded"].get()))
-            recs = data.get("records", [])
-            if idx < 0 or idx >= len(recs):
-                return
-            rec = recs[idx]
-            # 用原始 key 构造一个最小记录给 toggle 用
-            fake = {"ts": rec.get("ts", ""), "task_name": rec.get("task_name", "")}
             excl = rush_stats.load_excluded()
-            new_set, now_excluded = rush_stats.toggle_excluded(fake, excl)
+            new_set = set(excl)
+            for r in targets:
+                new_set.add(rush_stats.make_record_key(r))
             rush_stats.save_excluded(new_set)
-            self.nm_log(f"{'剔除' if now_excluded else '恢复'}记录: "
-                        f"{rec.get('ts','')} {rec.get('task_name','')[:20]}")
+            self.nm_log("剔除 " + str(len(targets)) + " 条记录（手动选择）")
             render()
 
+        def restore_selected():
+            """恢复【选中的】已剔除记录（多选，需二次确认）。"""
+            idxs = _selected_indices()
+            if not idxs:
+                messagebox.showwarning("未选择",
+                                       "请先选中要恢复的记录\n\n"
+                                       "（需勾选「显示已剔除记录」才能看到被剔除的条目）",
+                                       parent=dlg)
+                return
+            recs = _current_records()
+            targets = [recs[i] for i in idxs if 0 <= i < len(recs)]
+            excl = rush_stats.load_excluded()
+            removable = [r for r in targets if rush_stats.make_record_key(r) in excl]
+            if not removable:
+                messagebox.showinfo("提示", "选中的记录都没有被剔除，无需恢复", parent=dlg)
+                return
+            lines = []
+            for r in removable[:6]:
+                lines.append("  · " + str(r.get("ts", "")) + " " + str(r.get("task_name", ""))[:24])
+            preview = "\n".join(lines)
+            if len(removable) > 6:
+                preview += "\n  · ... 共 " + str(len(removable)) + " 条"
+            ok = messagebox.askyesno(
+                "确认恢复",
+                "确定要恢复以下 " + str(len(removable)) + " 条记录吗？\n\n" + preview,
+                parent=dlg)
+            if not ok:
+                return
+            new_set = set(excl)
+            for r in removable:
+                new_set.discard(rush_stats.make_record_key(r))
+            rush_stats.save_excluded(new_set)
+            self.nm_log("恢复 " + str(len(removable)) + " 条记录")
+            render()
+
+        def on_selection_change(_e=None):
+            """选中变化时更新底部计数与按钮状态。"""
+            try:
+                n = len(_selected_indices())
+                if n == 0:
+                    sel_lbl.config(text="未选中记录", fg=D["muted"])
+                else:
+                    sel_lbl.config(text="已选中 " + str(n) + " 条", fg=D["mid"])
+            except Exception:
+                pass
+
         if tree is not None:
-            tree.bind("<Double-Button-1>", on_toggle_record)
+            tree.bind("<<TreeviewSelect>>", on_selection_change)
+
 
         # 复选框变化时重渲染
         try:
@@ -1403,32 +1640,49 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         except Exception:
             pass
 
-        # ---- 底部按钮 ----
+        # ---- 底部按钮（v6.3.3: 选中+确认模式）----
         foot = tk.Frame(dlg, bg=COLORS["bg_dark"])
         foot.pack(fill=tk.X, padx=14, pady=(0, 12))
-        tk.Label(foot,
-                 text="提示：提前量样本 <5 次标记「样本少」｜双击明细行可剔除/恢复"
-                      "｜剔除记录保存在 rush_excluded.json",
-                 bg=COLORS["bg_dark"], fg=D["muted"],
+
+        tip_text = ("提示：在明细列表中选中记录（Ctrl 多选 / Shift 连选），"
+                    "再点「剔除所选」；需勾选「显示已剔除记录」才能恢复")
+        tk.Label(foot, text=tip_text, bg=COLORS["bg_dark"], fg=D["muted"],
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
+
+        # 选中状态提示（随选择实时更新）
+        sel_lbl = tk.Label(foot, text="未选中记录", bg=COLORS["bg_dark"],
+                           fg=D["muted"], font=("微软雅黑", 11, "bold"))
+        sel_lbl.pack(side=tk.LEFT, padx=(16, 0))
 
         def clear_all_excluded():
             """一键清空所有手动剔除。"""
-            if not rush_stats.load_excluded():
-                messagebox.showinfo("提示", "当前没有手动剔除的记录",
-                                    parent=dlg)
+            n = len(rush_stats.load_excluded())
+            if not n:
+                messagebox.showinfo("提示", "当前没有手动剔除的记录", parent=dlg)
                 return
-            if not messagebox.askyesno("确认", "确定清空所有手动剔除的记录吗？",
-                                       parent=dlg):
+            if not messagebox.askyesno(
+                    "确认清空",
+                    "确定要清空全部 " + str(n) + " 条手动剔除记录吗？\n\n"
+                    "清空后这些记录会重新参与统计。",
+                    parent=dlg):
                 return
             rush_stats.save_excluded(set())
-            self.nm_log("已清空全部手动剔除记录")
+            self.nm_log("已清空全部手动剔除记录（" + str(n) + " 条）")
             render()
 
-        DarkButton(foot, text="清空全部剔除", command=clear_all_excluded,
-                   height=28, width=110, bg_color="#c0392b").pack(side=tk.RIGHT, padx=(6, 0))
+        # 右侧按钮：从右往左排
         DarkButton(foot, text="刷新", command=render,
-                   height=28, width=70, bg_color="#2980b9").pack(side=tk.RIGHT)
+                   height=30, width=76, bg_color="#2980b9").pack(side=tk.RIGHT, padx=(6, 0))
+        DarkButton(foot, text="清空全部剔除", command=clear_all_excluded,
+                   height=30, width=124, bg_color="#c0392b").pack(side=tk.RIGHT, padx=(6, 0))
+        DarkButton(foot, text="恢复所选", command=restore_selected,
+                   height=30, width=100, bg_color="#8e44ad").pack(side=tk.RIGHT, padx=(6, 0))
+        DarkButton(foot, text="剔除所选", command=exclude_selected,
+                   height=30, width=100, bg_color="#e67e22").pack(side=tk.RIGHT)
+
+        render()
+
+
 
         render()
 
