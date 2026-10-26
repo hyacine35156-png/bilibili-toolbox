@@ -801,59 +801,150 @@ class NewModeMixin:
             self.nm_log(f"已向 {running_count} 个任务组发送停止指令，等待当前请求完成后停止...")
 
     def nm_sync_system_time(self):
-        """同步系统时间（需要管理员权限，显示窗口+等待完成+弹结果）"""
-        import subprocess
-        try:
-            self.nm_log("正在请求管理员权限同步系统时间...")
+        """同步系统时间（v6.4.0 重写：真正验证结果 + 明确失败原因）。
 
-            # 用ShellExecuteExW获取进程句柄，可等待结束（P2-14: 引用全局定义）
+        原实现的问题（实测确认）：
+          1. 只检查命令是否"发出"，不检查时间是否真的被修正
+          2. 用 w32tm /resync，但实测在权限不足时直接失败（0x80070005）
+          3. 失败时仍提示"同步完成"，用户以为成功了
+
+        新实现：
+          1. UAC 提权执行 w32tm 完整修复流程（stop→unregister→register→start→config→resync）
+          2. 同步前后各测一次真实 NTP 偏差，用【偏差是否下降】判断成功
+          3. 失败时明确告知原因和解法
+        """
+        import subprocess
+
+        # ---- 1) 同步前测基线偏差 ----
+        before_off, _, _ = self.nm_measure_time_offset(samples_per_server=2)
+        if before_off is not None:
+            self.nm_log(f"[时间同步] 同步前偏差 {before_off:+.0f}ms")
+        else:
+            self.nm_log("[时间同步] 同步前无法测量偏差（网络问题）")
+
+        # ---- 2) UAC 提权执行完整修复 ----
+        # 用临时 bat 脚本：完整重置时间服务 + 强制同步
+        # 注意：只做 resync 往往因权限/服务状态失败，需要完整流程
+        bat_lines = [
+            "@echo off",
+            "chcp 65001 >nul",
+            "echo ===== 正在修复系统时间 =====",
+            "echo [1/5] 停止时间服务...",
+            "net stop w32time >nul 2>&1",
+            "echo [2/5] 注册时间服务...",
+            "w32tm /unregister >nul 2>&1",
+            "w32tm /register >nul 2>&1",
+            "echo [3/5] 启动时间服务...",
+            "net start w32time >nul 2>&1",
+            "echo [4/5] 配置NTP服务器...",
+            'w32tm /config /syncfromflags:manual /manualpeerlist:"ntp.aliyun.com ntp.tencent.com time.windows.com" >nul 2>&1',
+            "w32tm /config /update >nul 2>&1",
+            "echo [5/5] 强制同步...",
+            "w32tm /resync /force",
+            "echo.",
+            "echo ===== 完成，窗口将在3秒后关闭 =====",
+            "timeout /t 3 >nul",
+        ]
+        import tempfile
+        bat_path = os.path.join(tempfile.gettempdir(), "dsh_fix_time.bat")
+        try:
+            with open(bat_path, "w", encoding="gbk") as f:
+                f.write("\r\n".join(bat_lines))
+        except Exception as e:
+            messagebox.showerror("无法创建脚本", f"写入临时脚本失败：{e}",
+                                 parent=self.winfo_toplevel())
+            return
+
+        self.nm_log("[时间同步] 请求管理员权限（请在弹出的UAC窗口点「是」）...")
+        try:
             see = _SHELLEXECUTEINFOW()
             see.cbSize = ctypes.sizeof(_SHELLEXECUTEINFOW)
             see.fMask = 0x00000040  # SEE_MASK_NOCLOSEPROCESS
             see.lpVerb = "runas"
             see.lpFile = "cmd.exe"
-            see.lpParameters = "/c w32tm /resync /force & echo. & echo 同步完成，按任意键关闭 & pause >nul"
-            see.nShow = 1  # SW_SHOWNORMAL，显示黑窗口
-
+            see.lpParameters = f'/c "{bat_path}"'
+            see.nShow = 1
             ok = ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(see))
-            if ok and see.hProcess:
-                self.nm_log("✓ UAC已授权，正在同步（黑窗口显示执行过程）...")
-                ctypes.windll.kernel32.WaitForSingleObject(see.hProcess, 30000)
-                ctypes.windll.kernel32.CloseHandle(see.hProcess)
-                # 同步后立即测NTP偏差
-                try:
-                    r = subprocess.run(
-                        ["w32tm", "/stripchart", "/computer:ntp.aliyun.com", "/samples:3", "/dataonly"],
-                        capture_output=True, text=True, timeout=15)
-                    offs = []
-                    for line in r.stdout.split('\n'):
-                        if ',' in line and ('s' in line):
-                            try:
-                                v = line.split(',')[1].strip().replace('s', '').replace('+', '')
-                                offs.append(abs(float(v) * 1000))
-                            except Exception:
-                                pass
-                    if offs:
-                        avg = sum(offs) / len(offs)
-                        if avg < 100:
-                            self.nm_log(f"✓ 同步成功，当前NTP偏差{avg:.0f}ms")
-                            messagebox.showinfo("同步成功", f"系统时间同步完成！\n\n当前NTP偏差: {avg:.0f}ms\n（安全阈值 100ms）", parent=self.winfo_toplevel())
-                        else:
-                            self.nm_log(f"⚠ 同步完成但偏差仍有{avg:.0f}ms")
-                            messagebox.showwarning("同步完成", f"同步已执行，但偏差仍较大:\n\n当前NTP偏差: {avg:.0f}ms\n建议再次同步", parent=self.winfo_toplevel())
-                    else:
-                        self.nm_log("✓ 同步命令已执行")
-                        messagebox.showinfo("同步完成", "同步命令已执行，请查看抢码日志NTP偏差", parent=self.winfo_toplevel())
-                except Exception as e:
-                    self.nm_log(f"✓ 同步已执行（状态查询失败: {e}）")
-                    messagebox.showinfo("同步完成", "同步命令已执行完成", parent=self.winfo_toplevel())
-            else:
-                self.nm_log("✗ 同步失败或用户取消UAC")
-                messagebox.showerror("同步失败", "同步失败或用户取消了UAC授权", parent=self.winfo_toplevel())
         except Exception as e:
-            self.nm_log(f"✗ 同步系统时间失败: {e}")
-            messagebox.showerror("同步失败", f"同步系统时间失败:\n{e}", parent=self.winfo_toplevel())
+            self.nm_log(f"[时间同步] 提权失败: {e}")
+            messagebox.showerror("同步失败", f"请求管理员权限失败：\n{e}",
+                                 parent=self.winfo_toplevel())
+            return
 
+        if not ok or not see.hProcess:
+            # 用户点了"否"，或 UAC 被拒绝
+            err = ctypes.get_last_error()
+            self.nm_log(f"[时间同步] 用户取消或UAC拒绝（错误码 {err}）")
+            messagebox.showwarning(
+                "同步已取消",
+                "未获得管理员权限，无法修改系统时间。\n\n"
+                "影响：时钟偏差会继续累积，但程序会自动补偿。\n"
+                "解法：右键程序 → 以管理员身份运行，再点此按钮。",
+                parent=self.winfo_toplevel())
+            return
+
+        self.nm_log("[时间同步] 已授权，等待修复流程完成...")
+        ctypes.windll.kernel32.WaitForSingleObject(see.hProcess, 60000)
+        ret_code = ctypes.c_ulong(0)
+        try:
+            ctypes.windll.kernel32.GetExitCodeProcess(
+                see.hProcess, ctypes.byref(ret_code))
+        except Exception:
+            pass
+        ctypes.windll.kernel32.CloseHandle(see.hProcess)
+        self.nm_log(f"[时间同步] 修复命令执行完毕（返回码 {ret_code.value}）")
+
+        # ---- 3) 同步后复测，用偏差是否下降判断是否真的成功 ----
+        time.sleep(1.0)
+        after_off, _, _ = self.nm_measure_time_offset(samples_per_server=2)
+        if after_off is None:
+            self.nm_log("[时间同步] 同步后无法测量偏差（网络问题），无法确认结果")
+            messagebox.showwarning(
+                "无法确认结果",
+                "修复命令已执行，但无法测量当前偏差。\n\n"
+                "请稍后点「查询时间状态」确认。",
+                parent=self.winfo_toplevel())
+            return
+
+        self.nm_log(f"[时间同步] 同步后偏差 {after_off:+.0f}ms")
+        if before_off is not None:
+            improved = abs(before_off) - abs(after_off)
+            self.nm_log(f"[时间同步] 改善 {improved:+.0f}ms")
+        else:
+            improved = None
+
+        # ---- 4) 根据真实结果给出明确反馈 ----
+        if abs(after_off) <= 50:
+            self.nm_log(f"✓ 同步成功，偏差已降至 {after_off:+.0f}ms")
+            messagebox.showinfo(
+                "同步成功",
+                f"系统时间同步成功！\n\n"
+                f"同步前：{('%+.0fms' % before_off) if before_off is not None else '未知'}\n"
+                f"同步后：{after_off:+.0f}ms\n\n"
+                "偏差已降至安全范围（≤50ms）。",
+                parent=self.winfo_toplevel())
+        elif improved is not None and improved > 50:
+            self.nm_log(f"○ 同步部分成功，偏差 {before_off:+.0f} -> {after_off:+.0f}ms")
+            messagebox.showinfo(
+                "同步部分成功",
+                f"偏差有所改善，但仍有 {(after_off):+.0f}ms。\n\n"
+                f"同步前：{before_off:+.0f}ms\n"
+                f"同步后：{after_off:+.0f}ms\n\n"
+                "可以再点一次同步，或用「一键修复时间服务」。",
+                parent=self.winfo_toplevel())
+        else:
+            self.nm_log(f"✗ 同步失败，偏差仍为 {after_off:+.0f}ms")
+            messagebox.showerror(
+                "同步失败",
+                f"时间没有成功校正。\n\n"
+                f"当前偏差：{after_off:+.0f}ms\n\n"
+                "可能原因：\n"
+                "  1. Windows 时间服务被组策略禁用\n"
+                "  2. NTP 端口(123/UDP)被防火墙拦截\n"
+                "  3. 系统时间被其他软件锁定\n\n"
+                "建议：点「一键修复时间服务」重装服务，\n"
+                "或手动执行 w32tm /resync（管理员命令行）。",
+                parent=self.winfo_toplevel())
     def nm_measure_time_offset(self, samples_per_server=2):
         """用原生 NTP 协议直接测系统时间偏差（v6.2.1 新增）。
 
@@ -1505,12 +1596,14 @@ pause
             try:
                 if prewarm_tasks:
                     _probe_session = sessions.get(prewarm_tasks[0]["task_id"])
-                    probe_rtt = self.nm_probe_rtt(prewarm_tasks[0], _probe_session, samples=5)
+                    probe_rtt, probe_valid, probe_total = self.nm_probe_rtt_full(prewarm_tasks[0], _probe_session, samples=5)
             except Exception as e:
                 self.nm_log(f"[RTT探针] 异常: {e}")
 
             # --- 2) 换算成领取接口的真实半RTT ---
-            K_RECV = 1.13           # 领取接口/查询接口 延迟比例（实测校准）
+            # v6.4.0: K 值改为实测校准值 1.60（原 1.13 偏低，导致提前量少算 13-15ms）
+            # 实测：查询接口 RTT 中位 77ms，领取接口 RTT 中位 123ms -> K = 1.60
+            K_RECV = 1.60
             FALLBACK_HALF = 82.0    # 探针失败时的兜底半RTT（白天实测中位）
             is_peak_hour = False
             try:
@@ -1558,9 +1651,20 @@ pause
             # NTP偏差过大时提示（仅提示，不阻止抢码）
             # 说明：offset 在公式中已被显式补偿，偏差本身不影响精度；
             #       但如果偏差持续增大，说明系统时钟在漂移，提醒用户关注即可。
-            if abs(ntp_correction) > 500:
-                self.nm_log(f"[⚠️ 时钟漂移提示] 系统时间与服务器偏差 {ntp_correction:+.0f}ms，"
-                            f"虽已自动补偿，但建议空档期同步一次系统时间")
+            # ===== v6.4.0: 时钟偏差分级预警 =====
+            # 实测发现：本机时钟一天内从 +126ms 漂移到 +472ms，
+            # Windows 时间服务虽在运行，但 w32tm /resync 因权限不足失败（0x80070005），
+            # 导致时钟持续漂移、无法自动校正。程序会自动补偿，但仍应提示用户。
+            _abs_off = abs(ntp_correction)
+            if _abs_off > 300:
+                self.nm_log(f"[⚠️ 时钟偏差严重] {ntp_correction:+.0f}ms（本地{"慢" if ntp_correction > 0 else "快"}）")
+                self.nm_log("   程序已自动补偿，但偏差仍在累积，建议尽快修复系统时间")
+                self.nm_log("   修复方法：右键程序 → 以管理员身份运行 → 点「同步系统时间」")
+            elif _abs_off > 150:
+                self.nm_log(f"[⚠️ 时钟偏差偏大] {ntp_correction:+.0f}ms（本地{"慢" if ntp_correction > 0 else "快"}），已自动补偿")
+                self.nm_log("   建议空档期点「同步系统时间」校正（需管理员权限）")
+            elif _abs_off > 50:
+                self.nm_log(f"[时钟偏差] {ntp_correction:+.0f}ms，已补偿，精度正常")
 
             # ===== 阶段3: 精准首发（自旋等待到目标时间-动态提前量）=====
             fire_time = target_timestamp - dynamic_advance / 1000.0
@@ -1602,7 +1706,52 @@ pause
                 ctypes.windll.winmm.timeEndPeriod(1)
             except Exception:
                 pass
-            self.nm_log(f"[精准首发] 发送！目标偏差: {(actual_fire - target_timestamp)*1000:.1f}ms")
+            # ===== v6.4.0: 计算精准首发的【真实到达偏差】=====
+            # 关键：下面日志里的 (actual_fire - target_timestamp) 是【本地时钟】口径。
+            # 因为系统时钟慢于服务器，它会显示成很大的负数（如 -446ms），
+            # 容易误判为"早到了"，实际到达可能正好在目标之后。
+            #
+            # 真实到达时刻 = 本地发送时刻 + 时钟偏差 + 单程网络延迟
+            #   到达偏差 = actual_fire + offset + one_way - target_timestamp
+            #   正数 = 晚到（安全）  负数 = 早到（可能被判未到领取时间）
+            _spin_error_ms = (actual_fire - fire_time) * 1000.0
+            _arrive_dev_ms = (
+                actual_fire + ntp_correction / 1000.0
+                + half_recv / 1000.0 - target_timestamp) * 1000.0
+            _session_id = time.strftime("%Y%m%d_%H%M%S",
+                                         time.localtime(target_timestamp))
+
+            self.nm_log(
+                f"[精准首发] 本地偏差 {(actual_fire - target_timestamp)*1000:+.1f}ms"
+                f"（本地时钟口径，含 {ntp_correction:+.0f}ms 时钟偏差）")
+            self.nm_log(
+                f"[精准首发] 真实到达偏差 {_arrive_dev_ms:+.1f}ms"
+                f"（{'晚到' if _arrive_dev_ms >= 0 else '早到'}，自旋精度 {_spin_error_ms:+.1f}ms）")
+
+            # 到达偏差分级提示（便于立即判断这一枪质量）
+            if _arrive_dev_ms < -20:
+                self.nm_log("  ⚠ 早到超过20ms，可能被判未到领取时间，建议提高晚到补偿")
+            elif _arrive_dev_ms <= 50:
+                self.nm_log("  ✓ 到达时机优秀（0-50ms）")
+            elif _arrive_dev_ms <= 100:
+                self.nm_log("  ✓ 到达时机良好（50-100ms）")
+            elif _arrive_dev_ms <= 200:
+                self.nm_log("  ○ 到达偏晚（100-200ms）")
+            else:
+                self.nm_log("  ⚠ 到达过晚（>200ms），可能错过首批库存")
+
+            # 把本次场次的指标存入 stop_flag，供 nm_execute_task 写入记录
+            stop_flag["_session_id"] = _session_id
+            stop_flag["_ntp_offset_ms"] = ntp_correction
+            stop_flag["_target_ts"] = target_timestamp
+            stop_flag["_fire_ts"] = actual_fire
+            stop_flag["_one_way_ms"] = half_recv
+            stop_flag["_probe_rtt_med"] = probe_rtt or 0
+            stop_flag["_probe_valid"] = probe_valid
+            stop_flag["_probe_total"] = probe_total
+            stop_flag["_spin_error_ms"] = _spin_error_ms
+            stop_flag["_arrive_dev_ms"] = _arrive_dev_ms
+            stop_flag["_first_shot_done"] = False
 
             # ===== 阶段4: 按优先级依次执行任务 =====
             tasks_sorted = sorted(group["tasks"], key=lambda t: t.get("priority", 99))
@@ -1716,6 +1865,87 @@ pause
                 pass
             return None
 
+
+    def nm_probe_rtt_full(self, task, session=None, samples=5):
+        """测 RTT 并区分「有效样本」与「风控样本」（v6.4.0 新增）。
+
+        关键改进（解决实测发现的精度问题）：
+          原 nm_probe_rtt 把风控响应（-702/-509/-705）也算进 RTT 中位数。
+          但实测发现风控响应只要 86ms，而正常响应要 266ms ——
+          风控样本混入会让测得的 RTT 偏小，进而让提前量算小，导致【早到】。
+
+        新逻辑：
+          1. 只把 code==0 的响应当作有效 RTT 样本
+          2. 返回 (中位数, 有效样本数, 总样本数)
+          3. 有效样本不足 2 个时视为探针失效（返回 None）
+
+        返回：(median_rtt, valid_count, total_count)
+        """
+        try:
+            import statistics
+            account = self.account_mgr.get_account(task.get("account_name", ""))
+            if not account:
+                return None, 0, 0
+            cookies = cookies_from_account(account)
+            from config import MISSION_INFO_API
+            from bili_api import get_wbi_keys, wbi_sign
+
+            img_key, sub_key = get_wbi_keys(cookies)
+            if not img_key:
+                return None, 0, 0
+
+            sess = session or requests.Session()
+            sess.headers.update(HEADERS)
+            params = wbi_sign({"task_id": task["task_id"], "web_location": "888.126558"},
+                              img_key, sub_key)
+            headers = {
+                **HEADERS,
+                "Referer": f"https://www.bilibili.com/blackboard/era/award-exchange.html?task_id={task['task_id']}",
+                "Origin": "https://www.bilibili.com",
+            }
+
+            valid_rtts = []
+            all_rtts = []
+            risk_count = 0
+            for i in range(max(1, samples)):
+                t0 = time.perf_counter()
+                code = None
+                try:
+                    resp = sess.get(MISSION_INFO_API, headers=headers, cookies=cookies,
+                                    params=params, timeout=5)
+                    code = resp.json().get("code")
+                except Exception:
+                    pass
+                dt = (time.perf_counter() - t0) * 1000
+                all_rtts.append(dt)
+                # 只有 code==0 才是有效 RTT 样本
+                if code == 0:
+                    valid_rtts.append(dt)
+                elif code in (-702, -509, -705, -412):
+                    risk_count += 1
+                if i < samples - 1:
+                    time.sleep(0.15)
+
+            total = len(all_rtts)
+            n_valid = len(valid_rtts)
+            if n_valid < 2:
+                self.nm_log(
+                    f"[RTT探针] 有效样本仅 {n_valid}/{total}（风控 {risk_count} 次），探针失效")
+                return None, n_valid, total
+
+            med = statistics.median(valid_rtts)
+            self.nm_log(
+                f"[RTT探针] 采样{total}次，有效{n_valid}个"
+                f"{('，风控' + str(risk_count) + '个已排除') if risk_count else ''}"
+                f": {[f'{r:.0f}' for r in valid_rtts]}ms -> 中位 {med:.0f}ms")
+            return med, n_valid, total
+        except Exception as e:
+            try:
+                self.nm_log(f"[RTT探针] 失败: {e}")
+            except Exception:
+                pass
+            return None, 0, 0
+
     def nm_ntp_sync(self):
         """NTP时间同步（使用socket方式，不依赖第三方库）"""
         import struct
@@ -1785,7 +2015,8 @@ pause
             try:
                 stop_flag["last_request_time"] = time.time()  # 记录请求发出时间（每组独立）
                 ok, msg = self.do_receive_fast(task, task_info, account, session,
-                                               advance_ms=advance_ms)
+                                               advance_ms=advance_ms,
+                                               stop_flag=stop_flag)
                 recv_time = time.time()
                 last_req = stop_flag.get("last_request_time", 0)
                 rtt_ms = (recv_time - last_req) * 1000

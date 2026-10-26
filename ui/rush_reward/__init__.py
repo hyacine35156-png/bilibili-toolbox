@@ -934,15 +934,28 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         dlg.configure(bg=COLORS["bg_dark"])
         # v6.3.0: 加大窗口，并居中显示
         try:
+            # v6.4.2: 窗口尺寸按 DPI 缩放修正
+            # 本机屏幕 2560x1600，DPI scale 1.4985，
+            # 请求 2040 逻辑像素时实际只有 ~1375 物理像素，
+            # 导致内容被挤出。这里按可用物理像素反算安全尺寸。
             sw = dlg.winfo_screenwidth()
             sh = dlg.winfo_screenheight()
-            w, h = min(1900, int(sw * 0.95)), min(1120, int(sh * 0.94))
+            try:
+                scale = dlg.winfo_fpixels("1i") / 96.0
+            except Exception:
+                scale = 1.0
+            if scale < 0.5 or scale > 4:
+                scale = 1.0
+            # 目标：窗口占屏幕 78% 宽、85% 高（留任务栏和边框余量）
+            w = int(sw * 0.78)
+            h = int(sh * 0.85)
             x = max(0, (sw - w) // 2)
             y = max(0, (sh - h) // 2 - 20)
             dlg.geometry(f"{w}x{h}+{x}+{y}")
-            dlg.minsize(1400, 900)
+            # 最小尺寸：保证 4 列指标 + 6 列明细都放得下
+            dlg.minsize(1200, 760)
         except Exception:
-            dlg.geometry("1900x1120")
+            dlg.geometry("1700x900")
         try:
             dlg.transient(self.winfo_toplevel())
         except Exception:
@@ -1019,7 +1032,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
         # ---- 左侧：三个分析报表（用 Notebook 节省纵向空间）----
         left = tk.Frame(body, bg=COLORS["bg_dark"])
-        body.add(left, minsize=580, width=640)
+        body.add(left, minsize=620, width=760)
 
         try:
             nb = ttk.Notebook(left)
@@ -1422,12 +1435,120 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                        hour_rows, (22, 8, 8, 9), colorize_rate_col=3)
             add_tab(f3, " ③ 风控高发时段 ")
 
+            # --- ④ 抢码状态（v6.4.1: 完整 18 项指标分组展示）---
+            f4 = tk.Frame(left, bg=COLORS["bg_card"])
+            snap = rush_stats.score_snapshot(data)
+            metrics = rush_stats.metrics_all(data)
+
+            # ===== 顶部：程序健康分（区分"程序对不对"和"运气好不好"）=====
+            score_head = tk.Frame(f4, bg=COLORS["bg_card"])
+            score_head.pack(fill=tk.X, padx=14, pady=(10, 2))
+            _pc = {"ok": D["ok"], "mid": D["mid"], "bad": D["bad"],
+                   "muted": D["muted"]}.get(snap.get("program_color"), D["text"])
+            _ps = snap.get("program_score")
+            tk.Label(score_head, text="程序健康分", bg=COLORS["bg_card"],
+                     fg=D["text2"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+            tk.Label(score_head, text=str(_ps if _ps is not None else "--"),
+                     bg=COLORS["bg_card"], fg=_pc,
+                     font=("Consolas", 22, "bold")).pack(side=tk.LEFT, padx=(6, 0))
+            tk.Label(score_head,
+                     text="/100 " + str(snap.get("program_level", "")),
+                     bg=COLORS["bg_card"], fg=_pc,
+                     font=("微软雅黑", 10, "bold")).pack(side=tk.LEFT, pady=(6, 0))
+            _rs = snap.get("result_score")
+            _rtxt = "未采集" if _rs is None else "%d%%" % _rs
+            tk.Label(score_head,
+                     text="　结果参考 " + str(_rtxt) + "（随机，仅参考）",
+                     bg=COLORS["bg_card"], fg=D["muted"],
+                     font=("微软雅黑", 9)).pack(side=tk.LEFT, pady=(7, 0))
+
+            tk.Label(f4,
+                     text="说明：抢码成功有随机性（库存/竞争）。健康分只评估程序是否做对，抢不到不等于程序差。",
+                     bg=COLORS["bg_card"], fg=D["muted"],
+                     font=("微软雅黑", 9), anchor=tk.W
+                     ).pack(fill=tk.X, padx=14, pady=(0, 4))
+
+            # ===== 指标列表（可滚动，按 A/B/C/D/E 分组）=====
+            list_wrap = tk.Frame(f4, bg=COLORS["bg_card"])
+            list_wrap.pack(fill=tk.BOTH, expand=True, padx=14, pady=(0, 6))
+
+            # v6.4.2: 去掉 Canvas 滚动 —— 左面板高度足够容纳全部指标，直接放 Frame
+            # 原因：Canvas + create_window 在 Tk 下宽度上报为 1px，导致布局异常。
+            # 实测左面板高 1123px，18项指标+5分组+表头约需 820px，完全放得下。
+            inner_m = tk.Frame(list_wrap, bg=COLORS["bg_card"])
+            inner_m.pack(fill=tk.BOTH, expand=True)
+
+            # 表头
+            # v6.4.1: 列宽按左侧 820px 重新分配（原 18/7/20/11 会超出）
+            # v6.4.2: 指标表用 grid 权重分配，适配任意面板宽度
+            COLW = (0, 1, 2, 3)
+            WEIGHTS = (3, 1, 3, 2)
+            MINS = (140, 50, 110, 80)
+
+            def _mk_row(parent, values, colors, bold=False):
+                r = tk.Frame(parent, bg=COLORS["bg_card"])
+                r.pack(fill=tk.X)
+                for i, (v, c) in enumerate(zip(values, colors)):
+                    r.grid_columnconfigure(i, weight=WEIGHTS[i], minsize=MINS[i])
+                    tk.Label(r, text=str(v), bg=COLORS["bg_card"], fg=c,
+                             font=("Consolas", 10, "bold" if bold else "normal"),
+                             anchor=tk.W).grid(row=0, column=i, sticky="w",
+                                               padx=4, pady=2)
+                return r
+
+            hdr = tk.Frame(inner_m, bg=COLORS["bg_input"])
+            hdr.pack(fill=tk.X)
+            for i, txt in enumerate(("指标", "得分", "当前值", "状态")):
+                hdr.grid_columnconfigure(i, weight=WEIGHTS[i], minsize=MINS[i])
+                tk.Label(hdr, text=txt, bg=COLORS["bg_input"], fg=D["text2"],
+                         font=("微软雅黑", 10, "bold"),
+                         anchor=tk.W).grid(row=0, column=i, sticky="w",
+                                           padx=4, pady=5)
+
+            _cur_group = None
+            for m in metrics:
+                if m["group"] != _cur_group:
+                    _cur_group = m["group"]
+                    gfr = tk.Frame(inner_m, bg=COLORS["bg_input"])
+                    gfr.pack(fill=tk.X, pady=(6, 0))
+                    tk.Label(gfr, text=_cur_group, bg=COLORS["bg_input"],
+                             fg=COLORS["accent"], font=("微软雅黑", 9, "bold"),
+                             anchor=tk.W).pack(fill=tk.X, padx=6, pady=3)
+                _c = {"ok": D["ok"], "mid": D["mid"], "bad": D["bad"],
+                      "muted": D["muted"]}.get(m.get("color"), D["text"])
+                sc_txt = "—" if m["score"] is None else str(m["score"])
+                _mk_row(inner_m,
+                        (m["name"], sc_txt, m["value"], m["grade"]),
+                        (D["text"], _c, _c, _c))
+
+            # 建议
+            sug = snap.get("suggestions") or []
+            if sug:
+                tk.Label(inner_m, text="改进建议", bg=COLORS["bg_input"],
+                         fg=COLORS["accent"], font=("微软雅黑", 9, "bold"),
+                         anchor=tk.W).pack(fill=tk.X, padx=6, pady=(8, 2))
+                for i, s in enumerate(sug, 1):
+                    tk.Label(inner_m, text="  %d. %s" % (i, s),
+                             bg=COLORS["bg_card"], fg=D["mid"],
+                             font=("微软雅黑", 9), anchor=tk.W,
+                             justify=tk.LEFT, wraplength=560
+                             ).pack(fill=tk.X, padx=6, pady=1)
+
+            _n_collected = sum(1 for m in metrics if m["score"] is not None)
+            tk.Label(inner_m,
+                     text="已采集 %d / %d 项指标" % (_n_collected, len(metrics)),
+                     bg=COLORS["bg_card"], fg=D["muted"],
+                     font=("微软雅黑", 9), anchor=tk.W
+                     ).pack(fill=tk.X, padx=6, pady=(6, 8))
+
+            add_tab(f4, " ④ 抢码状态 ")
+
             return nb2
 
         # ---- 右侧：明细记录（可手动剔除）----
         right = tk.Frame(body, bg=COLORS["bg_card"], highlightthickness=1,
                          highlightbackground=COLORS["border"])
-        body.add(right, minsize=1080, width=1200)
+        body.add(right, minsize=560, width=900)
 
         right_head = tk.Frame(right, bg=COLORS["bg_card"])
         right_head.pack(fill=tk.X, padx=14, pady=(12, 6))
@@ -1451,14 +1572,20 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             cols = ("ts", "task", "award", "result", "rare", "state")
             tree = ttk.Treeview(detail_frame, columns=cols, show="headings",
                                 height=20, selectmode="extended")
+            # v6.4.2: 列宽改为自适应（stretch=True），不再固定
+            # 原因：DPI 缩放 1.4985 下，窗口实际物理宽度比请求值小，
+            # 固定列宽会导致后面的列被挤出可视区。
+            # 现在设 minwidth 保证最小可读，stretch 让列填满可用宽度。
+            # v6.4.2: 列宽按实测可用空间(约1150px)重新配比，保证 6 列全可见
             headings = [
-                ("ts", "时间", 200), ("task", "任务名称", 344),
-                ("award", "奖励", 200), ("result", "结果", 88),
-                ("rare", "稀有", 112), ("state", "状态", 88),
+                ("ts", "时间", 155, 130), ("task", "任务名称", 285, 180),
+                ("award", "奖励", 170, 110), ("result", "结果", 78, 62),
+                ("rare", "稀有", 90, 66), ("state", "状态", 90, 66),
             ]
-            for cid, txt, wpx in headings:
+            for cid, txt, wpx, minw in headings:
                 tree.heading(cid, text=txt)
-                tree.column(cid, width=wpx, minwidth=40, anchor=tk.W, stretch=False)
+                tree.column(cid, width=wpx, minwidth=minw, anchor=tk.W,
+                            stretch=True)
             vsb = ttk.Scrollbar(detail_frame, orient=tk.VERTICAL, command=tree.yview)
             tree.configure(yscrollcommand=vsb.set)
             vsb.pack(side=tk.RIGHT, fill=tk.Y)
@@ -1526,13 +1653,36 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                     parts.append(f"非稀有剔除 {f['non_rare']}")
                 if rare_only:
                     parts.append("【仅稀有模式】")
-                summary_lbl.config(
-                    text="　|　".join(parts) +
-                         f"　→　成功 {ov.get('success', 0)}，成功率 {rate}%，"
-                         f"平均延迟 {ov.get('avg_latency_ms', 0)}ms，风控 {ov.get('risk_count', 0)} 次"
-                         f"　|　稀有奖励：{ov.get('rare_total', 0)} 次请求，"
-                         f"成功 {ov.get('rare_success', 0)}，成功率 {ov.get('rare_rate', 0)}%",
-                    fg=rate_color)
+                # v6.4.0: 综合抢码状态评分
+                try:
+                    _snap = rush_stats.score_snapshot(data)
+                    _lv = {"ok": "优秀", "mid": "良好", "bad": "偏低",
+                           "muted": "未知"}.get(_snap.get("level_color"), "未知")
+                    _score_text = (f"　|　抢码状态 {_snap.get('total_score', 0)}分"
+                                   f"（{_snap.get('level', '')}）")
+                except Exception:
+                    _score_text = ""
+                # v6.4.0: 精简摘要，避免过长被截断（原文字超过窗口宽度）
+                _sum_parts = [
+                    f"总 {f.get('raw_total', 0)} 条",
+                    f"纳入 {data.get('total', 0)}",
+                ]
+                if f.get("excluded"):
+                    _sum_parts.append(f"剔除 {f['excluded']}")
+                if f.get("non_rare"):
+                    _sum_parts.append(f"非稀有 {f['non_rare']}")
+                _sum_parts.append(f"成功 {ov.get('success', 0)}")
+                _sum_parts.append(f"成功率 {rate}%")
+                _sum_parts.append(f"风控 {ov.get('risk_count', 0)}次")
+                _score_s = ""
+                try:
+                    _snap2 = rush_stats.score_snapshot(data)
+                    _score_s = f"抢码状态 {_snap2['total_score']}分({_snap2['level']})"
+                except Exception:
+                    pass
+                if _score_s:
+                    _sum_parts.append(_score_s)
+                summary_lbl.config(text="　|　".join(_sum_parts), fg=rate_color)
 
             build_tables(data)
 
@@ -3287,10 +3437,12 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             "reward_info": {"award_name": task["award"]},
         }
 
-    def do_receive_fast(self, task, task_info, account, session=None, advance_ms=0):
+    def do_receive_fast(self, task, task_info, account, session=None, advance_ms=0,
+                        stop_flag=None):
         """快速领取：直接尝试领取（session可选，复用预热连接）
 
-        advance_ms: 本次使用的提前量（v6.2.0 新增，用于统计最优提前量）
+        advance_ms: 本次使用的提前量（v6.2.0）
+        stop_flag:  任务组共享状态，含本场次的运行指标（v6.4.0）
         """
         cookies = cookies_from_account(account)
         csrf = account["bili_jct"]
@@ -3300,6 +3452,10 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
         # O4: 结构化记录每次领取结果，供后续统计成功率/失败码分布
         try:
+            # v6.4.0: 取本场次运行指标，并判断是否首发
+            _sf = stop_flag if isinstance(stop_flag, dict) else None
+            _is_first = bool(_sf is not None
+                             and not _sf.get("_first_shot_done", True))
             _code = ""
             _msg = str(result or "")
             if _msg.startswith("[") and "]" in _msg:
@@ -3317,7 +3473,22 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 # v6.3.0: 记录奖励与版本，供"稀有奖励"筛选统计
                 award=task.get("award", ""),
                 version=task.get("version", ""),
+                # v6.4.0: 本场次程序运行指标
+                session_id=(_sf.get("_session_id", "") if _sf else ""),
+                ntp_offset_ms=(_sf.get("_ntp_offset_ms", 0) if _sf else 0),
+                target_ts=(_sf.get("_target_ts", 0) if _sf else 0),
+                fire_ts=(_sf.get("_fire_ts", 0) if _sf else 0),
+                one_way_ms=(_sf.get("_one_way_ms", 0) if _sf else 0),
+                probe_rtt_med=(_sf.get("_probe_rtt_med", 0) if _sf else 0),
+                probe_valid=(_sf.get("_probe_valid", 0) if _sf else 0),
+                probe_total=(_sf.get("_probe_total", 0) if _sf else 0),
+                spin_error_ms=(_sf.get("_spin_error_ms", 0) if _sf else 0),
+                is_first_shot=_is_first,
+                arrive_dev_ms=(_sf.get("_arrive_dev_ms") if (_sf and _is_first) else None),
             )
+            # 标记首发已消费
+            if _is_first and _sf is not None:
+                _sf["_first_shot_done"] = True
         except Exception:
             pass
 
@@ -3503,3 +3674,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
         if not success:
             self.log(f"监控结束，共查询 {query_count} 次")
+            # v6.4.0: 取本场次的运行指标，并判断是否首发
+            _sf = stop_flag if isinstance(stop_flag, dict) else None
+            _is_first = bool(_sf is not None
+                             and not _sf.get("_first_shot_done", True))
