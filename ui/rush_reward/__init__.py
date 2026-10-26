@@ -916,7 +916,13 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         refresh_list()
 
     def open_stats_dashboard(self):
-        """抢码成功率仪表盘（v6.2.0 新增）。
+        """抢码成功率仪表盘（v6.3.0 重写）。
+
+        v6.3.0 增强：
+          - 窗口加大到 1400x900（原 1000x680 显示不全）
+          - 左右分栏：左侧三个分析报表（标签页切换），右侧明细记录
+          - 新增「仅看稀有奖励」过滤（四个游戏的稀有货币/抽卡券）
+          - 新增明细记录列表，可逐条手动剔除/恢复，剔除持久化
 
         展示三个核心分析：
           1) 各任务历史成功率 —— 哪些任务值得优先抢
@@ -926,73 +932,116 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         dlg = tk.Toplevel(self.winfo_toplevel())
         dlg.title("抢码成功率仪表盘")
         dlg.configure(bg=COLORS["bg_dark"])
-        dlg.geometry("1000x680")
+        # v6.3.0: 加大窗口，并居中显示
+        try:
+            sw = dlg.winfo_screenwidth()
+            sh = dlg.winfo_screenheight()
+            w, h = min(1440, int(sw * 0.92)), min(920, int(sh * 0.90))
+            x = max(0, (sw - w) // 2)
+            y = max(0, (sh - h) // 2 - 20)
+            dlg.geometry(f"{w}x{h}+{x}+{y}")
+            dlg.minsize(1100, 700)
+        except Exception:
+            dlg.geometry("1440x920")
         try:
             dlg.transient(self.winfo_toplevel())
         except Exception:
             pass
 
-        data = rush_stats.dashboard()
+        # ---- 过滤状态（可在界面上切换，切换后重新渲染）----
+        state = {
+            "rare_only": tk.BooleanVar(value=False),
+            "show_excluded": tk.BooleanVar(value=False),
+        }
+        render_holder = {"fn": None}
 
-        # ---- 顶部总览 ----
+        # ============ 顶部标题栏 ============
         head = tk.Frame(dlg, bg=COLORS["bg_card"])
         head.pack(fill=tk.X, padx=10, pady=(10, 6))
-        tk.Label(head, text="📈 抢码成功率仪表盘", bg=COLORS["bg_card"],
+
+        title_row = tk.Frame(head, bg=COLORS["bg_card"])
+        title_row.pack(fill=tk.X, padx=14, pady=(10, 4))
+        tk.Label(title_row, text="📈 抢码成功率仪表盘", bg=COLORS["bg_card"],
                  fg=COLORS["accent"], font=("微软雅黑", 13, "bold")
-                 ).pack(anchor=tk.W, padx=14, pady=(10, 4))
+                 ).pack(side=tk.LEFT)
+        DarkButton(title_row, text="关闭", command=dlg.destroy, height=28, width=80,
+                   bg_color="#7f8c8d").pack(side=tk.RIGHT)
 
-        ov = data.get("overview") or {}
-        if not ov.get("total"):
-            tk.Label(head, text="暂无抢码记录。抢码后这里会自动生成统计数据。",
-                     bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                     font=("微软雅黑", 10)).pack(anchor=tk.W, padx=14, pady=(0, 12))
-            DarkButton(head, text="关闭", command=dlg.destroy, height=30, width=90,
-                       bg_color="#7f8c8d").pack(anchor=tk.E, padx=14, pady=(0, 10))
-            return
+        # 过滤控制条
+        ctrl = tk.Frame(head, bg=COLORS["bg_card"])
+        ctrl.pack(fill=tk.X, padx=14, pady=(0, 6))
+        tk.Label(ctrl, text="过滤：", bg=COLORS["bg_card"],
+                 fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
 
-        rate = ov.get("success_rate", 0)
-        rate_color = COLORS["success"] if rate >= 50 else (
-            COLORS["warning"] if rate >= 20 else COLORS["danger"])
-        ov_text = (f"总请求 {ov['total']}　成功 {ov['success']}　失败 {ov['failed']}　"
-                   f"成功率 {rate}%　平均延迟 {ov['avg_latency_ms']}ms　风控 {ov['risk_count']} 次")
-        tk.Label(head, text=ov_text, bg=COLORS["bg_card"], fg=rate_color,
-                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=14, pady=(0, 12))
+        try:
+            rare_cb = ttk.Checkbutton(ctrl, text="仅看稀有奖励（原石/星琼/星轨通票/菲林/原装母带/星声/唤声涡纹）",
+                                      variable=state["rare_only"])
+            rare_cb.pack(side=tk.LEFT, padx=(4, 16))
+            exc_cb = ttk.Checkbutton(ctrl, text="显示已剔除记录",
+                                     variable=state["show_excluded"])
+            exc_cb.pack(side=tk.LEFT, padx=(0, 16))
+        except Exception:
+            pass
 
-        # ---- 三栏内容 ----
-        body = tk.Frame(dlg, bg=COLORS["bg_dark"])
+        # 统计摘要行
+        summary_lbl = tk.Label(head, text="", bg=COLORS["bg_card"],
+                               fg=COLORS["text_primary"], font=("微软雅黑", 10),
+                               anchor=tk.W, justify=tk.LEFT)
+        summary_lbl.pack(fill=tk.X, padx=14, pady=(0, 10))
+
+        # ============ 主体：左右分栏 ============
+        body = tk.PanedWindow(dlg, orient=tk.HORIZONTAL, bg=COLORS["bg_dark"],
+                              sashrelief=tk.FLAT, sashwidth=6, bd=0)
         body.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
 
-        def make_table(parent, title, headers, rows, col_w=(24, 10, 10, 10)):
-            card = tk.Frame(parent, bg=COLORS["bg_card"], highlightthickness=1,
-                            highlightbackground=COLORS["border"])
-            card.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
-            tk.Label(card, text=title, bg=COLORS["bg_card"], fg=COLORS["accent"],
-                     font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=12, pady=(8, 4))
+        # ---- 左侧：三个分析报表（用 Notebook 节省纵向空间）----
+        left = tk.Frame(body, bg=COLORS["bg_dark"])
+        body.add(left, minsize=560, width=760)
+
+        try:
+            nb = ttk.Notebook(left)
+            nb.pack(fill=tk.BOTH, expand=True)
+        except Exception:
+            nb = None
+
+        def make_table(parent, headers, rows, col_w, colorize_rate_col=None):
+            """在 parent 里生成一个表格，返回外层 Frame。"""
+            card = tk.Frame(parent, bg=COLORS["bg_card"])
+            card.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+
             inner = tk.Frame(card, bg=COLORS["bg_card"])
-            inner.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 10))
+            inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=(8, 2))
 
             # 表头
             hdr = tk.Frame(inner, bg=COLORS["bg_input"])
             hdr.pack(fill=tk.X)
-            for i, (h, w) in enumerate(zip(headers, col_w)):
-                tk.Label(hdr, text=h, bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
+            for h, w in zip(headers, col_w):
+                tk.Label(hdr, text=h, bg=COLORS["bg_input"],
+                         fg=COLORS["text_secondary"],
                          font=("微软雅黑", 9, "bold"), width=w, anchor=tk.W
                          ).pack(side=tk.LEFT, padx=4, pady=4)
 
             # 数据行
+            if not rows:
+                r = tk.Frame(inner, bg=COLORS["bg_card"])
+                r.pack(fill=tk.X)
+                tk.Label(r, text="（暂无数据）", bg=COLORS["bg_card"],
+                         fg=COLORS["text_muted"], font=("微软雅黑", 9),
+                         anchor=tk.W).pack(side=tk.LEFT, padx=6, pady=8)
+                return card
+
             for row in rows:
                 r = tk.Frame(inner, bg=COLORS["bg_card"])
                 r.pack(fill=tk.X)
                 for i, (v, w) in enumerate(zip(row, col_w)):
                     fg_c = COLORS["text_primary"]
                     txt = str(v)
-                    # 成功率着色
-                    if "%" in txt:
+                    if colorize_rate_col is not None and i == colorize_rate_col and "%" in txt:
                         try:
                             pct = float(txt.replace("%", ""))
-                            if i == len(row) - 1 or "率" in str(headers[i]):
-                                fg_c = (COLORS["success"] if pct >= 50 else
-                                        COLORS["warning"] if pct >= 20 else COLORS["danger"])
+                            fg_c = (COLORS["success"] if pct >= 50 else
+                                    COLORS["warning"] if pct >= 20 else
+                                    COLORS["danger"])
                         except Exception:
                             pass
                     tk.Label(r, text=txt, bg=COLORS["bg_card"], fg=fg_c,
@@ -1000,60 +1049,247 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                              ).pack(side=tk.LEFT, padx=4, pady=2)
             return card
 
-        # 1) 各任务成功率
-        task_rows = []
-        for t in data.get("by_task", [])[:10]:
-            task_rows.append([
-                t["task"][:22],
-                str(t["total"]),
-                str(t["success"]),
-                f"{t['rate']}%",
-                str(t["risk"]),
-            ])
-        make_table(body, "① 各任务历史成功率（按请求量排序）",
-                   ["任务名称", "请求数", "成功", "成功率", "风控"],
-                   task_rows, col_w=(26, 8, 8, 9, 8))
+        def build_tables(data):
+            """按当前数据重建左侧三个报表（清空后重建）。"""
+            for w in list(left.winfo_children()):
+                w.destroy()
+            try:
+                nb2 = ttk.Notebook(left)
+                nb2.pack(fill=tk.BOTH, expand=True)
+            except Exception:
+                nb2 = None
 
-        # 2) 提前量区间成功率
-        adv_rows = []
-        best = rush_stats.best_advance(data)
-        for a in data.get("by_advance", []):
-            mark = " ★最优" if best and a["advance"] == best["advance"] else ""
-            note = "" if a.get("reliable") else " (样本少)"
-            adv_rows.append([
-                f"{a['advance']}-{a['advance']+20}ms{mark}{note}",
-                str(a["total"]),
-                str(a["success"]),
-                f"{a['rate']}%",
-            ])
-        if not adv_rows:
-            adv_rows = [["（暂无提前量数据，抢码一次后生成）", "-", "-", "-"]]
-        make_table(body, "② 各提前量区间成功率（★ = 当前最优，用于数据驱动调参）",
-                   ["提前量区间", "请求数", "成功", "成功率"], adv_rows, col_w=(32, 8, 8, 9))
+            def add_tab(frame, text):
+                if nb2 is not None:
+                    nb2.add(frame, text=text)
+                else:
+                    frame.pack(fill=tk.BOTH, expand=True)
 
-        # 3) 风控高发时段
-        hour_rows = []
-        risk_sorted = rush_stats.risk_hours(data)
-        for h in risk_sorted[:8]:
-            hour_rows.append([
-                f"{h['hour']}:00 - {h['hour']}:59",
-                str(h["total"]),
-                str(h["risk"]),
-                f"{h['success_rate']}%",
-            ])
-        if not hour_rows:
-            hour_rows = [["（暂无数据）", "-", "-", "-"]]
-        make_table(body, "③ 风控高发时段（风控次数从高到低）",
-                   ["时段", "请求数", "风控次数", "成功率"], hour_rows, col_w=(24, 8, 10, 9))
+            # --- ① 各任务成功率 ---
+            f1 = tk.Frame(left, bg=COLORS["bg_card"])
+            task_rows = []
+            for t in data.get("by_task", [])[:20]:
+                task_rows.append([
+                    t["task"][:30],
+                    str(t["total"]),
+                    str(t["success"]),
+                    f"{t['rate']}%",
+                    str(t["risk"]),
+                ])
+            make_table(f1, ["任务名称", "请求", "成功", "成功率", "风控"],
+                       task_rows, (34, 8, 8, 9, 8), colorize_rate_col=3)
+            add_tab(f1, " ① 各任务成功率 ")
 
-        # ---- 底部 ----
+            # --- ② 提前量区间 ---
+            f2 = tk.Frame(left, bg=COLORS["bg_card"])
+            adv_rows = []
+            best = rush_stats.best_advance(data)
+            for a in data.get("by_advance", []):
+                mark = " ★" if best and a["advance"] == best["advance"] else ""
+                note = "" if a.get("reliable") else "(样本少)"
+                adv_rows.append([
+                    f"{a['advance']}-{a['advance']+20}ms{mark}{note}",
+                    str(a["total"]),
+                    str(a["success"]),
+                    f"{a['rate']}%",
+                ])
+            make_table(f2, ["提前量区间", "请求", "成功", "成功率"],
+                       adv_rows, (30, 8, 8, 9), colorize_rate_col=3)
+            add_tab(f2, " ② 提前量成功率 ")
+
+            # --- ③ 风控时段 ---
+            f3 = tk.Frame(left, bg=COLORS["bg_card"])
+            hour_rows = []
+            for h in rush_stats.risk_hours(data)[:24]:
+                hour_rows.append([
+                    f"{h['hour']}:00-{h['hour']}:59",
+                    str(h["total"]),
+                    str(h["risk"]),
+                    f"{h['success_rate']}%",
+                ])
+            make_table(f3, ["时段", "请求", "风控", "成功率"],
+                       hour_rows, (22, 8, 8, 9), colorize_rate_col=3)
+            add_tab(f3, " ③ 风控高发时段 ")
+
+            return nb2
+
+        # ---- 右侧：明细记录（可手动剔除）----
+        right = tk.Frame(body, bg=COLORS["bg_card"], highlightthickness=1,
+                         highlightbackground=COLORS["border"])
+        body.add(right, minsize=420, width=560)
+
+        right_head = tk.Frame(right, bg=COLORS["bg_card"])
+        right_head.pack(fill=tk.X, padx=10, pady=(8, 4))
+        tk.Label(right_head, text="📋 明细记录", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=("微软雅黑", 11, "bold")
+                 ).pack(side=tk.LEFT)
+        detail_count_lbl = tk.Label(right_head, text="", bg=COLORS["bg_card"],
+                                    fg=COLORS["text_muted"], font=("微软雅黑", 9))
+        detail_count_lbl.pack(side=tk.LEFT, padx=(10, 0))
+
+        tk.Label(right, text="双击某行可剔除/恢复该条记录（剔除后不参与统计）",
+                 bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                 font=("微软雅黑", 9), anchor=tk.W
+                 ).pack(fill=tk.X, padx=10, pady=(0, 4))
+
+        # 明细列表（Treeview 更省空间、支持滚动）
+        detail_frame = tk.Frame(right, bg=COLORS["bg_card"])
+        detail_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 8))
+
+        try:
+            cols = ("ts", "task", "award", "result", "rare", "state")
+            tree = ttk.Treeview(detail_frame, columns=cols, show="headings",
+                                height=22, selectmode="browse")
+            headings = [
+                ("ts", "时间", 118), ("task", "任务名称", 190),
+                ("award", "奖励", 110), ("result", "结果", 58),
+                ("rare", "稀有", 50), ("state", "状态", 62),
+            ]
+            for cid, txt, wpx in headings:
+                tree.heading(cid, text=txt)
+                tree.column(cid, width=wpx, minwidth=40, anchor=tk.W, stretch=False)
+            vsb = ttk.Scrollbar(detail_frame, orient=tk.VERTICAL, command=tree.yview)
+            tree.configure(yscrollcommand=vsb.set)
+            vsb.pack(side=tk.RIGHT, fill=tk.Y)
+            tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            # 交替行底色
+            tree.tag_configure("odd", background="#1f1f2e")
+            tree.tag_configure("even", background="#252538")
+            tree.tag_configure("excluded", foreground="#7a7a8a")
+            tree.tag_configure("succ", foreground="#2ecc71")
+        except Exception:
+            tree = None
+
+        # ---- 渲染主函数 ----
+        def render():
+            """按当前过滤条件重算数据并刷新界面。"""
+            try:
+                rare_only = bool(state["rare_only"].get())
+                show_excl = bool(state["show_excluded"].get())
+            except Exception:
+                rare_only, show_excl = False, False
+
+            data = rush_stats.dashboard(rare_only=rare_only,
+                                        include_excluded=show_excl)
+
+            f = data.get("filters") or {}
+            ov = data.get("overview") or {}
+
+            if not f.get("raw_total"):
+                summary_lbl.config(
+                    text="暂无抢码记录。抢码后这里会自动生成统计数据。",
+                    fg=COLORS["text_muted"])
+            else:
+                rate = ov.get("success_rate", 0)
+                rate_color = COLORS["success"] if rate >= 50 else (
+                    COLORS["warning"] if rate >= 20 else COLORS["danger"])
+                parts = [
+                    f"总记录 {f.get('raw_total', 0)}",
+                    f"纳入统计 {data.get('total', 0)}",
+                ]
+                if f.get("excluded"):
+                    parts.append(f"手动剔除 {f['excluded']}")
+                if f.get("non_rare"):
+                    parts.append(f"非稀有剔除 {f['non_rare']}")
+                if rare_only:
+                    parts.append("【仅稀有模式】")
+                summary_lbl.config(
+                    text="　|　".join(parts) +
+                         f"　→　成功 {ov.get('success', 0)}，成功率 {rate}%，"
+                         f"平均延迟 {ov.get('avg_latency_ms', 0)}ms，风控 {ov.get('risk_count', 0)} 次"
+                         f"　|　稀有奖励：{ov.get('rare_total', 0)} 次请求，"
+                         f"成功 {ov.get('rare_success', 0)}，成功率 {ov.get('rare_rate', 0)}%",
+                    fg=rate_color)
+
+            build_tables(data)
+
+            # 刷新明细列表
+            if tree is not None:
+                for item in tree.get_children():
+                    tree.delete(item)
+                recs = data.get("records", [])
+                detail_count_lbl.config(text=f"共 {len(recs)} 条")
+                for idx, r in enumerate(recs):
+                    rare_txt = {True: "稀有", False: "非稀有", None: "?"}.get(r.get("rare"), "?")
+                    res = r.get("result", "")
+                    res_txt = {"success": "成功", "already": "已领", "failed": "失败",
+                               "skipped": "跳过"}.get(res, res)
+                    tags = ["odd" if idx % 2 else "even"]
+                    if r.get("excluded"):
+                        tags.append("excluded")
+                    elif res in ("success", "already"):
+                        tags.append("succ")
+                    ts_short = r.get("ts", "")[5:]   # 去掉年份
+                    tree.insert("", tk.END, iid=str(idx), tags=tuple(tags),
+                                values=(ts_short, r.get("task_name", "")[:30],
+                                        r.get("award", "")[:16], res_txt,
+                                        rare_txt,
+                                        "已剔除" if r.get("excluded") else "正常"))
+
+        def on_toggle_record(event=None):
+            """双击明细行 -> 剔除/恢复该条记录。"""
+            if tree is None:
+                return
+            sel = tree.selection()
+            if not sel:
+                return
+            try:
+                idx = int(sel[0])
+            except Exception:
+                return
+            data = rush_stats.dashboard(rare_only=bool(state["rare_only"].get()),
+                                        include_excluded=bool(state["show_excluded"].get()))
+            recs = data.get("records", [])
+            if idx < 0 or idx >= len(recs):
+                return
+            rec = recs[idx]
+            # 用原始 key 构造一个最小记录给 toggle 用
+            fake = {"ts": rec.get("ts", ""), "task_name": rec.get("task_name", "")}
+            excl = rush_stats.load_excluded()
+            new_set, now_excluded = rush_stats.toggle_excluded(fake, excl)
+            rush_stats.save_excluded(new_set)
+            self.nm_log(f"{'剔除' if now_excluded else '恢复'}记录: "
+                        f"{rec.get('ts','')} {rec.get('task_name','')[:20]}")
+            render()
+
+        if tree is not None:
+            tree.bind("<Double-Button-1>", on_toggle_record)
+
+        # 复选框变化时重渲染
+        try:
+            state["rare_only"].trace_add("write", lambda *a: render())
+            state["show_excluded"].trace_add("write", lambda *a: render())
+        except Exception:
+            pass
+
+        # ---- 底部按钮 ----
         foot = tk.Frame(dlg, bg=COLORS["bg_dark"])
         foot.pack(fill=tk.X, padx=10, pady=(0, 10))
-        tk.Label(foot, text="提示：提前量样本 <5 次标记为「样本少」，建议多抢几次再看结论",
+        tk.Label(foot,
+                 text="提示：提前量样本 <5 次标记「样本少」｜双击明细行可剔除/恢复"
+                      "｜剔除记录保存在 rush_excluded.json",
                  bg=COLORS["bg_dark"], fg=COLORS["text_muted"],
                  font=("微软雅黑", 9)).pack(side=tk.LEFT)
-        DarkButton(foot, text="关闭", command=dlg.destroy, height=30, width=90,
-                   bg_color="#7f8c8d").pack(side=tk.RIGHT)
+
+        def clear_all_excluded():
+            """一键清空所有手动剔除。"""
+            if not rush_stats.load_excluded():
+                messagebox.showinfo("提示", "当前没有手动剔除的记录",
+                                    parent=dlg)
+                return
+            if not messagebox.askyesno("确认", "确定清空所有手动剔除的记录吗？",
+                                       parent=dlg):
+                return
+            rush_stats.save_excluded(set())
+            self.nm_log("已清空全部手动剔除记录")
+            render()
+
+        DarkButton(foot, text="清空全部剔除", command=clear_all_excluded,
+                   height=28, width=110, bg_color="#c0392b").pack(side=tk.RIGHT, padx=(6, 0))
+        DarkButton(foot, text="刷新", command=render,
+                   height=28, width=70, bg_color="#2980b9").pack(side=tk.RIGHT)
+
+        render()
 
     def refresh_account_list(self):
         account_names = [acc["name"] for acc in self.account_mgr.accounts]
@@ -2010,6 +2246,9 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 code=_code,
                 message=_msg,
                 latency_ms=_latency_ms,
+                # v6.3.0: 记录奖励与版本，供"稀有奖励"筛选统计
+                award=task.get("award", ""),
+                version=task.get("version", ""),
             )
         except Exception:
             pass
@@ -2649,6 +2888,9 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 message=_msg,
                 latency_ms=_latency_ms,
                 advance_ms=advance_ms,
+                # v6.3.0: 记录奖励与版本，供"稀有奖励"筛选统计
+                award=task.get("award", ""),
+                version=task.get("version", ""),
             )
         except Exception:
             pass
