@@ -1022,31 +1022,91 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         except Exception:
             nb = None
 
-        def make_table(parent, headers, rows, col_w, colorize_rate_col=None):
-            """在 parent 里生成一个表格，返回外层 Frame。"""
+        def make_table(parent, headers, rows, col_w, colorize_rate_col=None,
+                       row_tags=None, on_row_double_click=None):
+            """在 parent 里生成一个表格，返回外层 Frame。
+
+            v6.3.2 重构：用 grid + weight 自适应容器宽度。
+            原来用 pack(side=LEFT) + 固定 width，当总宽度超过容器时
+            后面的列会被直接挤掉（用户反馈"方框内有内容没显示完全"）。
+            现在改为 grid，列宽按权重分配，最小宽度保证不被压缩。
+
+            row_tags              每行状态标签（"excluded"= 已剔除，整行灰显）
+            on_row_double_click   双击某行的回调，参数是行号
+            """
             card = tk.Frame(parent, bg=COLORS["bg_card"])
             card.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
 
             inner = tk.Frame(card, bg=COLORS["bg_card"])
             inner.pack(fill=tk.BOTH, expand=True, padx=14, pady=(12, 4))
 
-            # 表头
+            # 列宽按字符数转成相对权重；第一列（任务名）占大头
+            weights = list(col_w)
+            ncol = len(headers)
+
+            # 每列最小像素宽（按字符数 * 估算字符宽 9px，再加内边距）
+            min_px = [max(60, int(w * 9) + 20) for w in col_w]
+
+            # ==== 表头 ====
             hdr = tk.Frame(inner, bg=COLORS["bg_input"])
             hdr.pack(fill=tk.X)
-            for h, w in zip(headers, col_w):
-                tk.Label(hdr, text=h, bg=COLORS["bg_input"],
-                         fg=COLORS["text_secondary"],
-                         font=("微软雅黑", 11, "bold"), width=w, anchor=tk.W
-                         ).pack(side=tk.LEFT, padx=6, pady=7)
+            hdr.columnconfigure(tuple(range(ncol)), weight=0)  # 先占位，下面重设
+            for i, h in enumerate(headers):
+                hdr.grid_columnconfigure(i, weight=weights[i], minsize=min_px[i])
+                lb = tk.Label(hdr, text=h, bg=COLORS["bg_input"],
+                              fg=COLORS["text_secondary"],
+                              font=("微软雅黑", 11, "bold"), anchor=tk.W)
+                lb.grid(row=0, column=i, sticky="w", padx=(6, 10), pady=7)
 
-            # 数据行
+            # ==== 数据行 ====
             if not rows:
                 r = tk.Frame(inner, bg=COLORS["bg_card"])
                 r.pack(fill=tk.X)
                 tk.Label(r, text="（暂无数据）", bg=COLORS["bg_card"],
-                         fg=D["muted"], font=("微软雅黑", 9),
-                         anchor=tk.W).pack(side=tk.LEFT, padx=6, pady=8)
+                         fg=D["muted"], font=("微软雅黑", 10),
+                         anchor=tk.W).pack(side=tk.LEFT, padx=6, pady=10)
                 return card
+
+            body = tk.Frame(inner, bg=COLORS["bg_card"])
+            body.pack(fill=tk.BOTH, expand=True)
+            for i in range(ncol):
+                body.grid_columnconfigure(i, weight=weights[i], minsize=min_px[i])
+
+            for ridx, row in enumerate(rows):
+                # v6.3.2: 已剔除的行整行灰显
+                row_excluded = bool(row_tags and ridx < len(row_tags)
+                                    and "excluded" in row_tags[ridx])
+                row_bg = D["row2"] if row_excluded else COLORS["bg_card"]
+                row_widgets = []
+                for i, v in enumerate(row):
+                    fg_c = D["excluded"] if row_excluded else D["text"]
+                    txt = str(v)
+                    if (not row_excluded and colorize_rate_col is not None
+                            and i == colorize_rate_col and "%" in txt):
+                        try:
+                            pct = float(txt.replace("%", ""))
+                            fg_c = (D["ok"] if pct >= 50 else
+                                    D["mid"] if pct >= 20 else D["bad"])
+                        except Exception:
+                            pass
+                    lb = tk.Label(body, text=txt, bg=row_bg, fg=fg_c,
+                                  font=("Consolas", 11), anchor=tk.W)
+                    lb.grid(row=ridx, column=i, sticky="w", padx=(6, 10), pady=4)
+                    row_widgets.append(lb)
+                # v6.3.2: 双击该行任意单元格 -> 回调（用于剔除该任务的全部记录）
+                if on_row_double_click is not None:
+                    def _mk(ridx=ridx, widgets=row_widgets):
+                        def _handler(_e=None):
+                            try:
+                                on_row_double_click(ridx)
+                            except Exception:
+                                pass
+                        return _handler
+                    _handler = _mk()
+                    for _wdg in row_widgets:
+                        _wdg.bind("<Double-Button-1>", _handler)
+            return card
+
 
             for row in rows:
                 r = tk.Frame(inner, bg=COLORS["bg_card"])
@@ -1084,19 +1144,60 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 else:
                     frame.pack(fill=tk.BOTH, expand=True)
 
-            # --- ① 各任务成功率 ---
+            # --- ① 各任务成功率（双击任务行可剔除该任务的全部记录）---
             f1 = tk.Frame(left, bg=COLORS["bg_card"])
             task_rows = []
+            task_names = []
+            task_tags = []
+            # 建立 任务名 -> 该任务的全部记录 的映射（用于批量剔除）
+            by_task_recs = {}
+            for r in data.get("records", []):
+                by_task_recs.setdefault(r.get("task_name", ""), []).append(r)
             for t in data.get("by_task", [])[:20]:
+                nm = t["task"]
+                task_names.append(nm)
+                recs = by_task_recs.get(nm, [])
+                # 该任务全部记录都已被剔除 -> 整行灰显
+                all_excl = bool(recs) and all(x.get("excluded") for x in recs)
+                task_tags.append(["excluded"] if all_excl else [])
                 task_rows.append([
-                    t["task"][:30],
+                    nm[:30],
                     str(t["total"]),
                     str(t["success"]),
                     f"{t['rate']}%",
                     str(t["risk"]),
                 ])
+
+            def _toggle_task_row(ridx, _names=task_names, _map=by_task_recs):
+                """双击任务行 -> 剔除/恢复该任务的全部记录。"""
+                if ridx < 0 or ridx >= len(_names):
+                    return
+                nm = _names[ridx]
+                recs = _map.get(nm, [])
+                if not recs:
+                    return
+                excl = rush_stats.load_excluded()
+                all_excl = all(rush_stats.make_record_key(x) in excl for x in recs)
+                new_set = set(excl)
+                if all_excl:
+                    for x in recs:
+                        new_set.discard(rush_stats.make_record_key(x))
+                    msg = f"恢复任务「{nm[:20]}」的 {len(recs)} 条记录"
+                else:
+                    for x in recs:
+                        new_set.add(rush_stats.make_record_key(x))
+                    msg = f"剔除任务「{nm[:20]}」的 {len(recs)} 条记录"
+                rush_stats.save_excluded(new_set)
+                self.nm_log(msg)
+                render()
+
             make_table(f1, ["任务名称", "请求", "成功", "成功率", "风控"],
-                       task_rows, (34, 8, 8, 9, 8), colorize_rate_col=3)
+                       task_rows, (34, 8, 8, 9, 8), colorize_rate_col=3,
+                       row_tags=task_tags, on_row_double_click=_toggle_task_row)
+            tk.Label(f1, text="双击任意任务行可剔除/恢复该任务的全部记录",
+                     bg=COLORS["bg_card"], fg=D["muted"],
+                     font=("微软雅黑", 10), anchor=tk.W
+                     ).pack(fill=tk.X, padx=16, pady=(0, 8))
             add_tab(f1, " ① 各任务成功率 ")
 
             # --- ② 提前量区间 ---
