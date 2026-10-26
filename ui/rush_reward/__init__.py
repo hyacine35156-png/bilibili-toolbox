@@ -964,6 +964,11 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             "rare": "#ffd700",       # 稀有标记（11.3）
             "normal": "#adb5bd",     # 普通标记（7.7）
             "excluded": "#8a8aa0",   # 已剔除（灰色但可辨认）
+            # v6.3.4: 选中高亮色（解决"选中看不出来"的问题）
+            # 原选中色 #0f3460 与普通行背景 #16213e 对比度仅 1.27，几乎不可见。
+            # 新色 #0d7a9e 对比度 3.25，配合白色文字（4.89）清晰可辨。
+            "sel": "#0d7a9e",        # 选中行背景（亮青）
+            "sel_text": "#ffffff",   # 选中行文字（纯白）
         }
 
         # ---- 过滤状态（可在界面上切换，切换后重新渲染）----
@@ -1081,7 +1086,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                                     and "excluded" in row_tags[ridx])
                 row_selected = bool(selected_rows and ridx in selected_rows)
                 if row_selected:
-                    row_bg = COLORS["bg_input"]      # 选中：蓝色高亮
+                    row_bg = D["sel"]                # v6.3.4: 亮青高亮（对比度3.25）
                 elif row_excluded:
                     row_bg = D["row2"]               # 已剔除：暗底
                 else:
@@ -1089,12 +1094,17 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 row_widgets = []
                 for i, v in enumerate(row):
                     if row_selected:
-                        fg_c = D["text"]
+                        fg_c = D["sel_text"]         # v6.3.4: 选中行纯白文字
                     elif row_excluded:
                         fg_c = D["excluded"]
                     else:
                         fg_c = D["text"]
                     txt = str(v)
+                    # v6.3.4: 选中行首列加 ● 标记，即使色弱也能分辨
+                    if row_selected and i == 0:
+                        txt = "● " + txt
+                    elif row_excluded and i == 0:
+                        txt = "○ " + txt
                     if (not row_excluded and not row_selected
                             and colorize_rate_col is not None
                             and i == colorize_rate_col and "%" in txt):
@@ -1104,8 +1114,10 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                                     D["mid"] if pct >= 20 else D["bad"])
                         except Exception:
                             pass
+                    # v6.3.4: 选中行用粗体，进一步强化区分
+                    _font = ("Consolas", 11, "bold") if row_selected else ("Consolas", 11)
                     lb = tk.Label(body, text=txt, bg=row_bg, fg=fg_c,
-                                  font=("Consolas", 11), anchor=tk.W)
+                                  font=_font, anchor=tk.W)
                     lb.grid(row=ridx, column=i, sticky="w", padx=(6, 10), pady=4)
                     row_widgets.append(lb)
                 if rows_widget_store is not None:
@@ -1297,15 +1309,22 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                              rows_widget_store=task_widgets)
 
             def render_marks():
-                """刷新任务表的选中高亮（不重建控件，性能好）。"""
+                """刷新任务表的选中高亮（不重建控件，性能好）。
+
+                v6.3.4: 除了背景色，还要同步更新文字色、粗体、以及首列 ● 标记，
+                否则只改背景时视觉区分度仍然不够。
+                """
                 try:
+                    f_normal = ("Consolas", 11)
+                    f_bold = ("Consolas", 11, "bold")
                     for ridx, widgets in task_widgets.items():
                         sel = ridx in left_sel["rows"]
                         excl = bool(task_tags and ridx < len(task_tags)
                                     and "excluded" in task_tags[ridx])
+                        # 背景 / 文字色
                         if sel:
-                            bg = COLORS["bg_input"]
-                            fg = D["text"]
+                            bg = D["sel"]             # 亮青高亮（对比度3.25）
+                            fg = D["sel_text"]
                         elif excl:
                             bg = D["row2"]
                             fg = D["excluded"]
@@ -1314,6 +1333,8 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                             fg = D["text"]
                         for i, w in enumerate(widgets):
                             w.config(bg=bg)
+                            # v6.3.4: 选中行粗体 + 白字，普通行恢复常规字体
+                            w.config(font=(f_bold if sel else f_normal))
                             if sel or excl:
                                 w.config(fg=fg)
                             elif i == 3 and "%" in str(task_rows[ridx][i]):
@@ -1325,6 +1346,15 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                                     w.config(fg=D["text"])
                             else:
                                 w.config(fg=D["text"])
+                        # v6.3.4: 首列加 ● / ○ 标记（色弱也能分辨选中状态）
+                        if widgets:
+                            base = str(task_rows[ridx][0])
+                            if sel:
+                                widgets[0].config(text="● " + base)
+                            elif excl:
+                                widgets[0].config(text="○ " + base)
+                            else:
+                                widgets[0].config(text=base)
                 except Exception:
                     pass
 
@@ -1447,9 +1477,10 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                                 background=COLORS["bg_input"],
                                 foreground=D["text2"],
                                 font=("微软雅黑", 11, "bold"))
+                # v6.3.4: 选中行用亮青高亮（原来 #0f3460 对比度仅1.27 看不出）
                 style.map("Dash.Treeview",
-                          background=[("selected", COLORS["bg_input"])],
-                          foreground=[("selected", D["text"])])
+                          background=[("selected", D["sel"])],
+                          foreground=[("selected", D["sel_text"])])
                 tree.configure(style="Dash.Treeview")
             except Exception:
                 pass
