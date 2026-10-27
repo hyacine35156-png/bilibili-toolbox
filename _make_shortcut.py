@@ -74,7 +74,13 @@ def main():
                        capture_output=True, text=True,
                        encoding='utf-8', errors='ignore', timeout=60)
     out = (r.stdout or '') + (r.stderr or '')
-    print(out.strip())
+    out = out.strip()
+    # 控制台可能是 GBK，print 含 ✓ 会 UnicodeEncodeError，做兜底
+    try:
+        print(out)
+    except UnicodeEncodeError:
+        _enc = sys.stdout.encoding or "gbk"
+        print(out.encode(_enc, errors="replace").decode(_enc, errors="replace"))
     return 0 if r.returncode == 0 else 1
 
 
