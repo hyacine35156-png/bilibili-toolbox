@@ -234,6 +234,155 @@ def toggle_excluded(rec, excluded_set):
 # v6.4.2：按【任务名 + 日期 + 时间区间】批量剔除（用户需求）
 # ============================================================
 
+# ============================================================
+# v6.4.5：仪表盘过滤条件持久化（用户需求：过滤信息要保存）
+# ============================================================
+
+DASH_FILTER_FILE = BASE_DIR / "dashboard_filters.json"
+
+# 默认值（用户要求）：
+#   仅看稀有奖励 = True（默认只看稀有，避免噪音）
+#   显示已剔除记录 = False（默认不显示已剔除的任务）
+DASH_FILTER_DEFAULTS = {
+    "rare_only": True,
+    "show_excluded": False,
+}
+
+
+def load_dash_filters():
+    """读取仪表盘过滤条件（带默认值兜底）。"""
+    out = dict(DASH_FILTER_DEFAULTS)
+    try:
+        if DASH_FILTER_FILE.exists():
+            data = json.loads(DASH_FILTER_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                for k in ("rare_only", "show_excluded"):
+                    if k in data:
+                        out[k] = bool(data[k])
+    except Exception:
+        pass
+    return out
+
+
+def save_dash_filters(filters):
+    """保存仪表盘过滤条件。"""
+    try:
+        from storage import atomic_write_json
+        data = {k: bool(v) for k, v in (filters or {}).items()
+                if k in ("rare_only", "show_excluded")}
+        atomic_write_json(DASH_FILTER_FILE, data)
+        return True
+    except Exception:
+        try:
+            DASH_FILTER_FILE.parent.mkdir(parents=True, exist_ok=True)
+            DASH_FILTER_FILE.write_text(
+                json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            return True
+        except Exception:
+            return False
+
+
+# ============================================================
+# v6.4.5：任务状态查询结果持久化（用户需求）
+#
+# 用户：「查询可领取模块升级一下，查询过的任务自动保存状态，
+#       做成跟仪表盘一样的界面。查询到已完成的任务后，
+#       在抢码界面可以进行快捷选中，方便选择」
+#
+# 所以需要：
+#   1. 每次查询完把结果存盘（按 task_id + 账户 索引）
+#   2. 重启后仍能看到上次查询结果
+#   3. 抢码界面能据此快捷勾选"已完成"的任务
+# ============================================================
+
+TASK_STATUS_FILE = BASE_DIR / "task_status_cache.json"
+
+
+def _status_cache_key(task_id, account=""):
+    return "%s|%s" % (str(task_id or ""), str(account or ""))
+
+
+def load_task_status_cache():
+    """读取任务状态缓存。返回 dict: key -> status_info"""
+    try:
+        if not TASK_STATUS_FILE.exists():
+            return {}
+        data = json.loads(TASK_STATUS_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            items = data.get("items", data)
+            if isinstance(items, dict):
+                return items
+        return {}
+    except Exception:
+        return {}
+
+
+def save_task_status_cache(cache):
+    """保存任务状态缓存（自动裁剪，最多保留 500 条）。"""
+    try:
+        from storage import atomic_write_json
+        items = dict(cache or {})
+        if len(items) > 500:
+            # 按查询时间倒序保留最近 500 条
+            order = sorted(items.items(),
+                           key=lambda kv: str(kv[1].get("queried_at", "")),
+                           reverse=True)
+            items = dict(order[:500])
+        atomic_write_json(TASK_STATUS_FILE, {"items": items})
+        return True
+    except Exception:
+        try:
+            TASK_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            TASK_STATUS_FILE.write_text(
+                json.dumps({"items": cache}, ensure_ascii=False), encoding="utf-8")
+            return True
+        except Exception:
+            return False
+
+
+def update_task_status(task_id, account="", info=None):
+    """更新单个任务的状态缓存并落盘。返回更新后的 cache。"""
+    cache = load_task_status_cache()
+    k = _status_cache_key(task_id, account)
+    entry = dict(info or {})
+    entry["task_id"] = str(task_id or "")
+    entry["account"] = str(account or "")
+    entry["queried_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    cache[k] = entry
+    save_task_status_cache(cache)
+    return cache
+
+
+def get_task_status(task_id, account=""):
+    """取单个任务的缓存状态。返回 dict 或 None。"""
+    cache = load_task_status_cache()
+    return cache.get(_status_cache_key(task_id, account))
+
+
+def claimable_tasks(cache=None):
+    """筛选出【已完成且可抢】的任务列表（供抢码界面快捷选中）。
+
+    可抢判定（与查询模块一致）：
+      task_finished == True
+      且 stock_available == True
+      且 status 不在 (6, 7)   # 6=已领取过, 7=无资格
+    """
+    cache = cache if cache is not None else load_task_status_cache()
+    out = []
+    for k, v in (cache or {}).items():
+        if not isinstance(v, dict):
+            continue
+        if v.get("error"):
+            continue
+        finished = v.get("task_finished")
+        stock_ok = v.get("stock_available")
+        status = v.get("status", -1)
+        if finished and stock_ok and status not in (6, 7):
+            out.append(v)
+    out.sort(key=lambda x: str(x.get("queried_at", "")), reverse=True)
+    return out
+
+
 def parse_filter_spec(task_name="", date_str="", time_from="", time_to=""):
     """解析剔除条件。
 

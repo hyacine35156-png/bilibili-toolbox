@@ -564,6 +564,13 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         self.check_claimable_btn = DarkButton(right_frame, "📋 查询可领取", command=self.check_claimable_tasks,
                                                width=150, height=44, bg_color="#3498db", text_color="#ffffff")
         self.check_claimable_btn.pack(side=tk.RIGHT)
+        # v6.4.5: 快捷选中可抢任务（用户需求）
+        # 读取持久化的查询结果，把「已完成且可抢」的任务一键加入当前任务组。
+        self.quick_pick_btn = DarkButton(
+            right_frame, "⚡ 快捷选中可抢",
+            command=self.nm_quick_select_claimable,
+            width=160, height=44, bg_color="#8e44ad", text_color="#ffffff")
+        self.quick_pick_btn.pack(side=tk.RIGHT, padx=(0, 8))
 
         # 定时任务列表区域
         schedule_card = tk.Frame(main, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
@@ -958,10 +965,10 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             dlg.minsize(1360, 860)
         except Exception:
             dlg.geometry("1700x900")
-        try:
-            dlg.transient(self.winfo_toplevel())
-        except Exception:
-            pass
+        # v6.4.5: 去掉了 transient —— Tk 禁止附属窗口最小化
+        # （实测报错 "can't iconify: it is a transient"），
+        # 这也是用户反馈「最小化点击无效」的根因。
+        # 改为独立顶层窗口后，系统原生最小化/最大化/关闭按钮全部可用。
 
         # ---- v6.3.1 高对比度配色（解决深色背景下文字看不清）----
         # 原配色问题：Treeview 未设默认前景色，用了系统深色 -> 几乎不可见；
@@ -986,12 +993,28 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             "sel_text": "#ffffff",   # 选中行文字（纯白）
         }
 
-        # ---- 过滤状态（可在界面上切换，切换后重新渲染）----
+        # ---- 过滤状态（v6.4.5: 从配置文件读取，切换后自动保存）----
+        # 用户需求：
+        #   1. 过滤信息要保存（下次打开还是上次的选择）
+        #   2. 默认仅查看稀有奖励
+        #   3. 默认不显示已剔除的任务
+        _saved_filters = rush_stats.load_dash_filters()
         state = {
-            "rare_only": tk.BooleanVar(value=False),
-            "show_excluded": tk.BooleanVar(value=False),
+            "rare_only": tk.BooleanVar(value=_saved_filters.get("rare_only", True)),
+            "show_excluded": tk.BooleanVar(
+                value=_saved_filters.get("show_excluded", False)),
         }
         render_holder = {"fn": None}
+
+        def _persist_filters():
+            """把当前过滤状态写盘（勾选变化时调用）。"""
+            try:
+                rush_stats.save_dash_filters({
+                    "rare_only": bool(state["rare_only"].get()),
+                    "show_excluded": bool(state["show_excluded"].get()),
+                })
+            except Exception:
+                pass
 
         # ============ 顶部标题栏 ============
         head = tk.Frame(dlg, bg=COLORS["bg_card"])
@@ -1002,19 +1025,6 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         tk.Label(title_row, text="📈 抢码成功率仪表盘", bg=COLORS["bg_card"],
                  fg=COLORS["accent"], font=("微软雅黑", 15, "bold")
                  ).pack(side=tk.LEFT)
-        # v6.4.4: 加最小化按钮（用户需求）
-        # 用 iconify() 最小化到任务栏；再次点任务栏图标可还原。
-        def _minimize_dashboard():
-            try:
-                dlg.iconify()
-            except Exception:
-                pass
-
-        DarkButton(title_row, text="— 最小化", command=_minimize_dashboard,
-                   height=28, width=96, bg_color="#2c3e50").pack(side=tk.RIGHT,
-                                                              padx=(0, 6))
-        DarkButton(title_row, text="关闭", command=dlg.destroy, height=28, width=80,
-                   bg_color="#7f8c8d").pack(side=tk.RIGHT)
 
         # 过滤控制条
         ctrl = tk.Frame(head, bg=COLORS["bg_card"])
@@ -1023,11 +1033,23 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                  fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
 
         try:
-            rare_cb = ttk.Checkbutton(ctrl, text="仅看稀有奖励（原石/星琼/星轨通票/菲林/原装母带/星声/唤声涡纹）",
-                                      variable=state["rare_only"])
+            def _on_filter_change():
+                """勾选变化：先保存过滤条件，再重新渲染。"""
+                _persist_filters()
+                try:
+                    if render_holder.get("fn"):
+                        render_holder["fn"]()
+                except Exception:
+                    pass
+
+            rare_cb = ttk.Checkbutton(ctrl,
+                                      text="仅看稀有奖励（原石/星琼/星轨通票/菲林/原装母带/星声/唤声涡纹）",
+                                      variable=state["rare_only"],
+                                      command=_on_filter_change)
             rare_cb.pack(side=tk.LEFT, padx=(6, 20))
             exc_cb = ttk.Checkbutton(ctrl, text="显示已剔除记录",
-                                     variable=state["show_excluded"])
+                                     variable=state["show_excluded"],
+                                     command=_on_filter_change)
             exc_cb.pack(side=tk.LEFT, padx=(0, 20))
         except Exception:
             pass
@@ -1287,69 +1309,64 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             inner_m = tk.Frame(list_wrap, bg=COLORS["bg_card"])
             inner_m.pack(fill=tk.BOTH, expand=True)
 
-            # 表头
-            # v6.4.1: 列宽按左侧 820px 重新分配（原 18/7/20/11 会超出）
-            # v6.4.2: 指标表用 grid 权重分配，适配任意面板宽度
-            COLW = (0, 1, 2, 3)
-            WEIGHTS = (3, 1, 3, 2)
-            MINS = (140, 50, 110, 80)
+            # 表头 + 数据行共用同一个 Grid 容器（v6.4.5 修复列不对齐）
+            # 根因：原代码表头和数据行各自是独立 Frame + 各自 grid_columnconfigure，
+            #       两边列宽分配互相独立，实测列起点偏移 +24/+17/+7px。
+            # 修复：所有行（含表头）放在同一个 Frame 里，列配置只设一次，自然对齐。
+            COL_WEIGHTS = (3, 1, 3, 2)
+            COL_MINS = (140, 46, 100, 70)
 
-            def _mk_row(parent, values, colors, bold=False):
-                r = tk.Frame(parent, bg=COLORS["bg_card"])
-                r.pack(fill=tk.X)
-                for i, (v, c) in enumerate(zip(values, colors)):
-                    r.grid_columnconfigure(i, weight=WEIGHTS[i], minsize=MINS[i])
-                    tk.Label(r, text=str(v), bg=COLORS["bg_card"], fg=c,
-                             font=("Consolas", 10, "bold" if bold else "normal"),
-                             anchor=tk.W).grid(row=0, column=i, sticky="w",
-                                               padx=4, pady=2)
-                return r
+            grid_m = tk.Frame(inner_m, bg=COLORS["bg_card"])
+            grid_m.pack(fill=tk.X)
+            for _ci in range(4):
+                grid_m.grid_columnconfigure(_ci,
+                                           weight=COL_WEIGHTS[_ci],
+                                           minsize=COL_MINS[_ci],
+                                           uniform="col")
 
-            hdr = tk.Frame(inner_m, bg=COLORS["bg_input"])
-            hdr.pack(fill=tk.X)
-            for i, txt in enumerate(("指标", "得分", "当前值", "状态")):
-                hdr.grid_columnconfigure(i, weight=WEIGHTS[i], minsize=MINS[i])
-                tk.Label(hdr, text=txt, bg=COLORS["bg_input"], fg=D["text2"],
-                         font=("微软雅黑", 10, "bold"),
-                         anchor=tk.W).grid(row=0, column=i, sticky="w",
-                                           padx=4, pady=5)
+            _gr = {"row": 0}
 
+            def _add_grid_row(values, colors, bold=False, is_header=False,
+                              span_full=False, bgkey="bg_card"):
+                """往共享 Grid 里加一行。span_full=True 时整行跨 4 列合并。"""
+                _r = _gr["row"]
+                _gr["row"] += 1
+                _bg = COLORS[bgkey]
+                if span_full:
+                    tk.Label(grid_m, text=str(values[0]), bg=_bg,
+                             fg=colors[0],
+                             font=("微软雅黑", 10,
+                                   "bold" if bold else "normal"),
+                             anchor=tk.W
+                             ).grid(row=_r, column=0, columnspan=4,
+                                    sticky="w", padx=6, pady=3)
+                    return
+                for _i, (_v, _c) in enumerate(zip(values, colors)):
+                    tk.Label(grid_m, text=str(_v), bg=_bg, fg=_c,
+                             font=("Consolas", 10 if not is_header else 10,
+                                   "bold" if (bold or is_header) else "normal"),
+                             anchor=tk.W
+                             ).grid(row=_r, column=_i, sticky="w",
+                                    padx=6, pady=(5 if is_header else 2))
+
+            # ---- 表头行 ----
+            _add_grid_row(("指标", "得分", "当前值", "状态"),
+                          (D["text2"], D["text2"], D["text2"], D["text2"]),
+                          is_header=True, bgkey="bg_input")
+
+            # ---- 数据行（按 A/B/C/D/E 分组）----
             _cur_group = None
             for m in metrics:
                 if m["group"] != _cur_group:
                     _cur_group = m["group"]
-                    gfr = tk.Frame(inner_m, bg=COLORS["bg_input"])
-                    gfr.pack(fill=tk.X, pady=(6, 0))
-                    tk.Label(gfr, text=_cur_group, bg=COLORS["bg_input"],
-                             fg=COLORS["accent"], font=("微软雅黑", 9, "bold"),
-                             anchor=tk.W).pack(fill=tk.X, padx=6, pady=3)
+                    _add_grid_row((_cur_group,), (COLORS["accent"],),
+                                  bold=True, span_full=True,
+                                  bgkey="bg_input")
                 _c = {"ok": D["ok"], "mid": D["mid"], "bad": D["bad"],
                       "muted": D["muted"]}.get(m.get("color"), D["text"])
-                sc_txt = "—" if m["score"] is None else str(m["score"])
-                _mk_row(inner_m,
-                        (m["name"], sc_txt, m["value"], m["grade"]),
-                        (D["text"], _c, _c, _c))
-
-            # 建议
-            sug = snap.get("suggestions") or []
-            if sug:
-                tk.Label(inner_m, text="改进建议", bg=COLORS["bg_input"],
-                         fg=COLORS["accent"], font=("微软雅黑", 9, "bold"),
-                         anchor=tk.W).pack(fill=tk.X, padx=6, pady=(8, 2))
-                for i, s in enumerate(sug, 1):
-                    tk.Label(inner_m, text="  %d. %s" % (i, s),
-                             bg=COLORS["bg_card"], fg=D["mid"],
-                             font=("微软雅黑", 9), anchor=tk.W,
-                             justify=tk.LEFT, wraplength=560
-                             ).pack(fill=tk.X, padx=6, pady=1)
-
-            _n_collected = sum(1 for m in metrics if m["score"] is not None)
-            tk.Label(inner_m,
-                     text="已采集 %d / %d 项指标" % (_n_collected, len(metrics)),
-                     bg=COLORS["bg_card"], fg=D["muted"],
-                     font=("微软雅黑", 9), anchor=tk.W
-                     ).pack(fill=tk.X, padx=6, pady=(6, 8))
-
+                _sc_txt = "—" if m["score"] is None else str(m["score"])
+                _add_grid_row((m["name"], _sc_txt, m["value"], m["grade"]),
+                              (D["text"], _c, _c, _c))
             add_tab(fS, " ① 抢码状态 ")
             # --- ② 各任务成功率（v6.3.3: 单击选中 -> 点按钮确认剔除）---
             f1 = tk.Frame(left, bg=COLORS["bg_card"])
@@ -2792,7 +2809,25 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             return {"error": str(e)}
 
     def _update_task_status(self, task, result):
-        """更新任务状态并刷新UI（在主线程中调用）"""
+        """更新任务状态并刷新UI（在主线程中调用）
+
+        v6.4.5: 同时把查询结果写盘持久化（rush_stats.update_task_status），
+        这样重启程序后仍能看到上次查询结果，抢码界面也能据此快捷勾选。
+        """
+        # ---- 持久化（无论是否当前分组都存，供仪表盘/快捷选中使用）----
+        try:
+            import rush_stats as _rs
+            _res = dict(result or {})
+            _res["task_name"] = str(task.get("name", "") or "")
+            _res["act_id"] = str(task.get("act_id", "") or "")
+            _res["version"] = str(task.get("version", "") or "")
+            _rs.update_task_status(
+                task.get("task_id", ""),
+                task.get("account_name", ""),
+                _res)
+        except Exception:
+            pass
+
         if not self.current_group_id:
             return
         group = next((g for g in self.rush_groups if g["group_id"] == self.current_group_id), None)

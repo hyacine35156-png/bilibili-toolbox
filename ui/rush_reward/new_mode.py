@@ -134,6 +134,138 @@ class NewModeMixin:
             self.nm_type_var.set(types[0])
         self.nm_update_task_list()
 
+    def nm_quick_select_claimable(self):
+            """快捷选中【已完成且可抢】的任务（v6.4.5 用户需求）。
+
+            用户：「查询到已完成的任务后，在抢码界面可以进行快捷选中，方便选择」
+
+            逻辑：
+              1. 读取持久化的任务状态缓存（rush_stats.load_task_status_cache）
+              2. 筛出 task_finished=True 且 stock_available=True 且 status 不在 (6,7)
+              3. 列出这些任务的 任务名 + 账户 + 状态，让用户确认
+              4. 确认后把它们按当前版本/期数/类型批量加入当前任务组
+
+            返回：加入的任务数
+            """
+            try:
+                import rush_stats as _rs
+            except Exception:
+                return 0
+
+            try:
+                cache = _rs.load_task_status_cache()
+            except Exception:
+                cache = {}
+
+            if not cache:
+                messagebox.showinfo(
+                    "暂无查询结果",
+                    "还没有查询过任务状态。\n\n"
+                    "请先点「📋 查询可领取」查询任务，\n"
+                    "查询结果会自动保存，重启后仍可快捷选中。",
+                    parent=self.winfo_toplevel())
+                return 0
+
+            try:
+                claimables = _rs.claimable_tasks(cache)
+            except Exception:
+                claimables = []
+
+            if not claimables:
+                messagebox.showinfo(
+                    "没有可抢任务",
+                    "已查询的任务里没有「已完成且可抢」的。\n\n"
+                    "可抢条件：任务已完成 + 库存充足 + 非已领取/无资格。\n"
+                    "可以重新查询一次，或等待任务完成。",
+                    parent=self.winfo_toplevel())
+                return 0
+
+            # 构造选择列表
+            lines = []
+            for i, c in enumerate(claimables[:40], 1):
+                lines.append("%2d. %s｜%s｜%s" % (
+                    i,
+                    str(c.get("task_name", "?"))[:26],
+                    str(c.get("account", "?"))[:10],
+                    str(c.get("status_text", ""))[:14]))
+            preview = "\n".join(lines)
+            if len(claimables) > 40:
+                preview += "\n... 另有 %d 个" % (len(claimables) - 40)
+
+            if not messagebox.askyesno(
+                    "快捷选中可抢任务",
+                    "找到 %d 个「已完成且可抢」的任务：\n\n%s\n\n"
+                    "确定把它们加入当前任务组吗？\n"
+                    "（已存在的任务会跳过，不重复添加）" % (len(claimables), preview),
+                    parent=self.winfo_toplevel()):
+                return 0
+
+            group = None
+            if self.current_group_id:
+                group = next((g for g in self.rush_groups
+                              if g["group_id"] == self.current_group_id), None)
+            if not group:
+                messagebox.showwarning(
+                    "请先选择任务组",
+                    "请先在顶部选择一个任务组，再执行快捷选中。",
+                    parent=self.winfo_toplevel())
+                return 0
+
+            existing = {(t.get("task_id"), t.get("account_name"))
+                        for t in group.get("tasks", [])}
+            added = 0
+            for c in claimables:
+                tid = str(c.get("task_id", ""))
+                acc = str(c.get("account", ""))
+                if not tid:
+                    continue
+                if (tid, acc) in existing:
+                    continue
+                new_task = {
+                    "task_id": tid,
+                    "name": str(c.get("task_name", "")),
+                    "award": "",
+                    "window_seconds": 120,
+                    "priority": len(group.get("tasks", [])) + 1,
+                    "account_name": acc,
+                    "act_id": str(c.get("act_id", "")),
+                    "version": str(c.get("version", "")),
+                    "status_color": "green",
+                    "status_text": "✓ 可抢（来自快捷选中）",
+                    "task_finished": True,
+                    "stock_available": True,
+                }
+                group.setdefault("tasks", []).append(new_task)
+                existing.add((tid, acc))
+                added += 1
+
+            if added:
+                try:
+                    self.save_rush_groups()
+                except Exception:
+                    pass
+                try:
+                    self.refresh_new_mode_task_list()
+                except Exception:
+                    pass
+                try:
+                    self.nm_update_scheduler()
+                except Exception:
+                    pass
+                self.nm_log("[快捷选中] 已加入 %d 个可抢任务到「%s」"
+                            % (added, group.get("group_name", "?")))
+                messagebox.showinfo(
+                    "已加入",
+                    "成功加入 %d 个可抢任务到任务组「%s」。"
+                    % (added, group.get("group_name", "?")),
+                    parent=self.winfo_toplevel())
+            else:
+                messagebox.showinfo(
+                    "无需添加",
+                    "这些任务都已在当前任务组中，无需重复添加。",
+                    parent=self.winfo_toplevel())
+            return added
+
     def nm_update_task_list(self):
         """更新新模式任务下拉列表"""
         version = self.nm_version_var.get()
