@@ -396,6 +396,141 @@ def summary(today_only=True, limit=5000):
     }
 
 
+
+# ============================================================
+# v6.4.1：按「抢码场次」分组统计（替代自然小时）
+# ============================================================
+
+# 时段窗口定义（分钟偏移，正数=目标后，负数=目标前）
+# 用户要求：整点场次统计 x点前后各20分钟；半整点场次前后各5分钟
+SESSION_WINDOW_MIN = 20      # 整点场次：目标前20分 ~ 目标后20分
+SESSION_WINDOW_HALF = 5      # 半整点场次（xx:30）：目标前5分 ~ 目标后5分
+
+
+def _session_label(hour, minute):
+    """把 (时,分) 转成【抢码场次】标签（v6.4.1 按用户要求修正）。
+
+    只有 4 个固定场次，其余全部归「其他时段」：
+      00点场  目标 00:00  -> 23:40 ~ 00:20
+      01点场  目标 01:00  -> 00:40 ~ 01:20
+      02点场  目标 02:00  -> 01:40 ~ 02:20
+      18点场  目标 18:00  -> 17:40 ~ 18:20
+      其他时段  其余所有时间
+
+    注意：窗口取目标前后各 20 分钟，正好覆盖预热(前2.5s)到窗口期结束。
+    """
+    SESSION_HOURS = (0, 1, 2, 18)
+    WINDOW = 20   # 分钟
+
+    for h in SESSION_HOURS:
+        # 目标时刻是 h:00，窗口 [h:00 - 20min, h:00 + 20min]
+        # 转成分钟数比较，处理跨日
+        target_min = h * 60
+        cur_min = hour * 60 + minute
+        diff = cur_min - target_min
+        # 跨日归一化到 (-720, 720]
+        while diff > 720:
+            diff -= 1440
+        while diff < -720:
+            diff += 1440
+        if -WINDOW <= diff <= WINDOW:
+            return "%02d点场" % h
+
+    return "其他时段"
+
+
+def _record_session_ts(rec):
+    """从一条记录推断它所属场次的目标时刻（epoch 秒）。
+
+    优先级：
+      1. target_ts 字段（v6.4.0+ 新记录有）
+      2. target_time_str + ts 推算（按 ts 当天日期套用目标时分秒）
+      3. 退化：直接用 ts
+    返回 (epoch, 是否精确匹配)
+    """
+    import datetime as _dt
+
+    tts = float(rec.get("target_ts") or 0)
+    if tts > 0:
+        return tts, True
+
+    tstr = str(rec.get("target_time_str") or "").strip()
+    ts_str = str(rec.get("ts") or "").strip()
+    if tstr and ts_str:
+        try:
+            base = _dt.datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+            parts = tstr.replace(".", ":").split(":")
+            hh = int(parts[0])
+            mm = int(parts[1]) if len(parts) > 1 else 0
+            ss = int(parts[2]) if len(parts) > 2 else 0
+            target = base.replace(hour=hh, minute=mm, second=ss, microsecond=0)
+            # 跨日修正：若目标时刻比记录时刻晚很多（>12h），说明是前一天
+            if (target - base).total_seconds() > 12 * 3600:
+                target -= _dt.timedelta(days=1)
+            elif (base - target).total_seconds() > 12 * 3600:
+                target += _dt.timedelta(days=1)
+            return target.timestamp(), True
+        except Exception:
+            pass
+
+    # 退化：用记录自身的 ts
+    if ts_str:
+        try:
+            return _dt.datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S").timestamp(), False
+        except Exception:
+            pass
+    return 0, False
+
+
+def _group_by_session(records, is_ok, is_risk):
+    """按场次分组统计风控情况（v6.4.1）。
+
+    返回 list，每项：
+      key          分组键（内部）
+      label        显示标签（如 "00点场" / "00:30场" / "其他时段"）
+      total        请求数
+      success      成功数
+      risk         风控数
+      success_rate 成功率
+      is_other     是否为"其他时段"
+    """
+    groups = {}
+
+    for r in records:
+        ts_epoch, exact = _record_session_ts(r)
+        if not ts_epoch:
+            label = "其他时段"
+            key = "other"
+        else:
+            import datetime as _dt
+            dt_obj = _dt.datetime.fromtimestamp(ts_epoch)
+            label = _session_label(dt_obj.hour, dt_obj.minute)
+            key = label if label != "其他时段" else "other"
+
+        d = groups.setdefault(key, {
+            "key": key, "label": label, "total": 0,
+            "success": 0, "risk": 0, "is_other": (key == "other"),
+        })
+        d["total"] += 1
+        if is_ok(r):
+            d["success"] += 1
+        if is_risk(r):
+            d["risk"] += 1
+
+    out = list(groups.values())
+    for d in out:
+        d["success_rate"] = (round(100.0 * d["success"] / d["total"], 1)
+                             if d["total"] else 0)
+
+    # 排序：4个场次按时间先后，其他放最后
+    ORDER = {"00点场": 0, "01点场": 1, "02点场": 2, "18点场": 18}
+
+    def _sort_key(d):
+        return (1, 0) if d["is_other"] else (0, ORDER.get(d["label"], 99))
+
+    return sorted(out, key=_sort_key)
+
+
 def dashboard(limit=20000, rare_only=False, include_excluded=False,
               excluded_set=None):
     """抢码成功率仪表盘数据（v6.2.0 新增，v6.3.0 支持过滤）。
@@ -524,20 +659,21 @@ def dashboard(limit=20000, rare_only=False, include_excluded=False,
     for d in by_advance:
         d["reliable"] = d["total"] >= 5
 
-    # ---- 风控高发时段 ----
-    hour_map = {}
-    for r in records:
-        ts = str(r.get("ts", ""))
-        hh = ts[11:13] if len(ts) >= 13 else "?"
-        d = hour_map.setdefault(hh, {"hour": hh, "total": 0, "success": 0, "risk": 0})
-        d["total"] += 1
-        if _is_ok(r):
-            d["success"] += 1
-        if _is_risk(r):
-            d["risk"] += 1
-    by_hour = sorted(hour_map.values(), key=lambda x: x["hour"])
-    for d in by_hour:
-        d["success_rate"] = round(100.0 * d["success"] / d["total"], 1) if d["total"] else 0
+    # ---- 风控高发时段（v6.4.1 重写：按"抢码场次"分组，而非自然小时）----
+    #
+    # 原逻辑问题：简单按 ts[11:13] 取自然小时，
+    # 但抢码是围绕"目标时刻"的一场战役，跨小时的记录会被拆成两组。
+    #   例：23:59:00 预热 + 23:59:59 首发 + 00:00:05 重试
+    #       会被拆成 "23点" 和 "00点" 两个时段，统计失去意义。
+    #
+    # 新逻辑：用场次目标时刻（target_time_str / target_ts）归类，
+    # 按用户要求定义时段窗口：
+    #   整点场次 0点：  23:40 ~ 00:20 都属于"0点场"
+    #   半整点场次 0:30：00:25 ~ 00:35 单独归为"0:30场"
+    #   其余时间：     归为"其他时段"
+    #
+    # 这样每个"场次"的预热/首发/重试全部归到同一组，风控统计才有意义。
+    by_hour = _group_by_session(records, _is_ok, _is_risk)
 
     # ---- 失败码 Top10 ----
     code_map = {}

@@ -1421,18 +1421,27 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                        adv_rows, (30, 8, 8, 9), colorize_rate_col=3)
             add_tab(f2, " ② 提前量成功率 ")
 
-            # --- ③ 风控时段 ---
+            # --- ③ 风控时段（v6.4.1: 按"抢码场次"分组，不再按自然小时）---
             f3 = tk.Frame(left, bg=COLORS["bg_card"])
             hour_rows = []
             for h in rush_stats.risk_hours(data)[:24]:
+                _lab = h.get("label") or h.get("hour", "?")
                 hour_rows.append([
-                    f"{h['hour']}:00-{h['hour']}:59",
+                    str(_lab),
                     str(h["total"]),
                     str(h["risk"]),
                     f"{h['success_rate']}%",
                 ])
-            make_table(f3, ["时段", "请求", "风控", "成功率"],
-                       hour_rows, (22, 8, 8, 9), colorize_rate_col=3)
+            make_table(f3, ["抢码场次", "请求", "风控", "成功率"],
+                       hour_rows, (24, 8, 8, 9), colorize_rate_col=3)
+            tk.Label(f3,
+                     text="固定 4 个场次（窗口=目标前后各20分钟）：\n"
+                          "  00点场 23:40~00:20    01点场 00:40~01:20\n"
+                          "  02点场 01:40~02:20    18点场 17:40~18:20\n"
+                          "其余时间全部归「其他时段」",
+                     bg=COLORS["bg_card"], fg=D["muted"],
+                     font=("微软雅黑", 9), anchor=tk.W, justify=tk.LEFT,
+                     wraplength=700).pack(fill=tk.X, padx=14, pady=(6, 10))
             add_tab(f3, " ③ 风控高发时段 ")
 
             # --- ④ 抢码状态（v6.4.1: 完整 18 项指标分组展示）---
