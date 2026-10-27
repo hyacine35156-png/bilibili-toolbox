@@ -238,6 +238,60 @@ def toggle_excluded(rec, excluded_set):
 # v6.4.5：仪表盘过滤条件持久化（用户需求：过滤信息要保存）
 # ============================================================
 
+# ============================================================
+# v6.4.8：任务查询中心设置持久化（用户需求）
+#
+# 用户：「还要有记忆功能，跟仪表盘一样，选过的设置要保留」
+# 需要记住：
+#   only_claimable  只看可抢（默认 True）
+#   account         上次选的查询账户
+#   group_id        上次选的任务组
+# ============================================================
+
+CENTER_SETTINGS_FILE = BASE_DIR / "query_center_settings.json"
+
+CENTER_DEFAULTS = {
+    "only_claimable": True,      # 默认只显示可抢
+    "account": "",               # 上次选的查询账户
+    "version": "",               # 上次选的版本集合（v6.4.8 用户确认：组=版本这一层）
+}
+
+
+def load_center_settings():
+    """读取任务查询中心设置（带默认值兜底）。"""
+    out = dict(CENTER_DEFAULTS)
+    try:
+        if CENTER_SETTINGS_FILE.exists():
+            data = json.loads(CENTER_SETTINGS_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                for k in CENTER_DEFAULTS:
+                    if k in data:
+                        out[k] = data[k]
+    except Exception:
+        pass
+    return out
+
+
+def save_center_settings(settings):
+    """保存任务查询中心设置。"""
+    try:
+        from storage import atomic_write_json
+        data = {}
+        for k in CENTER_DEFAULTS:
+            if k in (settings or {}):
+                data[k] = settings[k]
+        atomic_write_json(CENTER_SETTINGS_FILE, data)
+        return True
+    except Exception:
+        try:
+            CENTER_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            CENTER_SETTINGS_FILE.write_text(
+                json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            return True
+        except Exception:
+            return False
+
+
 DASH_FILTER_FILE = BASE_DIR / "dashboard_filters.json"
 
 # 默认值（用户要求）：

@@ -37,6 +37,8 @@ ACT_ID_CACHE_FILE = BASE_DIR / "act_id_cache.json"
 MANUAL_TASKS_FILE = BASE_DIR / "manual_tasks.json"
 # 用户主动删除的官方任务 task_id 集合（持久化，更新代码后不会自动复活）
 HIDDEN_TASKS_FILE = BASE_DIR / "hidden_tasks.json"
+# v6.4.8: 用户自定义版本集合（查询中心手动创建）
+CUSTOM_VERSIONS_FILE = BASE_DIR / "custom_versions.json"
 # 官方任务表（O9：外置 JSON，更新活动无需改代码重打包）
 TASKS_FILE = BASE_DIR / "tasks_official.json"
 # 抢码预案（v6.2.0：整套任务组配置的一键切换方案）
@@ -46,7 +48,7 @@ BACKUP_DIR = BASE_DIR / "backup"
 
 # ---------- 版本 ----------
 # 程序版本号
-APP_VERSION = "v6.4.7"
+APP_VERSION = "v6.4.8"
 
 # ---------- API 地址 ----------
 

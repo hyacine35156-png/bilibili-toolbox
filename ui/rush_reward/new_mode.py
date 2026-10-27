@@ -266,6 +266,31 @@ class NewModeMixin:
                     parent=self.winfo_toplevel())
             return added
 
+    def nm_refresh_version_combo(self):
+        """刷新版本下拉框（v6.4.8）。
+
+        为什么需要：nm_version_combo 在 UI 构建时只读取一次 ALL_TASKS，
+        之后在查询中心新建的版本集合不会自动出现在下拉框里。
+        这里提供主动刷新，供新建/删除版本后调用。
+        """
+        try:
+            import tasks_config as _tc
+            names = _tc.all_version_names()
+            if not hasattr(self, "nm_version_combo"):
+                return
+            cur = ""
+            try:
+                cur = str(self.nm_version_var.get() or "")
+            except Exception:
+                pass
+            self.nm_version_combo.config(values=names)
+            if cur and cur in names:
+                self.nm_version_var.set(cur)
+            elif names:
+                self.nm_version_var.set(names[0])
+        except Exception:
+            pass
+
     def nm_update_task_list(self):
         """更新新模式任务下拉列表"""
         version = self.nm_version_var.get()

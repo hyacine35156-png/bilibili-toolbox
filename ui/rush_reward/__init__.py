@@ -3156,13 +3156,30 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
     #   - 底部：全部加入任务组 / 刷新 / 关闭
     # ============================================================
 
+
     def open_task_center(self):
-        """任务查询中心：整合「查询可领取」和「完成情况统计」到一个窗口。"""
+        """任务查询中心 v6.4.8。
+
+        需求确认（用户澄清）：
+          · 「任务组」= ALL_TASKS 里的 version 这一层（如「鸣潮3.7」全部任务集合）
+          · 手动创建 = 创建一个新的版本集合（可自定义名称，默认「已完成任务」）
+          · 期数固定「已完成」、类型固定「已完成任务」
+          · 查询到的任务加入【版本集合】，不是新模式抢码组
+          · 默认只显示可抢任务
+          · 记忆功能：账户/版本集合/过滤状态要保留
+        """
         try:
             import rush_stats as _rs
             import tasks_config as _tc
         except Exception:
             return
+
+        cfg = {}
+        try:
+            cfg = _rs.load_center_settings()
+        except Exception:
+            cfg = {"only_claimable": True, "account": "",
+                   "version": _tc.DONE_VERSION if hasattr(_tc, "DONE_VERSION") else ""}
 
         dlg = tk.Toplevel(self.winfo_toplevel())
         dlg.title("🔍 任务查询中心")
@@ -3170,37 +3187,36 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         try:
             sw = dlg.winfo_screenwidth()
             sh = dlg.winfo_screenheight()
-            w = int(sw * 0.66)
-            h = int(sh * 0.80)
+            w = int(sw * 0.68)
+            h = int(sh * 0.84)
             x = max(0, (sw - w) // 2)
             y = max(0, (sh - h) // 2 - 10)
             dlg.geometry(f"{w}x{h}+{x}+{y}")
-            dlg.minsize(980, 620)
+            dlg.minsize(1020, 660)
         except Exception:
-            dlg.geometry("1200x820")
+            dlg.geometry("1240x860")
 
-        # ---- 底部按钮区【先 pack】避免被挤出窗口 ----
         foot = tk.Frame(dlg, bg=COLORS["bg_dark"])
         foot.pack(side=tk.BOTTOM, fill=tk.X, padx=14, pady=(0, 10))
 
-        # ---- 顶部标题 ----
         head = tk.Frame(dlg, bg=COLORS["bg_card"])
         head.pack(side=tk.TOP, fill=tk.X, padx=14, pady=(12, 6))
         tr = tk.Frame(head, bg=COLORS["bg_card"])
-        tr.pack(fill=tk.X, padx=14, pady=(10, 4))
+        tr.pack(fill=tk.X, padx=14, pady=(10, 2))
         tk.Label(tr, text="🔍 任务查询中心", bg=COLORS["bg_card"],
                  fg=COLORS["accent"], font=("微软雅黑", 15, "bold")
                  ).pack(side=tk.LEFT)
         tk.Label(tr,
-                 text="  查询所有活动的任务状态，结果自动保存；"
-                      "可抢任务会自动出现在版本下拉框的「已完成任务」里",
+                 text="  查询所有活动任务 -> 加入版本集合"
+                      "（版本集合=图二「版本」下拉框那一层）",
                  bg=COLORS["bg_card"], fg=COLORS["text_muted"],
                  font=("微软雅黑", 9)).pack(side=tk.LEFT, pady=(4, 0))
 
-        # ---- 控制条：账户 + 开始/停止 + 进度 ----
-        ctrl = tk.Frame(head, bg=COLORS["bg_card"])
-        ctrl.pack(fill=tk.X, padx=14, pady=(0, 10))
-        tk.Label(ctrl, text="查询账户：", bg=COLORS["bg_card"],
+        # ===== 第一行：账户 + 版本集合 + 新建/删除 =====
+        row1 = tk.Frame(head, bg=COLORS["bg_card"])
+        row1.pack(fill=tk.X, padx=14, pady=(4, 6))
+
+        tk.Label(row1, text="查询账户：", bg=COLORS["bg_card"],
                  fg=COLORS["text_secondary"], font=("微软雅黑", 10)
                  ).pack(side=tk.LEFT)
         acc_var = tk.StringVar()
@@ -3209,43 +3225,134 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             acc_names = [a["name"] for a in self.account_mgr.accounts]
         except Exception:
             pass
-        if acc_names:
-            acc_var.set(acc_names[0])
-        acc_combo = RoundCombobox(ctrl, textvariable=acc_var,
-                                  values=acc_names, width=18,
+        _sa = str(cfg.get("account") or "")
+        acc_var.set(_sa if (_sa and _sa in acc_names)
+                    else (acc_names[0] if acc_names else ""))
+        RoundCombobox(row1, textvariable=acc_var, values=acc_names,
+                      width=15, font=("微软雅黑", 10), state="readonly"
+                      ).pack(side=tk.LEFT, padx=(4, 16))
+
+        tk.Label(row1, text="目标版本集合：", bg=COLORS["bg_card"],
+                 fg=COLORS["text_secondary"], font=("微软雅黑", 10)
+                 ).pack(side=tk.LEFT)
+        ver_var = tk.StringVar()
+        state = {"running": False, "stop": False, "done": 0, "total": 0}
+
+        def _ver_names():
+            try:
+                return _tc.all_version_names()
+            except Exception:
+                return []
+
+        ver_combo = RoundCombobox(row1, textvariable=ver_var,
+                                  values=_ver_names(), width=18,
                                   font=("微软雅黑", 10), state="readonly")
-        acc_combo.pack(side=tk.LEFT, padx=(4, 14))
+        ver_combo.pack(side=tk.LEFT, padx=(4, 8))
 
-        state = {"running": False, "stop": False, "done": 0,
-                 "total": 0, "results": []}
+        def _save_cfg():
+            try:
+                _rs.save_center_settings({
+                    "only_claimable": bool(only_claimable.get()),
+                    "account": acc_var.get().strip(),
+                    "version": ver_var.get().strip(),
+                })
+            except Exception:
+                pass
 
-        prog_lbl = tk.Label(ctrl, text="未开始", bg=COLORS["bg_card"],
+        def _create_collection():
+            """手动创建版本集合（默认名「已完成任务」）。"""
+            from tkinter import simpledialog
+            base = _tc.DONE_VERSION
+            exist = set(_ver_names())
+            nm = base
+            i = 2
+            while nm in exist:
+                nm = "%s%d" % (base, i)
+                i += 1
+            name = simpledialog.askstring(
+                "新建版本集合",
+                "输入版本集合名称（将出现在「版本」下拉框）：\n"
+                "期数固定「已完成」、类型固定「已完成任务」",
+                initialvalue=nm, parent=dlg)
+            if not name:
+                return
+            ok, msg = _tc.create_custom_version(name.strip())
+            if not ok:
+                messagebox.showwarning("创建失败", msg, parent=dlg)
+                return
+            ver_combo.config(values=_ver_names())
+            ver_var.set(name.strip())
+            _save_cfg()
+            _log("✓ 已创建版本集合：%s" % name.strip())
+            try:
+                self.nm_refresh_version_combo()
+                self.nm_update_task_list()
+                self.nm_on_version_change()
+            except Exception:
+                pass
+
+        def _delete_collection():
+            """删除当前选中的自定义版本集合。"""
+            name = ver_var.get().strip()
+            if not name:
+                return
+            if not messagebox.askyesno(
+                    "确认删除",
+                    "删除版本集合「%s」？\n"
+                    "该集合下的任务会一并移除（官方版本不可删）。" % name,
+                    parent=dlg):
+                return
+            ok, msg = _tc.delete_custom_version(name)
+            if not ok:
+                messagebox.showwarning("无法删除", msg, parent=dlg)
+                return
+            ver_combo.config(values=_ver_names())
+            new_names = _ver_names()
+            if new_names:
+                ver_var.set(new_names[0])
+            _save_cfg()
+            _log("✓ 已删除版本集合：%s" % name)
+            try:
+                self.nm_refresh_version_combo()
+                self.nm_update_task_list()
+                self.nm_on_version_change()
+            except Exception:
+                pass
+
+        DarkButton(row1, text="＋ 新建集合", command=_create_collection,
+                   height=30, width=110, bg_color=COLORS["accent"],
+                   text_color="#000000", compact=True
+                   ).pack(side=tk.LEFT, padx=(2, 4))
+        DarkButton(row1, text="－ 删除集合", command=_delete_collection,
+                   height=30, width=110, bg_color="#c0392b",
+                   text_color="#ffffff", compact=True
+                   ).pack(side=tk.LEFT)
+
+        # ===== 第二行：开始/停止 + 进度 =====
+        row2 = tk.Frame(head, bg=COLORS["bg_card"])
+        row2.pack(fill=tk.X, padx=14, pady=(0, 8))
+        prog_lbl = tk.Label(row2, text="未开始", bg=COLORS["bg_card"],
                             fg=COLORS["text_muted"], font=("微软雅黑", 10))
-        prog_lbl.pack(side=tk.LEFT, padx=(12, 0))
-
-        # 进度条画布
-        prog_cv = tk.Canvas(ctrl, width=240, height=16,
+        prog_cv = tk.Canvas(row2, width=280, height=16,
                             bg=COLORS["bg_input"], highlightthickness=0)
-        prog_cv.pack(side=tk.LEFT, padx=(10, 0))
-        prog_cv.create_rectangle(0, 0, 0, 16, fill=COLORS["success"], width=0,
-                                 tags="bar")
+        prog_cv.create_rectangle(0, 0, 0, 16, fill=COLORS["success"],
+                                 width=0, tags="bar")
 
         def _update_prog():
             try:
                 t = max(1, state["total"])
                 pct = min(1.0, state["done"] / t)
-                prog_cv.coords("bar", 0, 0, int(240 * pct), 16)
+                prog_cv.coords("bar", 0, 0, int(280 * pct), 16)
                 prog_lbl.config(
                     text="%d/%d" % (state["done"], state["total"]),
                     fg=COLORS["success"] if pct >= 1 else COLORS["accent"])
             except Exception:
                 pass
 
-        # ---- 主体：上下分栏（日志 + 表格）----
+        # ===== 主体 =====
         body = tk.Frame(dlg, bg=COLORS["bg_dark"])
         body.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=14, pady=(0, 6))
 
-        # 日志区（固定高度）
         log_card = tk.Frame(body, bg=COLORS["bg_card"],
                             highlightthickness=1,
                             highlightbackground=COLORS["border"])
@@ -3253,7 +3360,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         tk.Label(log_card, text="查询日志", bg=COLORS["bg_card"],
                  fg=COLORS["accent"], font=("微软雅黑", 10, "bold"),
                  anchor=tk.W).pack(fill=tk.X, padx=10, pady=(6, 2))
-        log_txt = tk.Text(log_card, height=7, bg=COLORS["bg_input"],
+        log_txt = tk.Text(log_card, height=6, bg=COLORS["bg_input"],
                           fg=COLORS["text_primary"], font=("Consolas", 9),
                           bd=0, highlightthickness=0, wrap=tk.WORD)
         log_sb = tk.Scrollbar(log_card, orient=tk.VERTICAL,
@@ -3270,12 +3377,10 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             except Exception:
                 pass
 
-        # 表格区
         tbl_card = tk.Frame(body, bg=COLORS["bg_card"],
                             highlightthickness=1,
                             highlightbackground=COLORS["border"])
         tbl_card.pack(fill=tk.BOTH, expand=True)
-
         tbl_head = tk.Frame(tbl_card, bg=COLORS["bg_card"])
         tbl_head.pack(fill=tk.X, padx=10, pady=(6, 2))
         tk.Label(tbl_head, text="任务状态", bg=COLORS["bg_card"],
@@ -3285,7 +3390,10 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                            fg=COLORS["text_muted"], font=("微软雅黑", 9))
         cnt_lbl.pack(side=tk.LEFT, padx=(8, 0))
 
-        only_claimable = tk.BooleanVar(value=False)
+        # 默认只看可抢（按用户要求）+ 记忆
+        only_claimable = tk.BooleanVar(
+            value=bool(cfg.get("only_claimable", True)))
+
         tbl_wrap = tk.Frame(tbl_card, bg=COLORS["bg_card"])
         tbl_wrap.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 8))
 
@@ -3301,15 +3409,20 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 rows = [r for r in rows if (
                     r.get("task_finished") and r.get("stock_available")
                     and r.get("status") not in (6, 7))]
-            rows.sort(key=lambda r: str(r.get("queried_at", "")), reverse=True)
-            cnt_lbl.config(text="%d 条" % len(rows))
+            rows.sort(key=lambda r: str(r.get("queried_at", "")),
+                      reverse=True)
+            cnt_lbl.config(text="%d 条%s" % (
+                len(rows), "（只看可抢）" if only_claimable.get() else ""))
 
             if not rows:
-                tk.Label(tbl_wrap,
-                         text="暂无数据。点上方「▶ 开始查询」发起一次查询。",
-                         bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                         font=("微软雅黑", 10), anchor=tk.W
-                         ).pack(fill=tk.X, pady=24)
+                tip = ("暂无【可抢】任务：\n"
+                       "  1. 没查过 -> 点「▶ 开始查询」\n"
+                       "  2. 查过但无可抢 -> 取消勾选「只看可抢」查看全部\n"
+                       "  3. 可抢条件：已完成 + 库存充足 + 非已领取/无资格")
+                tk.Label(tbl_wrap, text=tip, bg=COLORS["bg_card"],
+                         fg=COLORS["text_muted"], font=("微软雅黑", 10),
+                         anchor=tk.W, justify=tk.LEFT
+                         ).pack(fill=tk.X, padx=6, pady=20)
                 return
 
             cv = tk.Canvas(tbl_wrap, bg=COLORS["bg_card"],
@@ -3328,20 +3441,20 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             gm = tk.Frame(inner, bg=COLORS["bg_card"])
             gm.pack(fill=tk.X)
             W = (4, 2, 1, 2, 2)
-            M = (200, 100, 55, 100, 110)
+            M = (200, 100, 55, 110, 110)
             for ci in range(5):
                 gm.grid_columnconfigure(ci, weight=W[ci], minsize=M[ci],
                                         uniform="c")
             HR = {"r": 0}
 
-            def addrow(vals, colors, bold=False, header=False):
+            def addrow(vals, colors, header=False):
                 r = HR["r"]
                 HR["r"] += 1
                 bg = COLORS["bg_input"] if header else COLORS["bg_card"]
                 for i, (v, c) in enumerate(zip(vals, colors)):
                     tk.Label(gm, text=str(v), bg=bg, fg=c,
                              font=("微软雅黑", 9,
-                                   "bold" if (bold or header) else "normal"),
+                                   "bold" if header else "normal"),
                              anchor=tk.W
                              ).grid(row=r, column=i, sticky="w",
                                     padx=5, pady=(5 if header else 2))
@@ -3361,19 +3474,15 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 ), (col, COLORS["text_primary"], COLORS["text_primary"],
                     col, COLORS["text_muted"]))
 
-        # ---- 查询执行逻辑 ----
-        btn_start = None
-        btn_stop = None
+        # ===== 查询执行 =====
+        btn_start = [None]
+        btn_stop = [None]
 
         def _set_running(running):
             state["running"] = running
             try:
-                if running:
-                    btn_start.config(state="disabled")
-                    btn_stop.config(state="normal")
-                else:
-                    btn_start.config(state="normal")
-                    btn_stop.config(state="disabled")
+                btn_start[0].config(state="disabled" if running else "normal")
+                btn_stop[0].config(state="normal" if running else "disabled")
             except Exception:
                 pass
 
@@ -3381,7 +3490,6 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             import threading as _th
             import time as _t
 
-            # 取账户 cookies
             acc_name = acc_var.get().strip()
             account = None
             try:
@@ -3395,10 +3503,11 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             cookies = {"SESSDATA": account.get("SESSDATA", ""),
                        "bili_jct": account.get("bili_jct", "")}
 
-            # 收集所有分类组合
             combos = set()
             for t in ALL_TASKS:
-                if t.get("version") in ("已完成任务", "手动任务"):
+                if t.get("version") in (_tc.DONE_VERSION, "手动任务"):
+                    continue
+                if t.get("is_custom"):
                     continue
                 combos.add((t["version"], t["period"], t["type"]))
             combos = sorted(combos)
@@ -3406,12 +3515,11 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             state["done"] = 0
             state["stop"] = False
             dlg.after(0, _update_prog)
-            dlg.after(0, lambda: _log(
-                "开始查询：账户 %s，共 %d 个活动分类"
-                % (acc_name, len(combos))))
+            dlg.after(0, lambda: _log("开始查询：账户 %s，共 %d 个活动分类"
+                                      % (acc_name, len(combos))))
 
             from bili_api import check_all_tasks_finished
-            total_tasks = 0
+            total_saved = 0
             for idx, (ver, per, typ) in enumerate(combos):
                 if state["stop"]:
                     dlg.after(0, lambda: _log("⏹ 已被用户停止"))
@@ -3420,12 +3528,11 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                           _log("[%d/%d] %s · %s · %s"
                                % (i + 1, len(combos), v, p, tt)))
                 try:
-                    all_fin, details = check_all_tasks_finished(
+                    _af, details = check_all_tasks_finished(
                         ver, per, typ, cookies)
                 except Exception as e:
                     dlg.after(0, lambda e=e: _log("  ✗ 异常: %s" % str(e)[:60]))
                     details = []
-                # 持久化
                 saved = 0
                 for d in (details or []):
                     tid = str(d.get("task_id", "") or "")
@@ -3450,7 +3557,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                         saved += 1
                     except Exception:
                         pass
-                total_tasks += saved
+                total_saved += saved
                 state["done"] = idx + 1
                 dlg.after(0, _update_prog)
                 dlg.after(0, lambda s=saved: _log("  ✓ 保存 %d 条" % s))
@@ -3460,29 +3567,17 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                             break
                         _t.sleep(0.1)
 
-            # 重建已完成任务分类
-            try:
-                _tc.refresh_done_tasks()
-                _n = len(getattr(_tc, "DONE_TASKS", []))
-            except Exception:
-                _n = 0
-            dlg.after(0, lambda: _log(
-                "查询完成：共保存 %d 条，可抢任务 %d 个"
-                % (total_tasks, _n)))
+            dlg.after(0, lambda: _log("查询完成：共保存 %d 条" % total_saved))
             dlg.after(0, lambda: _set_running(False))
-
-            def _after_ui():
-                _render_table()
-                try:
-                    self.nm_update_task_list()
-                    self.nm_on_version_change()
-                except Exception:
-                    pass
-            dlg.after(0, _after_ui)
+            dlg.after(0, _render_table)
 
         def _start():
             if state["running"]:
                 return
+            if not acc_var.get().strip():
+                messagebox.showwarning("提示", "请先选择查询账户。", parent=dlg)
+                return
+            _save_cfg()
             state["stop"] = False
             _set_running(True)
             _log("-" * 60)
@@ -3493,27 +3588,40 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             state["stop"] = True
             _log("正在停止...（当前分类查完就停）")
 
-        # ---- 底部按钮 ----
-        DarkButton(foot, text="▶ 开始查询", command=_start,
+        DarkButton(row2, text="▶ 开始查询", command=_start,
                    height=32, width=120, bg_color=COLORS["success"],
                    text_color="#ffffff").pack(side=tk.LEFT)
-        btn_start = foot.winfo_children()[-1]
-        btn_stop = DarkButton(foot, text="⏹ 停止查询", command=_stop,
-                              height=32, width=120, bg_color="#c0392b",
-                              text_color="#ffffff")
-        btn_stop.pack(side=tk.LEFT, padx=(8, 0))
+        btn_start[0] = row2.winfo_children()[-1]
+        b2 = DarkButton(row2, text="⏹ 停止查询", command=_stop,
+                        height=32, width=120, bg_color="#c0392b",
+                        text_color="#ffffff")
+        b2.pack(side=tk.LEFT, padx=(8, 0))
+        btn_stop[0] = b2
         try:
-            btn_stop.config(state="disabled")
+            b2.config(state="disabled")
         except Exception:
             pass
+        prog_lbl.pack(side=tk.LEFT, padx=(16, 4))
+        prog_cv.pack(side=tk.LEFT)
 
-        DarkButton(foot, text="刷新表格", command=_render_table,
-                   height=32, width=100, bg_color="#2980b9"
-                   ).pack(side=tk.LEFT, padx=(16, 0))
-        ttk.Checkbutton(foot, text="只看可抢", variable=only_claimable,
-                        command=_render_table).pack(side=tk.LEFT, padx=(16, 0))
+        # ===== 底部：加入版本集合 =====
+        def _add_to_collection():
+            target = ver_var.get().strip()
+            if not target:
+                if not messagebox.askyesno(
+                        "未选版本集合",
+                        "还没选目标版本集合。\n"
+                        "是否自动创建「%s」并加入？" % _tc.DONE_VERSION,
+                        parent=dlg):
+                    return
+                ok, msg = _tc.create_custom_version(_tc.DONE_VERSION)
+                if not ok:
+                    messagebox.showwarning("创建失败", msg, parent=dlg)
+                    return
+                ver_combo.config(values=_ver_names())
+                ver_var.set(_tc.DONE_VERSION)
+                target = _tc.DONE_VERSION
 
-        def _add_all():
             try:
                 cache = _rs.load_task_status_cache()
             except Exception:
@@ -3525,26 +3633,67 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 messagebox.showinfo("提示", "当前没有可抢任务。", parent=dlg)
                 return
             if not messagebox.askyesno(
-                    "确认添加",
-                    "把 %d 个可抢任务加入当前任务组？\n（已存在的会跳过）"
-                    % len(rows), parent=dlg):
+                    "确认加入",
+                    "把 %d 个可抢任务加入版本集合「%s」？\n\n"
+                    "加入后它们会出现在「版本」下拉框的「%s」下\n"
+                    "（期数=已完成，类型=已完成任务）。\n\n"
+                    "已存在的任务会跳过。" % (len(rows), target, target),
+                    parent=dlg):
                 return
-            n = self._add_done_to_group(rows)
-            messagebox.showinfo("完成", "已加入 %d 个任务。" % n, parent=dlg)
+            n = _tc.add_tasks_to_version(target, rows)
+            if n == 0:
+                messagebox.showinfo("无需加入",
+                                    "这些任务都已在「%s」中。" % target,
+                                    parent=dlg)
+            else:
+                messagebox.showinfo(
+                    "已加入",
+                    "成功加入 %d 个任务到版本集合「%s」。\n\n"
+                    "现在可以在抢码界面的「版本」下拉框选到它。"
+                    % (n, target), parent=dlg)
+            _log("✓ 加入 %d 个任务到「%s」" % (n, target))
+            _save_cfg()
             try:
-                self.refresh_new_mode_task_list()
-                self.nm_update_scheduler()
+                self.nm_refresh_version_combo()
+                self.nm_update_task_list()
+                self.nm_on_version_change()
             except Exception:
                 pass
 
-        DarkButton(foot, text="＋ 全部加入任务组", command=_add_all,
+        DarkButton(foot, text="＋ 加入版本集合", command=_add_to_collection,
                    height=32, width=170, bg_color="#8e44ad"
                    ).pack(side=tk.RIGHT, padx=(8, 0))
-        DarkButton(foot, text="关闭", command=dlg.destroy,
+        DarkButton(foot, text="关闭",
+                   command=lambda: (_save_cfg(), dlg.destroy()),
                    height=32, width=90, bg_color="#7f8c8d"
                    ).pack(side=tk.RIGHT)
 
+        def _toggle_claimable():
+            _render_table()
+            _save_cfg()
+
+        ttk.Checkbutton(foot, text="只看可抢", variable=only_claimable,
+                        command=_toggle_claimable).pack(side=tk.LEFT)
+        DarkButton(foot, text="刷新表格", command=_render_table,
+                   height=32, width=100, bg_color="#2980b9"
+                   ).pack(side=tk.LEFT, padx=(16, 0))
+
+        # ===== 初始化：恢复记忆的版本集合 =====
+        def _init_ver():
+            names = _ver_names()
+            ver_combo.config(values=names)
+            saved = str(cfg.get("version") or "")
+            if saved and saved in names:
+                ver_var.set(saved)
+            elif _tc.DONE_VERSION in names:
+                ver_var.set(_tc.DONE_VERSION)
+            elif names:
+                ver_var.set(names[0])
+
+        _init_ver()
         _render_table()
+        dlg.protocol("WM_DELETE_WINDOW",
+                     lambda: (_save_cfg(), dlg.destroy()))
 
 
     def _create_query_window(self, title, subtitle):

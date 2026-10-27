@@ -4,7 +4,8 @@
 import json
 import time
 
-from config import ACT_ID_CACHE_FILE, MANUAL_TASKS_FILE, HIDDEN_TASKS_FILE, TASKS_FILE
+from config import (ACT_ID_CACHE_FILE, MANUAL_TASKS_FILE, HIDDEN_TASKS_FILE,
+                     TASKS_FILE, CUSTOM_VERSIONS_FILE)
 from storage import atomic_write_json, safe_load_json
 
 # 活动任务列表（按版本+期数+类型分类）
@@ -475,6 +476,171 @@ def refresh_done_tasks():
     return DONE_TASKS
 
 
+# ============================================================
+# v6.4.8：自定义版本集合管理（用户需求确认）
+#
+# 用户澄清：「这个任务组并不是新模式的任务组，
+#           而是跟鸣潮3.7版本的各个任务所有任务的一个集合」
+# 即：任务组 == ALL_TASKS 里的 version 这一层。
+#
+# 所以「手动创建」= 创建一个新的版本集合（自定义 version 名），
+# 然后把查询到的任务放进去。
+#
+# 特性：
+#   1. 可自定义名称（默认「已完成任务」）
+#   2. 期数=已完成、类型=已完成任务 固定（按用户要求）
+#   3. 持久化到 data/custom_versions.json
+#   4. 支持删除自己创建的版本集合
+# ============================================================
+
+# 新版本集合的固定期数/类型（用户明确要求）
+CUSTOM_PERIOD = DONE_PERIOD      # "已完成"
+CUSTOM_TYPE = DONE_TYPE          # "已完成任务"
+
+CUSTOM_VERSIONS = []   # [{"version": 名称, "created_at": 时间}]
+
+
+def load_custom_versions():
+    """载入用户自定义版本集合列表。"""
+    global CUSTOM_VERSIONS
+    data = safe_load_json(CUSTOM_VERSIONS_FILE, [])
+    if not isinstance(data, list):
+        data = []
+    cleaned = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        v = str(item.get("version", "")).strip()
+        if not v:
+            continue
+        # 不允许和官方版本重名
+        if any(t.get("version") == v for t in OFFICIAL_TASKS):
+            continue
+        cleaned.append({
+            "version": v,
+            "created_at": str(item.get("created_at") or ""),
+        })
+    CUSTOM_VERSIONS = cleaned
+    return CUSTOM_VERSIONS
+
+
+def save_custom_versions():
+    """保存自定义版本集合列表。"""
+    try:
+        atomic_write_json(CUSTOM_VERSIONS_FILE, CUSTOM_VERSIONS)
+        return True
+    except Exception as e:
+        print(f"保存自定义版本失败: {e}")
+        return False
+
+
+def create_custom_version(name):
+    """创建一个新的版本集合（用户需求：查询中心里手动创建）。
+
+    返回 (是否成功, 说明)。
+    """
+    name = str(name or "").strip()
+    if not name:
+        return False, "名称不能为空"
+    if len(name) > 40:
+        return False, "名称不能超过40字符"
+    # 与现有版本（官方+手动+已完成+自定义）重名检查
+    existing = set()
+    for t in OFFICIAL_TASKS:
+        existing.add(t.get("version"))
+    for v in CUSTOM_VERSIONS:
+        existing.add(v.get("version"))
+    existing.add(MANUAL_VERSION)
+    if name in existing:
+        return False, "版本「%s」已存在" % name
+    CUSTOM_VERSIONS.append({
+        "version": name,
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    })
+    save_custom_versions()
+    rebuild_all_tasks()
+    return True, "已创建"
+
+
+def delete_custom_version(name):
+    """删除一个自定义版本集合（连同该版本下的所有任务）。"""
+    name = str(name or "").strip()
+    before = len(CUSTOM_VERSIONS)
+    CUSTOM_VERSIONS[:] = [v for v in CUSTOM_VERSIONS if v.get("version") != name]
+    if len(CUSTOM_VERSIONS) == before:
+        return False, "不是自定义版本，无法删除"
+    save_custom_versions()
+    rebuild_all_tasks()
+    return True, "已删除"
+
+
+def custom_version_tasks(name):
+    """取某个自定义版本集合下的全部任务。"""
+    return [t for t in ALL_TASKS if t.get("version") == name]
+
+
+def add_tasks_to_version(version, tasks):
+    """把一批任务加入指定版本集合（用户需求：加入版本集合）。
+
+    参数：
+      version  目标版本名（可以是官方版本，也可以是自定义版本）
+      tasks    [{"task_id","name","award","act_id"}...]
+
+    返回：实际加入数量（已存在的跳过）
+    """
+    version = str(version or "").strip()
+    if not version:
+        return 0
+    existing_ids = {t.get("task_id") for t in DONE_TASKS}
+    # 目标版本已有任务里，同 task_id 也跳过
+    for t in ALL_TASKS:
+        if t.get("version") == version:
+            existing_ids.add(t.get("task_id"))
+    added = 0
+    for it in (tasks or []):
+        tid = str(it.get("task_id", "") or "").strip()
+        if not tid or tid in existing_ids:
+            continue
+        entry = {
+            "version": version,
+            "period": CUSTOM_PERIOD,
+            "type": CUSTOM_TYPE,
+            "name": str(it.get("task_name") or it.get("name") or tid),
+            "task_id": tid,
+            "award": str(it.get("award") or ""),
+            "act_id": str(it.get("act_id") or ""),
+            "act_name": str(it.get("act_name") or ""),
+            "account_name": str(it.get("account") or ""),
+            "status_text": str(it.get("status_text") or "可抢"),
+            "added_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "is_custom": True,
+        }
+        DONE_TASKS.append(entry)
+        existing_ids.add(tid)
+        added += 1
+    if added:
+        rebuild_all_tasks()
+    return added
+
+
+def all_version_names():
+    """返回所有可选版本名（官方 + 自定义 + 已完成任务 + 手动任务）。"""
+    names = []
+    for t in OFFICIAL_TASKS:
+        v = t.get("version")
+        if v and v not in names:
+            names.append(v)
+    for v in CUSTOM_VERSIONS:
+        nv = v.get("version")
+        if nv and nv not in names:
+            names.append(nv)
+    if DONE_TASKS and DONE_VERSION not in names:
+        names.append(DONE_VERSION)
+    if MANUAL_TASKS and MANUAL_VERSION not in names:
+        names.append(MANUAL_VERSION)
+    return names
+
+
 def rebuild_all_tasks():
     """按「官方任务快照(排除已删除) + 手动任务」重建 ALL_TASKS（保持原对象引用不变）。
 
@@ -486,6 +652,7 @@ def rebuild_all_tasks():
                  if t.get("task_id") not in _manual_ids
                  and t.get("task_id") not in HIDDEN_TASK_IDS]
     # v6.4.6: 末尾追加「已完成任务」虚拟分类（查询到的可抢任务）
+    # v6.4.8: DONE_TASKS 里可能包含用户自定义版本的任务（version 字段已指定）
     ALL_TASKS[:] = _official + list(MANUAL_TASKS) + list(DONE_TASKS)
     return ALL_TASKS
 
@@ -503,4 +670,9 @@ OFFICIAL_TASKS[:] = [dict(t) for t in ALL_TASKS]
 
 load_manual_tasks()
 load_hidden_tasks()
+# v6.4.8: 载入用户自定义版本集合（查询中心里手动创建的）
+try:
+    load_custom_versions()
+except Exception:
+    CUSTOM_VERSIONS = []
 rebuild_all_tasks()
