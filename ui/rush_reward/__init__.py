@@ -2880,6 +2880,39 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         if "error" not in result:
             self.nm_log(f"[状态查询] {task.get('name', '')}: {task.get('status_text', '')}")
 
+    def refresh_version_combo(self):
+        """刷新旧模式的版本下拉框（v6.4.9）。
+
+        问题：旧模式 version_combo 在 UI 构建时只读一次 ALL_TASKS（第385行），
+        之后在查询中心新建的版本集合不会出现在这里。
+        （新模式有 nm_refresh_version_combo，旧模式一直没有）
+
+        修复：提供主动刷新，并尽量保持当前选择。
+        """
+        try:
+            import tasks_config as _tc
+            try:
+                names = _tc.all_version_names()
+            except Exception:
+                names = sorted(set(t["version"] for t in ALL_TASKS))
+            if not names:
+                return
+            cur = ""
+            try:
+                cur = str(self.version_var.get() or "")
+            except Exception:
+                pass
+            self.version_combo.config(values=names)
+            # 保持原选择；原值失效则选第一个
+            if cur and cur in names:
+                self.version_var.set(cur)
+            else:
+                self.version_var.set(names[0])
+            # 联动刷新期数/类型/任务
+            self.on_version_change()
+        except Exception:
+            pass
+
     def on_version_change(self):
         """版本切换时更新期数下拉框选项"""
         version = self.version_var.get()
@@ -3285,7 +3318,9 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             _save_cfg()
             _log("✓ 已创建版本集合：%s" % name.strip())
             try:
-                self.nm_refresh_version_combo()
+                # v6.4.9: 两个模式的下拉框都要刷新
+                self.refresh_version_combo()        # 旧模式
+                self.nm_refresh_version_combo()     # 新模式
                 self.nm_update_task_list()
                 self.nm_on_version_change()
             except Exception:
@@ -3313,7 +3348,9 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             _save_cfg()
             _log("✓ 已删除版本集合：%s" % name)
             try:
-                self.nm_refresh_version_combo()
+                # v6.4.9: 两个模式的下拉框都要刷新
+                self.refresh_version_combo()        # 旧模式
+                self.nm_refresh_version_combo()     # 新模式
                 self.nm_update_task_list()
                 self.nm_on_version_change()
             except Exception:
@@ -3654,7 +3691,9 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             _log("✓ 加入 %d 个任务到「%s」" % (n, target))
             _save_cfg()
             try:
-                self.nm_refresh_version_combo()
+                # v6.4.9: 两个模式的下拉框都要刷新
+                self.refresh_version_combo()        # 旧模式
+                self.nm_refresh_version_combo()     # 新模式
                 self.nm_update_task_list()
                 self.nm_on_version_change()
             except Exception:

@@ -48,7 +48,7 @@ BACKUP_DIR = BASE_DIR / "backup"
 
 # ---------- 版本 ----------
 # 程序版本号
-APP_VERSION = "v6.4.8"
+APP_VERSION = "v6.4.9"
 
 # ---------- API 地址 ----------
 
