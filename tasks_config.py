@@ -389,6 +389,92 @@ def unhide_official_task(task_id):
     return False
 
 
+# ========== 已完成任务库（v6.4.6 用户需求）==========
+# 用户：「查询到的任务加入图二图三这里，版本名称为已完成任务，
+#       期数和类型固定为已完成和已完成任务」
+#
+# 实现：查询到的「已完成且可抢」任务，统一以虚拟分类挂到 ALL_TASKS 末尾：
+#   version = "已完成任务"   period = "已完成"   type = "已完成任务"
+# 这样两套抢码界面的版本/期数/类型下拉框会自动出现该分类，
+# 用户直接选「已完成任务」就能看到所有已完成的可抢任务。
+DONE_VERSION = "已完成任务"
+DONE_PERIOD = "已完成"
+DONE_TYPE = "已完成任务"
+
+DONE_TASKS = []
+
+
+def load_done_tasks():
+    """从 data/task_status_cache.json 载入「已完成且可抢」的任务。
+
+    只取满足以下条件的（与查询模块判定一致）：
+      task_finished == True
+      stock_available == True
+      status 不在 (6, 7)   # 6=已领取过, 7=无资格
+    """
+    global DONE_TASKS
+    try:
+        import rush_stats as _rs
+        cache = _rs.load_task_status_cache()
+        claimables = _rs.claimable_tasks(cache)
+    except Exception:
+        claimables = []
+
+    cleaned = []
+    seen = set()
+    for item in claimables:
+        task_id = str(item.get("task_id", "")).strip()
+        if not task_id or task_id in seen:
+            continue
+        seen.add(task_id)
+        cleaned.append({
+            "version": DONE_VERSION,
+            "period": DONE_PERIOD,
+            "type": DONE_TYPE,
+            "name": str(item.get("task_name") or task_id),
+            "task_id": task_id,
+            "award": str(item.get("award") or ""),
+            "act_id": str(item.get("act_id") or ""),
+            "act_name": str(item.get("act_name") or ""),
+            "account_name": str(item.get("account") or ""),
+            "status_text": str(item.get("status_text") or "可抢"),
+            "queried_at": str(item.get("queried_at") or ""),
+            "added_at": str(item.get("queried_at") or ""),
+            "is_done_virtual": True,
+        })
+    DONE_TASKS = cleaned
+    return DONE_TASKS
+
+
+def done_versions():
+    """已完成任务的虚拟版本名（用于下拉框）。无数据时返回空列表。"""
+    return [DONE_VERSION] if DONE_TASKS else []
+
+
+def done_periods():
+    return [DONE_PERIOD] if DONE_TASKS else []
+
+
+def done_types():
+    return [DONE_TYPE] if DONE_TASKS else []
+
+
+def get_done_task(task_id):
+    """按 task_id 查已完成任务。"""
+    task_id = str(task_id or "").strip()
+    for t in DONE_TASKS:
+        if t.get("task_id") == task_id:
+            return t
+    return None
+
+
+def refresh_done_tasks():
+    """重新载入已完成任务并重建 ALL_TASKS（供查询后/打开页面时调用）。"""
+    load_done_tasks()
+    rebuild_all_tasks()
+    return DONE_TASKS
+
+
 def rebuild_all_tasks():
     """按「官方任务快照(排除已删除) + 手动任务」重建 ALL_TASKS（保持原对象引用不变）。
 
@@ -399,7 +485,8 @@ def rebuild_all_tasks():
     _official = [t for t in OFFICIAL_TASKS
                  if t.get("task_id") not in _manual_ids
                  and t.get("task_id") not in HIDDEN_TASK_IDS]
-    ALL_TASKS[:] = _official + list(MANUAL_TASKS)
+    # v6.4.6: 末尾追加「已完成任务」虚拟分类（查询到的可抢任务）
+    ALL_TASKS[:] = _official + list(MANUAL_TASKS) + list(DONE_TASKS)
     return ALL_TASKS
 
 

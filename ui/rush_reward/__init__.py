@@ -558,18 +558,23 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         self.claim_all_btn = DarkButton(right_frame, "🎁 一键全部领取", command=self.claim_all_finished,
                                          width=170, height=44, bg_color="#e67e22", text_color="#ffffff")
         self.claim_all_btn.pack(side=tk.RIGHT, padx=(8, 0))
-        self.check_all_finished_btn = DarkButton(right_frame, "✅ 查询全部完成", command=self.check_all_finished,
-                                                  width=170, height=44, bg_color="#16a085", text_color="#ffffff")
+        # v6.4.6: 改为打开独立统计窗口
+        self.check_all_finished_btn = DarkButton(right_frame, "✅ 完成情况统计",
+                                                  command=self.open_check_all_window,
+                                                  width=170, height=44,
+                                                  bg_color="#16a085",
+                                                  text_color="#ffffff")
         self.check_all_finished_btn.pack(side=tk.RIGHT, padx=(8, 0))
         self.check_claimable_btn = DarkButton(right_frame, "📋 查询可领取", command=self.check_claimable_tasks,
                                                width=150, height=44, bg_color="#3498db", text_color="#ffffff")
         self.check_claimable_btn.pack(side=tk.RIGHT)
         # v6.4.5: 快捷选中可抢任务（用户需求）
         # 读取持久化的查询结果，把「已完成且可抢」的任务一键加入当前任务组。
+        # v6.4.6: 改为打开独立窗口（跟仪表盘一样的界面）
         self.quick_pick_btn = DarkButton(
-            right_frame, "⚡ 快捷选中可抢",
-            command=self.nm_quick_select_claimable,
-            width=160, height=44, bg_color="#8e44ad", text_color="#ffffff")
+            right_frame, "📋 可抢任务列表",
+            command=self.open_claimable_window,
+            width=170, height=44, bg_color="#8e44ad", text_color="#ffffff")
         self.quick_pick_btn.pack(side=tk.RIGHT, padx=(0, 8))
 
         # 定时任务列表区域
@@ -3142,6 +3147,304 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             return True, result, data
         return False, result, None
 
+
+    # ============================================================
+    # v6.4.6：查询结果独立窗口（用户需求：做成跟仪表盘一样的界面）
+    # ============================================================
+
+    def _create_query_window(self, title, subtitle):
+        """创建一个跟仪表盘风格一致的独立窗口，返回 (dlg, body_frame, foot_frame)。"""
+        dlg = tk.Toplevel(self.winfo_toplevel())
+        dlg.title(title)
+        dlg.configure(bg=COLORS["bg_dark"])
+        try:
+            sw = dlg.winfo_screenwidth()
+            sh = dlg.winfo_screenheight()
+            w = int(sw * 0.62)
+            h = int(sh * 0.72)
+            x = max(0, (sw - w) // 2)
+            y = max(0, (sh - h) // 2 - 20)
+            dlg.geometry(f"{w}x{h}+{x}+{y}")
+            dlg.minsize(900, 560)
+        except Exception:
+            dlg.geometry("1100x760")
+
+        # 底部按钮区【先 pack】，否则会被 body 挤出窗口（v6.4.4 踩过的坑）
+        foot = tk.Frame(dlg, bg=COLORS["bg_dark"])
+        foot.pack(side=tk.BOTTOM, fill=tk.X, padx=14, pady=(0, 12))
+
+        head = tk.Frame(dlg, bg=COLORS["bg_card"])
+        head.pack(side=tk.TOP, fill=tk.X, padx=14, pady=(14, 8))
+        title_row = tk.Frame(head, bg=COLORS["bg_card"])
+        title_row.pack(fill=tk.X, padx=16, pady=(12, 4))
+        tk.Label(title_row, text=title, bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=("微软雅黑", 15, "bold")
+                 ).pack(side=tk.LEFT)
+        tk.Label(head, text=subtitle, bg=COLORS["bg_card"],
+                 fg=COLORS["text_muted"], font=("微软雅黑", 9),
+                 anchor=tk.W, justify=tk.LEFT
+                 ).pack(fill=tk.X, padx=16, pady=(0, 8))
+
+        body = tk.Frame(dlg, bg=COLORS["bg_dark"])
+        body.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=14, pady=(0, 8))
+        return dlg, body, foot
+
+    def open_claimable_window(self):
+        """「查询可领取」独立窗口。
+
+        展示所有已查询任务的完整状态（持久化数据），
+        并支持把「已完成且可抢」的任务一键加到当前任务组。
+        v6.4.6: 用户要求做成跟仪表盘一样的可打开界面。
+        """
+        try:
+            import rush_stats as _rs
+            import tasks_config as _tc
+        except Exception:
+            return
+
+        dlg, body, foot = self._create_query_window(
+            "📋 查询可领取",
+            "数据来源：任务状态查询缓存（重启后仍保留）。"
+            "「可抢」= 任务已完成 + 库存充足 + 非已领取/无资格。")
+
+        # 顶部过滤条
+        ctrl = tk.Frame(body, bg=COLORS["bg_dark"])
+        ctrl.pack(fill=tk.X, pady=(0, 6))
+        only_claimable = tk.BooleanVar(value=True)
+
+        state_box = {"data": []}
+
+        # 内容容器
+        wrap = tk.Frame(body, bg=COLORS["bg_card"])
+        wrap.pack(fill=tk.BOTH, expand=True)
+
+        def _render():
+            for w in wrap.winfo_children():
+                w.destroy()
+            try:
+                cache = _rs.load_task_status_cache()
+            except Exception:
+                cache = {}
+            rows = []
+            for k, v in (cache or {}).items():
+                if not isinstance(v, dict):
+                    continue
+                rows.append(v)
+
+            if only_claimable.get():
+                rows = [r for r in rows if (
+                    r.get("task_finished") and r.get("stock_available")
+                    and r.get("status") not in (6, 7))]
+            rows.sort(key=lambda r: str(r.get("queried_at", "")), reverse=True)
+            state_box["data"] = rows
+
+            if not rows:
+                tk.Label(wrap,
+                         text="暂无数据。请先点「查询可领取」或「查询全部完成」发起一次查询。",
+                         bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                         font=("微软雅黑", 11), anchor=tk.W
+                         ).pack(fill=tk.X, padx=16, pady=30)
+                return
+
+            # 表头 + 数据行放进同一个 Grid（v6.4.5 对齐方案）
+            gm = tk.Frame(wrap, bg=COLORS["bg_card"])
+            gm.pack(fill=tk.BOTH, expand=True)
+            W = (3, 2, 1, 2, 2)
+            M = (170, 110, 60, 100, 110)
+            for ci in range(5):
+                gm.grid_columnconfigure(ci, weight=W[ci], minsize=M[ci],
+                                        uniform="c")
+            HR = {"r": 0}
+
+            def addrow(vals, colors, bold=False, header=False):
+                r = HR["r"]
+                HR["r"] += 1
+                bg = COLORS["bg_input"] if header else COLORS["bg_card"]
+                for i, (v, c) in enumerate(zip(vals, colors)):
+                    tk.Label(gm, text=str(v), bg=bg, fg=c,
+                             font=("微软雅黑", 10,
+                                   "bold" if (bold or header) else "normal"),
+                             anchor=tk.W
+                             ).grid(row=r, column=i, sticky="w",
+                                    padx=6, pady=(5 if header else 2))
+
+            addrow(("任务名称", "账户", "状态码", "状态", "查询时间"),
+                   tuple([COLORS["text_secondary"]] * 5), header=True)
+
+            for it in rows[:200]:
+                ok = (it.get("task_finished") and it.get("stock_available")
+                      and it.get("status") not in (6, 7))
+                col = COLORS["success"] if ok else COLORS["text_muted"]
+                addrow((
+                    str(it.get("task_name", ""))[:26] or "-",
+                    str(it.get("account", ""))[:12] or "-",
+                    str(it.get("status", "-")),
+                    str(it.get("status_text", ""))[:14] or "-",
+                    str(it.get("queried_at", ""))[5:16],
+                ), (col, COLORS["text_primary"], COLORS["text_primary"],
+                    col, COLORS["text_muted"]))
+
+        # 底部按钮
+        def _add_all_claimable():
+            rows = [r for r in state_box["data"] if (
+                r.get("task_finished") and r.get("stock_available")
+                and r.get("status") not in (6, 7))]
+            if not rows:
+                messagebox.showinfo("提示", "当前没有可抢任务。",
+                                    parent=dlg)
+                return
+            if not messagebox.askyesno(
+                    "确认添加",
+                    "把 %d 个可抢任务加入当前任务组？\n"
+                    "（已存在的会跳过）" % len(rows), parent=dlg):
+                return
+            n = self._add_done_to_group(rows)
+            messagebox.showinfo("完成", "已加入 %d 个任务。" % n, parent=dlg)
+            try:
+                self.refresh_new_mode_task_list()
+                self.nm_update_scheduler()
+            except Exception:
+                pass
+
+        DarkButton(foot, text="＋ 全部加入任务组",
+                   command=_add_all_claimable, height=32, width=180,
+                   bg_color="#8e44ad").pack(side=tk.RIGHT, padx=(8, 0))
+        DarkButton(foot, text="刷新", command=_render, height=32, width=90,
+                   bg_color="#2980b9").pack(side=tk.RIGHT, padx=(8, 0))
+
+        def _toggle():
+            _render()
+            try:
+                self.save_ui_settings()
+            except Exception:
+                pass
+
+        ttk.Checkbutton(ctrl, text="只看可抢（已完成+库存足+未领过）",
+                        variable=only_claimable,
+                        command=_render).pack(side=tk.LEFT, padx=(0, 16))
+        tk.Label(ctrl, text="", bg=COLORS["bg_dark"]).pack(side=tk.LEFT)
+
+        count_lbl = tk.Label(foot, text="", bg=COLORS["bg_dark"],
+                             fg=COLORS["text_secondary"],
+                             font=("微软雅黑", 10))
+        count_lbl.pack(side=tk.LEFT)
+
+        _render()
+        count_lbl.config(text="共 %d 条" % len(state_box["data"]))
+
+    def _add_done_to_group(self, rows):
+        """把查询结果任务加入当前任务组。返回加入数量。"""
+        if not self.current_group_id:
+            messagebox.showwarning("提示", "请先选择一个任务组",
+                                   parent=self.winfo_toplevel())
+            return 0
+        group = next((g for g in self.rush_groups
+                      if g["group_id"] == self.current_group_id), None)
+        if not group:
+            return 0
+        existing = {(t.get("task_id"), t.get("account_name"))
+                    for t in group.get("tasks", [])}
+        added = 0
+        for r in rows:
+            tid = str(r.get("task_id", "") or "")
+            acc = str(r.get("account", "") or "")
+            if not tid or (tid, acc) in existing:
+                continue
+            group.setdefault("tasks", []).append({
+                "task_id": tid,
+                "name": str(r.get("task_name", "") or ""),
+                "award": "",
+                "window_seconds": 120,
+                "priority": len(group.get("tasks", [])) + 1,
+                "account_name": acc,
+                "act_id": str(r.get("act_id", "") or ""),
+                "version": str(r.get("version", "") or "已完成任务"),
+                "status_color": "green",
+                "status_text": "✓ 可抢（来自查询结果）",
+                "task_finished": True,
+                "stock_available": True,
+            })
+            existing.add((tid, acc))
+            added += 1
+        if added:
+            try:
+                self.save_rush_groups()
+            except Exception:
+                pass
+            self.nm_log("[查询窗口] 已加入 %d 个任务到「%s」"
+                        % (added, group.get("group_name", "?")))
+        return added
+
+    def open_check_all_window(self):
+        """「查询全部完成」独立窗口：统计各活动分类的完成情况。"""
+        dlg, body, foot = self._create_query_window(
+            "✅ 完成情况统计",
+            "按 版本/期数/类型 汇总任务完成情况。数据来自任务状态查询缓存。")
+
+        wrap = tk.Frame(body, bg=COLORS["bg_card"])
+        wrap.pack(fill=tk.BOTH, expand=True)
+
+        try:
+            import rush_stats as _rs
+            cache = _rs.load_task_status_cache()
+        except Exception:
+            cache = {}
+
+        # 按 version 分组统计
+        groups = {}
+        for k, v in (cache or {}).items():
+            if not isinstance(v, dict):
+                continue
+            ver = str(v.get("version", "") or "未标注")
+            g = groups.setdefault(ver, {"total": 0, "done": 0,
+                                        "claimable": 0})
+            g["total"] += 1
+            if v.get("task_finished"):
+                g["done"] += 1
+            if (v.get("task_finished") and v.get("stock_available")
+                    and v.get("status") not in (6, 7)):
+                g["claimable"] += 1
+
+        if not groups:
+            tk.Label(wrap, text="暂无数据。请先发起一次任务状态查询。",
+                     bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                     font=("微软雅黑", 11), anchor=tk.W
+                     ).pack(fill=tk.X, padx=16, pady=30)
+        else:
+            gm = tk.Frame(wrap, bg=COLORS["bg_card"])
+            gm.pack(fill=tk.BOTH, expand=True)
+            W = (4, 1, 1, 1)
+            M = (220, 70, 70, 90)
+            for ci in range(4):
+                gm.grid_columnconfigure(ci, weight=W[ci], minsize=M[ci],
+                                        uniform="c")
+            HR = {"r": 0}
+
+            def addrow(vals, colors, bold=False, header=False):
+                r = HR["r"]
+                HR["r"] += 1
+                bg = COLORS["bg_input"] if header else COLORS["bg_card"]
+                for i, (v, c) in enumerate(zip(vals, colors)):
+                    tk.Label(gm, text=str(v), bg=bg, fg=c,
+                             font=("微软雅黑", 10,
+                                   "bold" if (bold or header) else "normal"),
+                             anchor=tk.W
+                             ).grid(row=r, column=i, sticky="w",
+                                    padx=6, pady=(5 if header else 2))
+
+            addrow(("版本 / 活动", "任务数", "已完成", "可抢"),
+                   tuple([COLORS["text_secondary"]] * 4), header=True)
+            for ver in sorted(groups, key=lambda x: -groups[x]["total"]):
+                g = groups[ver]
+                c = (COLORS["success"] if g["claimable"] > 0
+                     else COLORS["text_primary"])
+                addrow((ver[:26], str(g["total"]), str(g["done"]),
+                        str(g["claimable"])),
+                       (c, COLORS["text_primary"], COLORS["text_primary"], c))
+
+        DarkButton(foot, text="关闭", command=dlg.destroy,
+                   height=32, width=90, bg_color="#7f8c8d").pack(side=tk.RIGHT)
+
     def check_claimable_tasks(self):
         """查询所有活动中已完成但未领取的任务，输出到日志"""
         try:
@@ -3198,8 +3501,61 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             self.check_claimable_btn.config(state="normal", text="📋 查询可领取")
 
     def _on_check_claimable_all(self, details):
-        """查询全部可领取任务的回调（所有活动）"""
+        """查询全部可领取任务的回调（所有活动）
+
+        v6.4.6: 查询完成后做两件事：
+          1. 把每个任务的状态写盘持久化（rush_stats.update_task_status）
+          2. 重建「已完成任务」虚拟分类（tasks_config.refresh_done_tasks），
+             使其出现在版本/期数/类型下拉框中
+        """
         self.check_claimable_btn.config(state="normal", text="📋 查询可领取")
+
+        # ---- 1) 持久化每个任务状态 ----
+        try:
+            import rush_stats as _rs
+            _acc = ""
+            try:
+                _sel = self.get_selected_accounts()
+                if _sel:
+                    _acc = str(_sel[0].get("name", "") or "")
+            except Exception:
+                pass
+            for _d in (details or []):
+                if not isinstance(_d, dict):
+                    continue
+                _tid = str(_d.get("task_id", "") or "")
+                if not _tid:
+                    continue
+                _rs.update_task_status(_tid, _acc, {
+                    "task_finished": bool(_d.get("task_finished")),
+                    "stock_available": bool(_d.get("stock_available")),
+                    "status": _d.get("status", -1),
+                    "status_text": str(_d.get("status_text", "") or ""),
+                    "total_stock": _d.get("total_stock", 0),
+                    "total_remain": _d.get("total_remain", 0),
+                    "task_name": str(_d.get("name", "") or _d.get("task_name", "")),
+                    "act_id": str(_d.get("act_id", "") or ""),
+                    "version": str(_d.get("version", "") or ""),
+                })
+        except Exception:
+            pass
+
+        # ---- 2) 重建「已完成任务」虚拟分类 ----
+        try:
+            import tasks_config as _tc
+            _tc.refresh_done_tasks()
+            self.log("已刷新「已完成任务」分类（%d 个可抢任务）"
+                     % len(getattr(_tc, "DONE_TASKS", [])))
+        except Exception:
+            pass
+
+        # ---- 3) 刷新版本/期数/类型下拉框（若已完成任务有数据）----
+        try:
+            import tasks_config as _tc
+            if getattr(_tc, "DONE_TASKS", []):
+                self.nm_update_task_list()
+        except Exception:
+            pass
 
         if not details:
             self.log("查询结果: 无匹配的任务")
