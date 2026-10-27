@@ -12,7 +12,7 @@ from tasks_config import ALL_TASKS, VERSION_DEFAULT_ACT_ID, get_manual_task
 from storage import atomic_write_json
 from bili_api import (check_all_tasks_finished, cookies_from_account, get_mission_info,
                       parse_stock_info, receive_reward, verify_login)
-from widgets import DarkButton, DarkEntry, ToolTip
+from widgets import DarkButton, DarkEntry, ToolTip, RoundEntry
 import rush_stats
 import rush_presets
 from .new_mode import NewModeMixin
@@ -1179,8 +1179,26 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                              ).pack(side=tk.LEFT, padx=6, pady=5)
             return card
 
+        # v6.4.2: 记住当前选中的标签页索引，重建后恢复（解决"剔除后跳回第一个"）
+        _tab_state = {"index": 0}
+
         def build_tables(data):
-            """按当前数据重建左侧三个报表（清空后重建）。"""
+            """按当前数据重建左侧报表（清空后重建，保持当前标签页）。"""
+            # 重建前先记下当前选中的标签页
+            try:
+                _old_nb = None
+                for _c in left.winfo_children():
+                    if type(_c).__name__ == "Notebook":
+                        _old_nb = _c
+                        break
+                if _old_nb is not None:
+                    _sel = _old_nb.select()
+                    if _sel:
+                        _idx = _old_nb.index(_sel)
+                        _tab_state["index"] = _idx
+            except Exception:
+                pass
+
             for w in list(left.winfo_children()):
                 w.destroy()
             try:
@@ -1195,7 +1213,125 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 else:
                     frame.pack(fill=tk.BOTH, expand=True)
 
-            # --- ① 各任务成功率（v6.3.3: 单击选中 -> 点按钮确认剔除）---
+            # --- ① 抢码状态（v6.4.1: 完整 18 项指标分组展示）---
+            fS = tk.Frame(left, bg=COLORS["bg_card"])
+            snap = rush_stats.score_snapshot(data)
+            metrics = rush_stats.metrics_all(data)
+
+            # ===== 顶部：程序健康分（区分"程序对不对"和"运气好不好"）=====
+            # v6.4.2: 改用 grid + anchor=S 实现【基线对齐】
+            # 原实现用 pack(side=LEFT) 配合不同 pady(0/6/7) 手工凑高度，
+            # 导致图标、大数字、小字、说明文字的基线参差不齐（看起来歪）。
+            # 现在统一 bottom 对齐，各元素底部齐平。
+            score_head = tk.Frame(fS, bg=COLORS["bg_card"])
+            score_head.pack(fill=tk.X, padx=14, pady=(10, 2))
+            score_head.grid_columnconfigure(4, weight=1)   # 右侧弹性占位
+
+            _pc = {"ok": D["ok"], "mid": D["mid"], "bad": D["bad"],
+                   "muted": D["muted"]}.get(snap.get("program_color"), D["text"])
+            _ps = snap.get("program_score")
+
+            tk.Label(score_head, text="程序健康分", bg=COLORS["bg_card"],
+                     fg=D["text2"], font=("微软雅黑", 10)
+                     ).grid(row=0, column=0, sticky="sw", pady=(0, 3))
+            tk.Label(score_head, text=str(_ps if _ps is not None else "--"),
+                     bg=COLORS["bg_card"], fg=_pc,
+                     font=("Consolas", 22, "bold")
+                     ).grid(row=0, column=1, sticky="sw", padx=(6, 0))
+            tk.Label(score_head,
+                     text="/100 " + str(snap.get("program_level", "")),
+                     bg=COLORS["bg_card"], fg=_pc,
+                     font=("微软雅黑", 10, "bold")
+                     ).grid(row=0, column=2, sticky="sw", padx=(4, 0), pady=(0, 3))
+            _rs = snap.get("result_score")
+            _rtxt = "未采集" if _rs is None else "%d%%" % _rs
+            tk.Label(score_head,
+                     text="结果参考 " + str(_rtxt) + "（随机，仅参考）",
+                     bg=COLORS["bg_card"], fg=D["muted"],
+                     font=("微软雅黑", 9)
+                     ).grid(row=0, column=3, sticky="sw", padx=(18, 0), pady=(0, 4))
+
+            tk.Label(fS,
+                     text="说明：抢码成功有随机性（库存/竞争）。健康分只评估程序是否做对，抢不到不等于程序差。",
+                     bg=COLORS["bg_card"], fg=D["muted"],
+                     font=("微软雅黑", 9), anchor=tk.W
+                     ).pack(fill=tk.X, padx=14, pady=(0, 4))
+
+            # ===== 指标列表（可滚动，按 A/B/C/D/E 分组）=====
+            list_wrap = tk.Frame(fS, bg=COLORS["bg_card"])
+            list_wrap.pack(fill=tk.BOTH, expand=True, padx=14, pady=(0, 6))
+
+            # v6.4.2: 去掉 Canvas 滚动 —— 左面板高度足够容纳全部指标，直接放 Frame
+            # 原因：Canvas + create_window 在 Tk 下宽度上报为 1px，导致布局异常。
+            # 实测左面板高 1123px，18项指标+5分组+表头约需 820px，完全放得下。
+            inner_m = tk.Frame(list_wrap, bg=COLORS["bg_card"])
+            inner_m.pack(fill=tk.BOTH, expand=True)
+
+            # 表头
+            # v6.4.1: 列宽按左侧 820px 重新分配（原 18/7/20/11 会超出）
+            # v6.4.2: 指标表用 grid 权重分配，适配任意面板宽度
+            COLW = (0, 1, 2, 3)
+            WEIGHTS = (3, 1, 3, 2)
+            MINS = (140, 50, 110, 80)
+
+            def _mk_row(parent, values, colors, bold=False):
+                r = tk.Frame(parent, bg=COLORS["bg_card"])
+                r.pack(fill=tk.X)
+                for i, (v, c) in enumerate(zip(values, colors)):
+                    r.grid_columnconfigure(i, weight=WEIGHTS[i], minsize=MINS[i])
+                    tk.Label(r, text=str(v), bg=COLORS["bg_card"], fg=c,
+                             font=("Consolas", 10, "bold" if bold else "normal"),
+                             anchor=tk.W).grid(row=0, column=i, sticky="w",
+                                               padx=4, pady=2)
+                return r
+
+            hdr = tk.Frame(inner_m, bg=COLORS["bg_input"])
+            hdr.pack(fill=tk.X)
+            for i, txt in enumerate(("指标", "得分", "当前值", "状态")):
+                hdr.grid_columnconfigure(i, weight=WEIGHTS[i], minsize=MINS[i])
+                tk.Label(hdr, text=txt, bg=COLORS["bg_input"], fg=D["text2"],
+                         font=("微软雅黑", 10, "bold"),
+                         anchor=tk.W).grid(row=0, column=i, sticky="w",
+                                           padx=4, pady=5)
+
+            _cur_group = None
+            for m in metrics:
+                if m["group"] != _cur_group:
+                    _cur_group = m["group"]
+                    gfr = tk.Frame(inner_m, bg=COLORS["bg_input"])
+                    gfr.pack(fill=tk.X, pady=(6, 0))
+                    tk.Label(gfr, text=_cur_group, bg=COLORS["bg_input"],
+                             fg=COLORS["accent"], font=("微软雅黑", 9, "bold"),
+                             anchor=tk.W).pack(fill=tk.X, padx=6, pady=3)
+                _c = {"ok": D["ok"], "mid": D["mid"], "bad": D["bad"],
+                      "muted": D["muted"]}.get(m.get("color"), D["text"])
+                sc_txt = "—" if m["score"] is None else str(m["score"])
+                _mk_row(inner_m,
+                        (m["name"], sc_txt, m["value"], m["grade"]),
+                        (D["text"], _c, _c, _c))
+
+            # 建议
+            sug = snap.get("suggestions") or []
+            if sug:
+                tk.Label(inner_m, text="改进建议", bg=COLORS["bg_input"],
+                         fg=COLORS["accent"], font=("微软雅黑", 9, "bold"),
+                         anchor=tk.W).pack(fill=tk.X, padx=6, pady=(8, 2))
+                for i, s in enumerate(sug, 1):
+                    tk.Label(inner_m, text="  %d. %s" % (i, s),
+                             bg=COLORS["bg_card"], fg=D["mid"],
+                             font=("微软雅黑", 9), anchor=tk.W,
+                             justify=tk.LEFT, wraplength=560
+                             ).pack(fill=tk.X, padx=6, pady=1)
+
+            _n_collected = sum(1 for m in metrics if m["score"] is not None)
+            tk.Label(inner_m,
+                     text="已采集 %d / %d 项指标" % (_n_collected, len(metrics)),
+                     bg=COLORS["bg_card"], fg=D["muted"],
+                     font=("微软雅黑", 9), anchor=tk.W
+                     ).pack(fill=tk.X, padx=6, pady=(6, 8))
+
+            add_tab(fS, " ① 抢码状态 ")
+            # --- ② 各任务成功率（v6.3.3: 单击选中 -> 点按钮确认剔除）---
             f1 = tk.Frame(left, bg=COLORS["bg_card"])
             task_rows = []
             task_names = []
@@ -1399,12 +1535,116 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 except Exception:
                     pass
 
+
+            # ===== v6.4.2: 按条件批量剔除（任务名 + 日期 + 时间区间）=====
+            cond_wrap = tk.LabelFrame(
+                f1, text=" 按条件批量剔除 " , bg=COLORS["bg_card"],
+                fg=D["text2"], font=("微软雅黑", 9), bd=1, relief=tk.GROOVE,
+                labelanchor="nw")
+            cond_wrap.pack(fill=tk.X, padx=14, pady=(0, 8))
+
+            cond_inner = tk.Frame(cond_wrap, bg=COLORS["bg_card"])
+            cond_inner.pack(fill=tk.X, padx=8, pady=6)
+
+            def _mk_field(parent, label, width, default=""):
+                box = tk.Frame(parent, bg=COLORS["bg_card"])
+                box.pack(side=tk.LEFT, padx=(0, 10))
+                tk.Label(box, text=label, bg=COLORS["bg_card"],
+                         fg=D["muted"], font=("微软雅黑", 9)
+                         ).pack(side=tk.LEFT, padx=(0, 4))
+                ent = RoundEntry(box, width=width, font=("Consolas", 10))
+                ent.pack(side=tk.LEFT)
+                try:
+                    ent.insert(0, default)
+                except Exception:
+                    pass
+                return ent
+
+            _e_task = _mk_field(cond_inner, "任务名", 18)
+            _e_date = _mk_field(cond_inner, "日期", 11, "")
+            _e_from = _mk_field(cond_inner, "从", 7, "")
+            _e_to = _mk_field(cond_inner, "到", 7, "")
+
+            def _get_ent(ent):
+                try:
+                    return ent.get().strip()
+                except Exception:
+                    return ""
+
+            cond_msg = tk.Label(cond_wrap, text="", bg=COLORS["bg_card"],
+                                fg=D["mid"], font=("微软雅黑", 9),
+                                anchor=tk.W, justify=tk.LEFT)
+            cond_msg.pack(fill=tk.X, padx=10, pady=(0, 4))
+
+            def _do_batch_exclude():
+                spec = rush_stats.parse_filter_spec(
+                    task_name=_get_ent(_e_task),
+                    date_str=_get_ent(_e_date),
+                    time_from=_get_ent(_e_from),
+                    time_to=_get_ent(_e_to))
+                if not spec.get("valid"):
+                    cond_msg.config(text="✗ " + spec.get("msg", "条件无效"),
+                                    fg=D["bad"])
+                    return
+                recs_all = data.get("records", [])
+                cur = rush_stats.load_excluded()
+                new_set, n, _hits = rush_stats.batch_exclude(
+                    recs_all, spec, cur)
+                if n == 0:
+                    cond_msg.config(text="没有记录匹配该条件", fg=D["muted"])
+                    return
+                if not messagebox.askyesno(
+                        "确认批量剔除",
+                        "将剔除 %d 条记录。\n\n任务名: %s\n日期: %s\n时间: %s ~ %s\n\n"
+                        "确定继续？" % (
+                            n,
+                            spec.get("task_name") or "（不限）",
+                            spec.get("date_str") or "（不限）",
+                            _get_ent(_e_from) or "（不限）",
+                            _get_ent(_e_to) or "（不限）"),
+                        parent=dlg):
+                    return
+                rush_stats.save_excluded(new_set)
+                cond_msg.config(text="✓ 已剔除 %d 条记录" % n, fg=D["ok"])
+                refresh_all()
+
+            def _do_batch_restore():
+                spec = rush_stats.parse_filter_spec(
+                    task_name=_get_ent(_e_task),
+                    date_str=_get_ent(_e_date),
+                    time_from=_get_ent(_e_from),
+                    time_to=_get_ent(_e_to))
+                if not spec.get("valid"):
+                    cond_msg.config(text="✗ " + spec.get("msg", "条件无效"),
+                                    fg=D["bad"])
+                    return
+                recs_all = data.get("records", [])
+                cur = rush_stats.load_excluded()
+                new_set, n, _hits = rush_stats.batch_restore(
+                    recs_all, spec, cur)
+                if n == 0:
+                    cond_msg.config(text="没有记录匹配该条件", fg=D["muted"])
+                    return
+                rush_stats.save_excluded(new_set)
+                cond_msg.config(text="✓ 已恢复 %d 条记录" % n, fg=D["ok"])
+                refresh_all()
+
+            cond_btn = tk.Frame(cond_wrap, bg=COLORS["bg_card"])
+            cond_btn.pack(fill=tk.X, padx=8, pady=(0, 8))
+            DarkButton(cond_btn, text="按条件剔除",
+                       command=_do_batch_exclude, height=26, width=110,
+                       bg_color="#e67e22").pack(side=tk.LEFT)
+            DarkButton(cond_btn, text="按条件恢复",
+                       command=_do_batch_restore, height=26, width=110,
+                       bg_color="#8e44ad").pack(side=tk.LEFT, padx=(8, 0))
+            tk.Label(cond_btn,
+                     text="日期格式 YYYY-MM-DD，时间格式 HH:MM；留空表示不限",
+                     bg=COLORS["bg_card"], fg=D["muted"],
+                     font=("微软雅黑", 8)).pack(side=tk.LEFT, padx=(12, 0))
             _refresh_left_buttons()
 
-            add_tab(f1, " ① 各任务成功率 ")
-
-
-            # --- ② 提前量区间 ---
+            add_tab(f1, " ② 各任务成功率 ")
+            # --- ③ 提前量区间 ---
             f2 = tk.Frame(left, bg=COLORS["bg_card"])
             adv_rows = []
             best = rush_stats.best_advance(data)
@@ -1419,9 +1659,8 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 ])
             make_table(f2, ["提前量区间", "请求", "成功", "成功率"],
                        adv_rows, (30, 8, 8, 9), colorize_rate_col=3)
-            add_tab(f2, " ② 提前量成功率 ")
-
-            # --- ③ 风控时段（v6.4.1: 按"抢码场次"分组，不再按自然小时）---
+            add_tab(f2, " ③ 提前量成功率 ")
+            # --- ④ 风控时段（v6.4.1: 按"抢码场次"分组，不再按自然小时）---
             f3 = tk.Frame(left, bg=COLORS["bg_card"])
             hour_rows = []
             for h in rush_stats.risk_hours(data)[:24]:
@@ -1441,116 +1680,119 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                           "其余时间全部归「其他时段」",
                      bg=COLORS["bg_card"], fg=D["muted"],
                      font=("微软雅黑", 9), anchor=tk.W, justify=tk.LEFT,
-                     wraplength=700).pack(fill=tk.X, padx=14, pady=(6, 10))
-            add_tab(f3, " ③ 风控高发时段 ")
+                     wraplength=660).pack(fill=tk.X, padx=14, pady=(6, 10))
+            add_tab(f3, " ④ 风控高发时段 ")
 
-            # --- ④ 抢码状态（v6.4.1: 完整 18 项指标分组展示）---
-            f4 = tk.Frame(left, bg=COLORS["bg_card"])
-            snap = rush_stats.score_snapshot(data)
-            metrics = rush_stats.metrics_all(data)
+            # --- ⑤ 库存窗口（v6.4.2 新增，用户要求单拎出来）---
+            # 每个任务一个窗口：从"库存已使用完(75255)"首次出现到最后一次的跨度，
+            # 相对该场目标时刻计算偏移。用来判断一个任务到底能抢多久。
+            f5 = tk.Frame(left, bg=COLORS["bg_card"])
+            wins = []
+            try:
+                wins = rush_stats.stock_windows(data)
+            except Exception:
+                wins = []
 
-            # ===== 顶部：程序健康分（区分"程序对不对"和"运气好不好"）=====
-            score_head = tk.Frame(f4, bg=COLORS["bg_card"])
-            score_head.pack(fill=tk.X, padx=14, pady=(10, 2))
-            _pc = {"ok": D["ok"], "mid": D["mid"], "bad": D["bad"],
-                   "muted": D["muted"]}.get(snap.get("program_color"), D["text"])
-            _ps = snap.get("program_score")
-            tk.Label(score_head, text="程序健康分", bg=COLORS["bg_card"],
-                     fg=D["text2"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
-            tk.Label(score_head, text=str(_ps if _ps is not None else "--"),
-                     bg=COLORS["bg_card"], fg=_pc,
-                     font=("Consolas", 22, "bold")).pack(side=tk.LEFT, padx=(6, 0))
-            tk.Label(score_head,
-                     text="/100 " + str(snap.get("program_level", "")),
-                     bg=COLORS["bg_card"], fg=_pc,
-                     font=("微软雅黑", 10, "bold")).pack(side=tk.LEFT, pady=(6, 0))
-            _rs = snap.get("result_score")
-            _rtxt = "未采集" if _rs is None else "%d%%" % _rs
-            tk.Label(score_head,
-                     text="　结果参考 " + str(_rtxt) + "（随机，仅参考）",
-                     bg=COLORS["bg_card"], fg=D["muted"],
-                     font=("微软雅黑", 9)).pack(side=tk.LEFT, pady=(7, 0))
+            if wins:
+                _n_fast = sum(1 for w in wins
+                              if w.get("window_s") is not None
+                              and w["window_s"] <= 10)
+                _top = tk.Frame(f5, bg=COLORS["bg_card"])
+                _top.pack(fill=tk.X, padx=14, pady=(10, 4))
+                tk.Label(_top, text="库存窗口分析", bg=COLORS["bg_card"],
+                         fg=D["text2"], font=("微软雅黑", 11, "bold")
+                         ).pack(side=tk.LEFT)
+                tk.Label(_top,
+                         text="  %d 个任务有库存耗尽记录，其中 %d 个在10秒内告罄"
+                              % (len(wins), _n_fast),
+                         bg=COLORS["bg_card"], fg=D["muted"],
+                         font=("微软雅黑", 9)).pack(side=tk.LEFT, pady=(3, 0))
 
-            tk.Label(f4,
-                     text="说明：抢码成功有随机性（库存/竞争）。健康分只评估程序是否做对，抢不到不等于程序差。",
-                     bg=COLORS["bg_card"], fg=D["muted"],
-                     font=("微软雅黑", 9), anchor=tk.W
-                     ).pack(fill=tk.X, padx=14, pady=(0, 4))
+                _W5 = (3, 1, 1, 2, 2)
+                _M5 = (130, 42, 42, 80, 100)
+                _hd = tk.Frame(f5, bg=COLORS["bg_input"])
+                _hd.pack(fill=tk.X, padx=14)
+                for _i, _t in enumerate(("任务", "次数", "场次", "窗口跨度", "结论")):
+                    _hd.grid_columnconfigure(_i, weight=_W5[_i], minsize=_M5[_i])
+                    tk.Label(_hd, text=_t, bg=COLORS["bg_input"], fg=D["text2"],
+                             font=("微软雅黑", 9, "bold"), anchor=tk.W
+                             ).grid(row=0, column=_i, sticky="w", padx=4, pady=5)
 
-            # ===== 指标列表（可滚动，按 A/B/C/D/E 分组）=====
-            list_wrap = tk.Frame(f4, bg=COLORS["bg_card"])
-            list_wrap.pack(fill=tk.BOTH, expand=True, padx=14, pady=(0, 6))
+                for w in wins:
+                    _r = tk.Frame(f5, bg=COLORS["bg_card"])
+                    _r.pack(fill=tk.X, padx=14)
+                    _ws = w.get("window_s")
+                    if _ws is None:
+                        _wc = D["muted"]
+                        _wt = "—"
+                    elif _ws <= 10:
+                        _wc = D["bad"]
+                        _wt = "%.0f秒" % _ws
+                    elif _ws <= 60:
+                        _wc = D["mid"]
+                        _wt = "%.0f秒" % _ws
+                    else:
+                        _wc = D["ok"]
+                        _wt = "%.0f秒" % _ws
+                    _vals = (
+                        (w["task"][:22], D["text"]),
+                        (str(w["count"]), D["text2"]),
+                        (str(w["sessions"]), D["text2"]),
+                        (_wt, _wc),
+                        (w["verdict"], _wc),
+                    )
+                    for _i, (_v, _c) in enumerate(_vals):
+                        _r.grid_columnconfigure(_i, weight=_W5[_i], minsize=_M5[_i])
+                        tk.Label(_r, text=str(_v), bg=COLORS["bg_card"], fg=_c,
+                                 font=("Consolas", 10), anchor=tk.W
+                                 ).grid(row=0, column=_i, sticky="w", padx=4, pady=3)
 
-            # v6.4.2: 去掉 Canvas 滚动 —— 左面板高度足够容纳全部指标，直接放 Frame
-            # 原因：Canvas + create_window 在 Tk 下宽度上报为 1px，导致布局异常。
-            # 实测左面板高 1123px，18项指标+5分组+表头约需 820px，完全放得下。
-            inner_m = tk.Frame(list_wrap, bg=COLORS["bg_card"])
-            inner_m.pack(fill=tk.BOTH, expand=True)
+                _det = tk.Frame(f5, bg=COLORS["bg_card"])
+                _det.pack(fill=tk.X, padx=14, pady=(8, 2))
+                tk.Label(_det, text="明细样本（相对目标时刻的偏移）",
+                         bg=COLORS["bg_card"], fg=COLORS["accent"],
+                         font=("微软雅黑", 9, "bold"), anchor=tk.W
+                         ).pack(fill=tk.X)
+                for w in wins:
+                    if not w.get("samples"):
+                        continue
+                    _line = " / ".join("%s%+.0fs" % (s[0], s[1])
+                                       for s in w["samples"][:6])
+                    tk.Label(_det,
+                             text="  " + w["task"][:16] + ": " + _line,
+                             bg=COLORS["bg_card"], fg=D["muted"],
+                             font=("Consolas", 9), anchor=tk.W,
+                             justify=tk.LEFT, wraplength=655
+                             ).pack(fill=tk.X, pady=1)
 
-            # 表头
-            # v6.4.1: 列宽按左侧 820px 重新分配（原 18/7/20/11 会超出）
-            # v6.4.2: 指标表用 grid 权重分配，适配任意面板宽度
-            COLW = (0, 1, 2, 3)
-            WEIGHTS = (3, 1, 3, 2)
-            MINS = (140, 50, 110, 80)
+                _note5 = ("说明：库存窗口 = 该任务返回「75255 库存已经使用完」的"
+                          "从首次到最后一次的时间跨度（相对场次目标时刻）。"
+                          "窗口越短说明库存越抢手，必须更早到达。")
+                tk.Label(f5, text=_note5,
+                         bg=COLORS["bg_card"], fg=D["muted"],
+                         font=("微软雅黑", 9), anchor=tk.W, justify=tk.LEFT,
+                         wraplength=690).pack(fill=tk.X, padx=14, pady=(6, 8))
+            else:
+                tk.Label(f5, text="暂无库存耗尽记录（75255）",
+                         bg=COLORS["bg_card"], fg=D["muted"],
+                         font=("微软雅黑", 10), anchor=tk.W
+                         ).pack(fill=tk.X, padx=14, pady=20)
+                _note5b = ("当某个任务返回「库存已经使用完」时，"
+                           "这里会出现该任务的库存窗口统计。")
+                tk.Label(f5, text=_note5b,
+                         bg=COLORS["bg_card"], fg=D["muted"],
+                         font=("微软雅黑", 9), anchor=tk.W, justify=tk.LEFT,
+                         wraplength=690).pack(fill=tk.X, padx=14)
+            add_tab(f5, " ⑤ 库存窗口 ")
 
-            def _mk_row(parent, values, colors, bold=False):
-                r = tk.Frame(parent, bg=COLORS["bg_card"])
-                r.pack(fill=tk.X)
-                for i, (v, c) in enumerate(zip(values, colors)):
-                    r.grid_columnconfigure(i, weight=WEIGHTS[i], minsize=MINS[i])
-                    tk.Label(r, text=str(v), bg=COLORS["bg_card"], fg=c,
-                             font=("Consolas", 10, "bold" if bold else "normal"),
-                             anchor=tk.W).grid(row=0, column=i, sticky="w",
-                                               padx=4, pady=2)
-                return r
-
-            hdr = tk.Frame(inner_m, bg=COLORS["bg_input"])
-            hdr.pack(fill=tk.X)
-            for i, txt in enumerate(("指标", "得分", "当前值", "状态")):
-                hdr.grid_columnconfigure(i, weight=WEIGHTS[i], minsize=MINS[i])
-                tk.Label(hdr, text=txt, bg=COLORS["bg_input"], fg=D["text2"],
-                         font=("微软雅黑", 10, "bold"),
-                         anchor=tk.W).grid(row=0, column=i, sticky="w",
-                                           padx=4, pady=5)
-
-            _cur_group = None
-            for m in metrics:
-                if m["group"] != _cur_group:
-                    _cur_group = m["group"]
-                    gfr = tk.Frame(inner_m, bg=COLORS["bg_input"])
-                    gfr.pack(fill=tk.X, pady=(6, 0))
-                    tk.Label(gfr, text=_cur_group, bg=COLORS["bg_input"],
-                             fg=COLORS["accent"], font=("微软雅黑", 9, "bold"),
-                             anchor=tk.W).pack(fill=tk.X, padx=6, pady=3)
-                _c = {"ok": D["ok"], "mid": D["mid"], "bad": D["bad"],
-                      "muted": D["muted"]}.get(m.get("color"), D["text"])
-                sc_txt = "—" if m["score"] is None else str(m["score"])
-                _mk_row(inner_m,
-                        (m["name"], sc_txt, m["value"], m["grade"]),
-                        (D["text"], _c, _c, _c))
-
-            # 建议
-            sug = snap.get("suggestions") or []
-            if sug:
-                tk.Label(inner_m, text="改进建议", bg=COLORS["bg_input"],
-                         fg=COLORS["accent"], font=("微软雅黑", 9, "bold"),
-                         anchor=tk.W).pack(fill=tk.X, padx=6, pady=(8, 2))
-                for i, s in enumerate(sug, 1):
-                    tk.Label(inner_m, text="  %d. %s" % (i, s),
-                             bg=COLORS["bg_card"], fg=D["mid"],
-                             font=("微软雅黑", 9), anchor=tk.W,
-                             justify=tk.LEFT, wraplength=560
-                             ).pack(fill=tk.X, padx=6, pady=1)
-
-            _n_collected = sum(1 for m in metrics if m["score"] is not None)
-            tk.Label(inner_m,
-                     text="已采集 %d / %d 项指标" % (_n_collected, len(metrics)),
-                     bg=COLORS["bg_card"], fg=D["muted"],
-                     font=("微软雅黑", 9), anchor=tk.W
-                     ).pack(fill=tk.X, padx=6, pady=(6, 8))
-
-            add_tab(f4, " ④ 抢码状态 ")
+            # v6.4.2: 恢复重建前的标签页（避免剔除操作后跳回第一个）
+            try:
+                if nb2 is not None and len(nb2.tabs()) > 0:
+                    _restore = min(_tab_state.get("index", 0), len(nb2.tabs()) - 1)
+                    if _restore > 0:
+                        nb2.select(nb2.tabs()[_restore])
+            except Exception:
+                pass
 
             return nb2
 

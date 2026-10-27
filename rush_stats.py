@@ -230,6 +230,137 @@ def toggle_excluded(rec, excluded_set):
     return s, now_excluded
 
 
+# ============================================================
+# v6.4.2：按【任务名 + 日期 + 时间区间】批量剔除（用户需求）
+# ============================================================
+
+def parse_filter_spec(task_name="", date_str="", time_from="", time_to=""):
+    """解析剔除条件。
+
+    参数（都可空）：
+      task_name  任务名（支持部分匹配，如 "累积3天开播"）
+      date_str   日期 YYYY-MM-DD，空=不限日期
+      time_from  起始时间 HH:MM 或 HH:MM:SS，空=不限
+      time_to    结束时间 HH:MM 或 HH:MM:SS，空=不限
+
+    返回 dict：{task_name, date_str, from_sec, to_sec, valid, msg}
+    """
+    spec = {"task_name": str(task_name or "").strip(),
+            "date_str": str(date_str or "").strip(),
+            "from_sec": None, "to_sec": None,
+            "valid": True, "msg": ""}
+
+    def _to_sec(t):
+        t = str(t or "").strip()
+        if not t:
+            return None
+        parts = t.replace("：", ":").split(":")
+        try:
+            h = int(parts[0])
+            m = int(parts[1]) if len(parts) > 1 else 0
+            s = int(parts[2]) if len(parts) > 2 else 0
+            if not (0 <= h < 24 and 0 <= m < 60 and 0 <= s < 60):
+                return None
+            return h * 3600 + m * 60 + s
+        except Exception:
+            return None
+
+    if spec["date_str"]:
+        import re as _re
+        if not _re.match(r"^\d{4}-\d{2}-\d{2}$", spec["date_str"]):
+            spec["valid"] = False
+            spec["msg"] = "日期格式应为 YYYY-MM-DD"
+            return spec
+
+    spec["from_sec"] = _to_sec(time_from)
+    spec["to_sec"] = _to_sec(time_to)
+
+    if str(time_from or "").strip() and spec["from_sec"] is None:
+        spec["valid"] = False
+        spec["msg"] = "起始时间格式应为 HH:MM"
+        return spec
+    if str(time_to or "").strip() and spec["to_sec"] is None:
+        spec["valid"] = False
+        spec["msg"] = "结束时间格式应为 HH:MM"
+        return spec
+
+    if (spec["from_sec"] is not None and spec["to_sec"] is not None
+            and spec["from_sec"] > spec["to_sec"]):
+        spec["valid"] = False
+        spec["msg"] = "起始时间不能晚于结束时间"
+        return spec
+
+    if not (spec["task_name"] or spec["date_str"]
+            or spec["from_sec"] is not None or spec["to_sec"] is not None):
+        spec["valid"] = False
+        spec["msg"] = "请至少填写一个条件"
+
+    return spec
+
+
+def match_filter(rec, spec):
+    """判断一条记录是否满足剔除条件。"""
+    if not spec or not spec.get("valid"):
+        return False
+
+    # --- 任务名（部分匹配，忽略大小写）---
+    tn = spec.get("task_name") or ""
+    if tn:
+        if tn.lower() not in str(rec.get("task_name", "")).lower():
+            return False
+
+    ts = str(rec.get("ts", ""))
+    if len(ts) < 19:
+        return False
+
+    # --- 日期 ---
+    ds = spec.get("date_str") or ""
+    if ds and not ts.startswith(ds + " "):
+        return False
+
+    # --- 时间区间 ---
+    f = spec.get("from_sec")
+    t = spec.get("to_sec")
+    if f is None and t is None:
+        return True   # 只按任务名/日期筛
+
+    try:
+        sec = int(ts[11:13]) * 3600 + int(ts[14:16]) * 60 + int(ts[17:19])
+    except Exception:
+        return False
+
+    if f is not None and sec < f:
+        return False
+    if t is not None and sec > t:
+        return False
+    return True
+
+
+def batch_exclude(records, spec, excluded_set):
+    """按条件批量剔除。返回 (新set, 命中数, 命中记录列表)。"""
+    s = set(excluded_set)
+    hits = []
+    for r in records:
+        if match_filter(r, spec):
+            k = make_record_key(r)
+            s.add(k)
+            hits.append(r)
+    return s, len(hits), hits
+
+
+def batch_restore(records, spec, excluded_set):
+    """按条件批量恢复。返回 (新set, 恢复数, 记录列表)。"""
+    s = set(excluded_set)
+    hits = []
+    for r in records:
+        if match_filter(r, spec):
+            k = make_record_key(r)
+            if k in s:
+                s.discard(k)
+            hits.append(r)
+    return s, len(hits), hits
+
+
 def _rollover_if_needed():
     try:
         if RESULTS_FILE.exists() and RESULTS_FILE.stat().st_size > _MAX_BYTES:
@@ -408,33 +539,41 @@ SESSION_WINDOW_HALF = 5      # 半整点场次（xx:30）：目标前5分 ~ 目�
 
 
 def _session_label(hour, minute):
-    """把 (时,分) 转成【抢码场次】标签（v6.4.1 按用户要求修正）。
+    """把 (时,分) 转成【抢码场次】标签（v6.4.2）。
 
-    只有 4 个固定场次，其余全部归「其他时段」：
-      00点场  目标 00:00  -> 23:40 ~ 00:20
-      01点场  目标 01:00  -> 00:40 ~ 01:20
-      02点场  目标 02:00  -> 01:40 ~ 02:20
-      18点场  目标 18:00  -> 17:40 ~ 18:20
+    固定 5 个场次，其余全部归「其他时段」：
+      00点场    目标 00:00 -> 22:40 ~ 00:20  (前后各20分钟)
+      00:30场   目标 00:30 -> 00:25 ~ 00:35  (前后各5分钟，用户单独要求)
+      01点场    目标 01:00 -> 00:40 ~ 01:20
+      02点场    目标 02:00 -> 01:40 ~ 02:20
+      18点场    目标 18:00 -> 17:40 ~ 18:20
       其他时段  其余所有时间
 
-    注意：窗口取目标前后各 20 分钟，正好覆盖预热(前2.5s)到窗口期结束。
+    注意：00:30 场的窗口与 00点场可能重叠边界，按"先判半点、再判整点"的顺序，
+    00:25~00:35 只会归入 00:30 场，不会误入 00点场。
     """
-    SESSION_HOURS = (0, 1, 2, 18)
-    WINDOW = 20   # 分钟
+    # 场次定义：(目标小时, 目标分钟, 窗口半宽分钟, 标签)
+    SESSIONS = [
+        (0, 0, 20, "00点场"),
+        (0, 30, 5, "00:30场"),
+        (1, 0, 20, "01点场"),
+        (2, 0, 20, "02点场"),
+        (18, 0, 20, "18点场"),
+    ]
 
-    for h in SESSION_HOURS:
-        # 目标时刻是 h:00，窗口 [h:00 - 20min, h:00 + 20min]
-        # 转成分钟数比较，处理跨日
-        target_min = h * 60
-        cur_min = hour * 60 + minute
+    cur_min = hour * 60 + minute
+
+    # 先判半点场（窗口窄，优先级高），再判整点场
+    for order, (h, m, win, name) in enumerate(
+            sorted(SESSIONS, key=lambda x: x[2])):
+        target_min = h * 60 + m
         diff = cur_min - target_min
-        # 跨日归一化到 (-720, 720]
         while diff > 720:
             diff -= 1440
         while diff < -720:
             diff += 1440
-        if -WINDOW <= diff <= WINDOW:
-            return "%02d点场" % h
+        if -win <= diff <= win:
+            return name
 
     return "其他时段"
 
@@ -523,7 +662,7 @@ def _group_by_session(records, is_ok, is_risk):
                              if d["total"] else 0)
 
     # 排序：4个场次按时间先后，其他放最后
-    ORDER = {"00点场": 0, "01点场": 1, "02点场": 2, "18点场": 18}
+    ORDER = {"00点场": 0, "00:30场": 1, "01点场": 2, "02点场": 3, "18点场": 4}
 
     def _sort_key(d):
         return (1, 0) if d["is_other"] else (0, ORDER.get(d["label"], 99))
@@ -858,6 +997,170 @@ def _parse_probe_samples(s):
             out.append(float(part))
         except Exception:
             pass
+    return out
+
+
+# ============================================================
+# v6.4.2：库存窗口分析（每个任务一个窗口）
+# ============================================================
+
+STOCK_OUT_CODE = "75255"   # [-75255] 库存已经使用完
+
+
+def _session_target_of_burst(ts_first):
+    """从一个"请求爆发"的首条记录时刻，推断该场次的目标时刻（epoch 秒）。
+
+    原理：首条请求在目标时刻前后（提前量 10~2000ms）发出，
+    所以首条记录的秒数基本就是目标秒。这里向上取整到整秒。
+    """
+    import datetime as _dt
+    if not ts_first:
+        return 0
+    try:
+        t = _dt.datetime.strptime(str(ts_first), "%Y-%m-%d %H:%M:%S")
+        return t.timestamp()
+    except Exception:
+        return 0
+
+
+def stock_windows(d=None):
+    """按【任务】统计库存窗口（v6.4.2 第⑤页数据）。
+
+    用户要求：「库存窗口我建议单拎出来，做成第五个页面，
+             每个任务对应一个窗口（只要返回库存已使用完就计入）」
+
+    定义：
+      对每个任务，收集所有 code==75255（库存已用完）的记录，
+      计算它们相对【本场目标时刻】的偏移秒数。
+      窗口 = 从目标后第一次出现 75255，到最后一次出现 75255 的区间。
+
+    返回 list，每项：
+      task       任务名
+      count      75255 次数
+      sessions   涉及场次数
+      first_off  最早偏移（秒，相对目标）
+      last_off   最晚偏移（秒）
+      window_s   窗口跨度（秒）
+      samples    明细 [(场次标签, 偏移秒, 账户)]
+      verdict    结论文本（如 "约 8 秒内告罄"）
+    """
+    if d is None:
+        d = dashboard()
+    recs = d.get("records", []) or []
+
+    # 只保留库存耗尽记录
+    stock_recs = [r for r in recs if str(r.get("code", "")).strip() == STOCK_OUT_CODE]
+    if not stock_recs:
+        return []
+
+    # 按 (账号, 时间) 聚类成"爆发"，每个爆发对应一场抢码
+    # 用 ts 排序后，间隔 > 120 秒视为新场次
+    import datetime as _dt
+
+    def _ts_epoch(r):
+        try:
+            return _dt.datetime.strptime(
+                str(r.get("ts", "")), "%Y-%m-%d %H:%M:%S").timestamp()
+        except Exception:
+            return 0
+
+    all_sorted = sorted(stock_recs, key=_ts_epoch)
+
+    # 建立 时间 -> 该场目标时刻 的映射
+    # 用同一账号的连续请求聚类：间隔>120s 开新爆发
+    bursts = []
+    cur = []
+    last_t = 0
+    for r in all_sorted:
+        t = _ts_epoch(r)
+        if not t:
+            continue
+        if cur and (t - last_t) > 120:
+            bursts.append(cur)
+            cur = []
+        cur.append((r, t))
+        last_t = t
+    if cur:
+        bursts.append(cur)
+
+    # 每个爆发用首条记录推断目标时刻
+    rec_target = {}
+    for b in bursts:
+        tgt = _session_target_of_burst(b[0][0].get("ts"))
+        # 目标时刻取整到最近的整分钟或半点（抢码目标都是整点/半点）
+        if tgt:
+            import math as _m
+            tgt = _m.floor(tgt / 30.0) * 30.0
+        for r, t in b:
+            rec_target[id(r)] = tgt
+
+    # 按任务汇总
+    by_task = {}
+    for r in stock_recs:
+        task = str(r.get("task_name", "") or "?")
+        t = _ts_epoch(r)
+        tgt = rec_target.get(id(r), 0)
+        # 若记录自带 target_ts 则优先用
+        _tts = float(r.get("target_ts") or 0)
+        if _tts > 0:
+            tgt = _tts
+        off = (t - tgt) if tgt else None
+        item = by_task.setdefault(task, {
+            "task": task, "count": 0, "offsets": [], "samples": [],
+            "accounts": set(),
+        })
+        item["count"] += 1
+        item["accounts"].add(str(r.get("account", "") or "?"))
+        if off is not None and -120 < off < 900:
+            item["offsets"].append(off)
+            import datetime as _dt2
+            _lab = ""
+            try:
+                _lb = _dt2.datetime.fromtimestamp(tgt)
+                _lab = _session_label(_lb.hour, _lb.minute)
+            except Exception:
+                pass
+            item["samples"].append((_lab, round(off, 1),
+                                    str(r.get("account", "") or "?")))
+
+    out = []
+    for task, it in by_task.items():
+        offs = sorted(it["offsets"])
+        sessions = len(set(s[0] for s in it["samples"] if s[0]))
+        if offs:
+            first_off = offs[0]
+            last_off = offs[-1]
+            win = round(last_off - first_off, 1)
+            # 结论
+            if win <= 0:
+                verdict = "单点告罄（仅1次样本）"
+            elif win <= 3:
+                verdict = "极快告罄（%.0f秒内）" % win
+            elif win <= 10:
+                verdict = "快速告罄（%.0f秒内）" % win
+            elif win <= 60:
+                verdict = "约 %.0f 秒告罄" % win
+            else:
+                verdict = "库存可持续 %.0f 秒" % win
+        else:
+            first_off = last_off = None
+            win = None
+            verdict = "无法对齐目标时刻（缺数据）"
+
+        out.append({
+            "task": task,
+            "count": it["count"],
+            "sessions": sessions,
+            "account_n": len(it["accounts"]),
+            "first_off": first_off,
+            "last_off": last_off,
+            "window_s": win,
+            "samples": sorted(it["samples"], key=lambda x: x[1]),
+            "verdict": verdict,
+        })
+
+    # 按窗口跨度排序（最快告罄的排前面，最需要重视）
+    out.sort(key=lambda x: (x["window_s"] is None, x["window_s"] or 0))
     return out
 
 

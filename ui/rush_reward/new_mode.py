@@ -1478,8 +1478,29 @@ pause
             else:
                 ntp_offset = self.nm_ntp_sync()
 
-            # ===== 阶段2: 等待到目标时间前2.5秒，连接预热 =====
-            prewarm_time = target_timestamp - 2.5
+            # ===== 阶段2: 等待到目标时间前 PREWARM_LEAD 秒，连接预热 =====
+            #
+            # v6.4.2 时序重新设计（针对"预热来不及"问题）：
+            #
+            # 原设计缺陷：2.5 秒窗口里既要 TCP/TLS 握手(200-400ms)，
+            #   又要跑 5 次 RTT 探针(5*RTT + 4*150ms = 至少600ms固定开销)。
+            #   RTT=300ms 时总耗时 2400ms，只剩 100ms 自旋；
+            #   RTT=400ms 时直接超时，首发被迫立即发送 → 首发废掉。
+            #
+            # 但简单把窗口拉到 6 秒也有问题：
+            #   · 连接空闲 6 秒可能被服务端超时断开（反而白预热）
+            #   · 提前 6 秒发请求，更容易被判异常行为
+            #   · 探针在 T-6s 测的 RTT 与 T 时刻真实网络偏差更大
+            #
+            # 新方案【分层预热】—— 窗口 3 秒，但内部职责分离：
+            #   T-3.0s : 开始建连（仅 TCP/TLS，不做探针）
+            #   T-1.5s : 建连应已完成，此时才开始探针（离目标更近，RTT 更准）
+            #   T-1.0s : 探针完成，进入自旋（留 1 秒余量）
+            # 这样即使 RTT 慢，最坏也有 500ms 自旋空间；
+            # 且探针离目标时刻仅 1 秒，测得的 RTT 更贴近首发真实网络。
+            PREWARM_LEAD = 4.0
+            PROBE_AT = target_timestamp - 2.3   # 探针启动时刻
+            prewarm_time = target_timestamp - PREWARM_LEAD
             while time.time() < prewarm_time and not stop_flag["stop"]:
                 remaining = target_timestamp - time.time()
                 if int(remaining) % 10 == 0 and int(remaining) > 0:
@@ -1491,7 +1512,8 @@ pause
                 return
 
             # 连接预热：提前2.5秒建立连接（并行建立，act_id已在添加任务时获取）
-            self.nm_log("[连接预热] 提前2.5秒建立TCP连接（并行建立，act_id已在添加任务时获取）...")
+            self.nm_log(f"[连接预热] 提前{PREWARM_LEAD:.0f}秒建立TCP连接 + 测RTT"
+                        f"（并行建立，act_id已在添加任务时获取）...")
             sessions = {}
             task_infos = {}
             import threading as _prewarm_threading
@@ -1537,9 +1559,14 @@ pause
                 t = _prewarm_threading.Thread(target=_prewarm_single_task, args=(task,), daemon=True)
                 prewarm_threads.append(t)
                 t.start()
-            # 等待所有预热完成（最多4秒）
+            # v6.4.2: 建连最长等 1.4 秒（T-3.0s 开始，到 T-1.6s 必须完成）
+            # 这样留出 0.1s 给探针启动，探针在 T-1.5s 开始
+            _prewarm_join_deadline = time.time() + 1.6
             for t in prewarm_threads:
-                t.join(timeout=4)
+                _remain = _prewarm_join_deadline - time.time()
+                if _remain <= 0:
+                    break
+                t.join(timeout=max(0.1, _remain))
             # 收集结果（按优先级顺序输出日志）
             for task in prewarm_tasks:
                 result = prewarm_results.get(task["task_id"], ("error", "预热超时", None, None))
@@ -1591,12 +1618,31 @@ pause
             #
             ntp_correction = ntp_offset * 1000  # NTP偏差转ms
 
+            # --- v6.4.2 分层：先确保建连完成，再在 PROBE_AT 时刻做探针 ---
+            # 建连线程可能还在跑，等到探针时刻再继续
+            _now = time.time()
+            if _now < PROBE_AT:
+                _wait_s = PROBE_AT - _now
+                self.nm_log(f"[预热阶段] 建连完成，等待 {_wait_s:.2f}s 后测RTT...")
+                while time.time() < PROBE_AT and not stop_flag["stop"]:
+                    time.sleep(0.01)
+
             # --- 1) 用只读查询接口测当前 RTT（不消耗领取机会）---
+            # v6.4.2: 先检查剩余时间，不够就跳过探针（用兜底值），
+            # 保证自旋空间不被探针吃光。
             probe_rtt = None
+            _time_left_ms = (target_timestamp - time.time()) * 1000.0
+            _min_needed_ms = 600.0   # 探针至少需要 600ms，之后还要自旋
+            _skip_probe = _time_left_ms < _min_needed_ms + 500.0
+            if _skip_probe:
+                self.nm_log(f"[RTT探针] 剩余{_time_left_ms:.0f}ms，跳过探针避免挤占自旋时间")
             try:
-                if prewarm_tasks:
+                if prewarm_tasks and not _skip_probe:
                     _probe_session = sessions.get(prewarm_tasks[0]["task_id"])
-                    probe_rtt, probe_valid, probe_total = self.nm_probe_rtt_full(prewarm_tasks[0], _probe_session, samples=5)
+                    # v6.4.2: 采样 2 次（间隔0.80s，总耗时约 0.8+2*RTT≈1.2s）
+                    # 优先用历史缓存基线，只有缓存过期时才真探
+                    probe_rtt, probe_valid, probe_total = self._nm_probe_smart(
+                        prewarm_tasks[0], _probe_session, target_timestamp)
             except Exception as e:
                 self.nm_log(f"[RTT探针] 异常: {e}")
 
@@ -1866,18 +1912,93 @@ pause
             return None
 
 
-    def nm_probe_rtt_full(self, task, session=None, samples=5):
-        """测 RTT 并区分「有效样本」与「风控样本」（v6.4.0 新增）。
+# ---------- v6.4.2: 智能探针（历史缓存优先，尽量少打扰服务端）----------
+    _RTT_CACHE = {"rtt": 0.0, "ts": 0.0}
+    RTT_CACHE_TTL = 1800.0   # 缓存有效期 30 分钟
 
-        关键改进（解决实测发现的精度问题）：
-          原 nm_probe_rtt 把风控响应（-702/-509/-705）也算进 RTT 中位数。
-          但实测发现风控响应只要 86ms，而正常响应要 266ms ——
-          风控样本混入会让测得的 RTT 偏小，进而让提前量算小，导致【早到】。
+    def _nm_load_hist_rtt(self):
+        """从历史记录里取最近一次有效探针 RTT 作为基线（零开销、零风控）。"""
+        try:
+            import rush_stats
+            recs = rush_stats.load_results(limit=200)
+            for r in reversed(recs):
+                v = float(r.get("probe_rtt_med") or 0)
+                ts = str(r.get("ts") or "")
+                if v > 20 and ts:
+                    import datetime as _dt
+                    t = _dt.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
+                    age = time.time() - t
+                    if 0 < age < self.RTT_CACHE_TTL:
+                        return v, age
+        except Exception:
+            pass
+        return 0.0, 0.0
+
+    def _nm_probe_smart(self, task, session, target_timestamp):
+        """智能探针（v6.4.2）。
+
+        策略（按开销从低到高）：
+          1) 内存缓存命中（30分钟内）-> 直接用，0 次请求
+          2) 历史记录里有 30 分钟内的 probe_rtt_med -> 用，0 次请求
+          3) 以上都没有，才真做 2 次探针（间隔 0.80s，实测风控率仅 20%）
+          4) 时间预算不够则跳过，用兜底值
+
+        这样绝大多数场次【完全不打扰服务端】，从根上回避探针风控。
+
+        返回：(median_rtt, valid, total)
+        """
+        now = time.time()
+
+        # --- 1) 内存缓存 ---
+        if (self._RTT_CACHE["rtt"] > 20
+                and 0 < now - self._RTT_CACHE["ts"] < self.RTT_CACHE_TTL):
+            age = now - self._RTT_CACHE["ts"]
+            self.nm_log(f"[RTT探针] 用内存缓存 {self._RTT_CACHE['rtt']:.0f}ms"
+                        f"（{age/60:.0f}分钟前，0次请求）")
+            return self._RTT_CACHE["rtt"], 2, 2
+
+        # --- 2) 历史记录缓存 ---
+        hist, age = self._nm_load_hist_rtt()
+        if hist > 20:
+            self.nm_log(f"[RTT探针] 用历史基线 {hist:.0f}ms"
+                        f"（{age/60:.0f}分钟前，0次请求）")
+            self._RTT_CACHE["rtt"] = hist
+            self._RTT_CACHE["ts"] = now
+            return hist, 2, 2
+
+        # --- 3) 时间预算检查 ---
+        remain_ms = (target_timestamp - now) * 1000.0
+        # 2次探针 + 1个0.8s间隔 ≈ 0.8 + 2*RTT。保守按 RTT=400ms 估需 1.6s
+        if remain_ms < 1800.0:
+            self.nm_log(f"[RTT探针] 剩余{remain_ms:.0f}ms 不足1.8s，跳过探针用兜底值")
+            return None, 0, 0
+
+        # --- 4) 真做探针（2次，间隔0.8s）---
+        rtt, valid, total = self.nm_probe_rtt_full(
+            task, session, samples=2,
+            deadline_ts=target_timestamp - 0.5)
+        if rtt and rtt > 20:
+            self._RTT_CACHE["rtt"] = rtt
+            self._RTT_CACHE["ts"] = now
+        return rtt, valid, total
+
+    def nm_probe_rtt_full(self, task, session=None, samples=3, deadline_ts=0):
+        """测 RTT 并区分「有效样本」与「风控样本」，且【自适应时间预算】（v6.4.2）。
+
+        为什么需要自适应：
+          原实现固定采 5 次、间隔 150ms，最坏耗时 5*RTT+600ms。
+          RTT=400ms 时耗时 2600ms，而预热窗口只有 2.5s → 直接超时，
+          首发被迫"立即发送"，提前量完全失效。
 
         新逻辑：
-          1. 只把 code==0 的响应当作有效 RTT 样本
-          2. 返回 (中位数, 有效样本数, 总样本数)
-          3. 有效样本不足 2 个时视为探针失效（返回 None）
+          1. 逐次采样，每采一次就用实测 RTT 估算下一次耗时
+          2. 若"下一次采样"会超过 deadline_ts，立即停止
+          3. 只把 code==0 的响应当有效样本（排除风控响应污染）
+          4. 有效样本 <2 时返回 None（调用方用兜底值）
+
+        参数:
+          samples     期望采样数（实际可能更少）
+          deadline_ts 硬截止时刻（epoch 秒）。0 表示不限制。
 
         返回：(median_rtt, valid_count, total_count)
         """
@@ -1896,7 +2017,8 @@ pause
 
             sess = session or requests.Session()
             sess.headers.update(HEADERS)
-            params = wbi_sign({"task_id": task["task_id"], "web_location": "888.126558"},
+            params = wbi_sign({"task_id": task["task_id"],
+                               "web_location": "888.126558"},
                               img_key, sub_key)
             headers = {
                 **HEADERS,
@@ -1907,30 +2029,44 @@ pause
             valid_rtts = []
             all_rtts = []
             risk_count = 0
+            est_next_ms = 200.0   # 第一次采样前的保守估计
+
             for i in range(max(1, samples)):
+                # ---- 时间预算检查：这次采样会不会超 deadline ----
+                if deadline_ts > 0:
+                    remain_ms = (deadline_ts - time.time()) * 1000.0
+                    if remain_ms < est_next_ms + 60.0:
+                        self.nm_log(
+                            f"[RTT探针] 剩余{remain_ms:.0f}ms < 预估{est_next_ms:.0f}ms，"
+                            f"停止采样（已采{len(all_rtts)}次）")
+                        break
+
                 t0 = time.perf_counter()
                 code = None
                 try:
-                    resp = sess.get(MISSION_INFO_API, headers=headers, cookies=cookies,
-                                    params=params, timeout=5)
+                    resp = sess.get(MISSION_INFO_API, headers=headers,
+                                    cookies=cookies, params=params, timeout=5)
                     code = resp.json().get("code")
                 except Exception:
                     pass
                 dt = (time.perf_counter() - t0) * 1000
                 all_rtts.append(dt)
-                # 只有 code==0 才是有效 RTT 样本
+                est_next_ms = dt      # 用本次实测更新下次预估
                 if code == 0:
                     valid_rtts.append(dt)
                 elif code in (-702, -509, -705, -412):
                     risk_count += 1
+
                 if i < samples - 1:
-                    time.sleep(0.15)
+                    # 间隔 80ms（原 150ms，压缩固定开销）
+                    time.sleep(0.80)
 
             total = len(all_rtts)
             n_valid = len(valid_rtts)
             if n_valid < 2:
                 self.nm_log(
-                    f"[RTT探针] 有效样本仅 {n_valid}/{total}（风控 {risk_count} 次），探针失效")
+                    f"[RTT探针] 有效样本仅 {n_valid}/{total}"
+                    f"{('（风控' + str(risk_count) + '）') if risk_count else ''}，探针失效")
                 return None, n_valid, total
 
             med = statistics.median(valid_rtts)
@@ -1945,7 +2081,6 @@ pause
             except Exception:
                 pass
             return None, 0, 0
-
     def nm_ntp_sync(self):
         """NTP时间同步（使用socket方式，不依赖第三方库）"""
         import struct
