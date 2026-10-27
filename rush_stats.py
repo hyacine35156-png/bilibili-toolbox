@@ -1024,145 +1024,226 @@ def _session_target_of_burst(ts_first):
 
 
 def stock_windows(d=None):
-    """按【任务】统计库存窗口（v6.4.2 第⑤页数据）。
+    """按【任务】统计库存窗口（v6.4.3 重写：按单场计算，修跨场次相减的 bug）。
 
-    用户要求：「库存窗口我建议单拎出来，做成第五个页面，
-             每个任务对应一个窗口（只要返回库存已使用完就计入）」
+    用户问题：「窗口跨度是什么意思」——追问暴露出 v6.4.2 的算法缺陷：
 
-    定义：
-      对每个任务，收集所有 code==75255（库存已用完）的记录，
-      计算它们相对【本场目标时刻】的偏移秒数。
-      窗口 = 从目标后第一次出现 75255，到最后一次出现 75255 的区间。
+      原算法把所有 75255 记录混在一起，用 max(偏移) - min(偏移) 当跨度。
+      但不同场次的记录被混算，例如：
+        【累计1天投稿≥100播放】
+          10-26 18:25:07 偏移 +7s
+          10-27 00:00:23 偏移 +23s   <- 相差一天多的另一个场次！
+        相减得 16 秒，这个数字毫无物理意义。
+
+    新算法（按场次分组，场内才算跨度）：
+      1. 每场 = (日期, 场次标签) 唯一确定
+      2. 场内：跨度 = 该场最后一次75255偏移 - 第一次75255偏移
+      3. 跨场汇总：
+         - 典型告罄 = 各场"首次偏移"的中位数（最有价值的数字）
+         - 场内跨度 = 各场跨度的最大值（单点场不计入）
 
     返回 list，每项：
-      task       任务名
-      count      75255 次数
-      sessions   涉及场次数
-      first_off  最早偏移（秒，相对目标）
-      last_off   最晚偏移（秒）
-      window_s   窗口跨度（秒）
-      samples    明细 [(场次标签, 偏移秒, 账户)]
-      verdict    结论文本（如 "约 8 秒内告罄"）
+      task         任务名
+      obs          75255 观测总数
+      sessions     涉及场次数
+      first_med    典型首次告罄偏移（秒，中位数）★核心指标
+      first_min    最早的一次告罄偏移
+      span_max     最大场内跨度（秒，None=所有场都是单点）
+      multi_obs    有多点观测的场次数量
+      per_session  每场明细 [(场次标签, 日期, 首次偏移, 末次偏移, 观测数)]
+      verdict      结论文本
     """
     if d is None:
         d = dashboard()
     recs = d.get("records", []) or []
 
-    # 只保留库存耗尽记录
     stock_recs = [r for r in recs if str(r.get("code", "")).strip() == STOCK_OUT_CODE]
     if not stock_recs:
         return []
 
-    # 按 (账号, 时间) 聚类成"爆发"，每个爆发对应一场抢码
-    # 用 ts 排序后，间隔 > 120 秒视为新场次
     import datetime as _dt
 
-    def _ts_epoch(r):
+    def _epoch(r):
         try:
             return _dt.datetime.strptime(
                 str(r.get("ts", "")), "%Y-%m-%d %H:%M:%S").timestamp()
         except Exception:
             return 0
 
-    all_sorted = sorted(stock_recs, key=_ts_epoch)
+    # ---- 先从请求爆发推断每场的真实目标时刻 ----
+    # v6.4.3: 不再假设目标只在整点/半点。
+    # 实测发现 18:25 也是真实目标（日志：目标 18:25:00.000），
+    # 原 floor(30分钟) 会把它压成 18:00，导致偏移1500秒被过滤掉。
+    #
+    # 新做法：把同一账号、间隔<90秒的 75255 记录聚成一个"爆发"，
+    # 爆发内首条记录的秒时刻就是目标时刻（因为首发在目标前后数十~数百毫秒发出）。
+    import datetime as _dt2
 
-    # 建立 时间 -> 该场目标时刻 的映射
-    # 用同一账号的连续请求聚类：间隔>120s 开新爆发
-    bursts = []
-    cur = []
-    last_t = 0
-    for r in all_sorted:
-        t = _ts_epoch(r)
-        if not t:
-            continue
-        if cur and (t - last_t) > 120:
-            bursts.append(cur)
-            cur = []
-        cur.append((r, t))
-        last_t = t
-    if cur:
-        bursts.append(cur)
+    def _epoch_of(r):
+        try:
+            return _dt2.datetime.strptime(
+                str(r.get("ts", "")), "%Y-%m-%d %H:%M:%S").timestamp()
+        except Exception:
+            return 0
 
-    # 每个爆发用首条记录推断目标时刻
-    rec_target = {}
-    for b in bursts:
-        tgt = _session_target_of_burst(b[0][0].get("ts"))
-        # 目标时刻取整到最近的整分钟或半点（抢码目标都是整点/半点）
-        if tgt:
-            import math as _m
-            tgt = _m.floor(tgt / 30.0) * 30.0
-        for r, t in b:
-            rec_target[id(r)] = tgt
+    _srt = sorted([r for r in stock_recs if _epoch_of(r)],
+                  key=_epoch_of)
+    _bursts = []
+    _cur = []
+    _last_t = 0
+    _last_acc = None
+    for _r in _srt:
+        _t = _epoch_of(_r)
+        _acc = str(_r.get("account", "") or "?")
+        if _cur and (_t - _last_t > 90 or _acc != _last_acc):
+            _bursts.append(_cur)
+            _cur = []
+        _cur.append((_r, _t))
+        _last_t = _t
+        _last_acc = _acc
+    if _cur:
+        _bursts.append(_cur)
 
-    # 按任务汇总
-    by_task = {}
-    for r in stock_recs:
-        task = str(r.get("task_name", "") or "?")
-        t = _ts_epoch(r)
-        tgt = rec_target.get(id(r), 0)
-        # 若记录自带 target_ts 则优先用
+    # 每个爆发的目标时刻推断（v6.4.3 二次修正）：
+    #   首选：对齐到已知固定场次时刻（00:00 / 00:30 / 01:00 / 02:00 / 18:00）
+    #         爆发首条请求通常在目标前后 0.3~1.5 秒，就近吸附最准。
+    #   次选：用首条记录时刻向下取整到秒（误差 ≤1 秒）。
+    #
+    # 为什么不能直接用首条记录时间当目标：会导致"首次告罄"恒等于 0s（循环论证）。
+    _FIXED_TARGETS_MIN = [0, 30, 60, 120, 18 * 60]   # 一天的分钟数
+
+    def _snap_target(t):
+        _d = _dt2.datetime.fromtimestamp(t)
+        _mod = _d.hour * 60 + _d.minute
+        _best = None
+        _best_d = 999
+        for _m in _FIXED_TARGETS_MIN:
+            _diff = abs(_mod - _m)
+            if _diff > 720:
+                _diff = 1440 - _diff
+            if _diff < _best_d:
+                _best_d = _diff
+                _best = _m
+        # 距最近固定场次不超过 20 分钟才吸附，否则说明是临时场次
+        if _best is not None and _best_d <= 20:
+            _base = _d.replace(hour=_best // 60, minute=_best % 60,
+                               second=0, microsecond=0)
+            # 若首条记录早于目标（提前发送），日期可能跨日
+            if (_d - _base).total_seconds() > 43200:
+                _base = _base - _dt2.timedelta(days=1)
+            elif (_base - _d).total_seconds() > 43200:
+                _base = _base + _dt2.timedelta(days=1)
+            return _base.timestamp()
+        # 临时场次：用首条记录向下取整到秒
+        return float(int(t))
+
+    _burst_target = {}
+    for _b in _bursts:
+        _t0 = _b[0][1]
+        _tgt = _snap_target(_t0)
+        for _r, _t in _b:
+            _burst_target[id(_r)] = _tgt
+
+    def _target_epoch(r, t):
+        """推断该记录所属场次的目标时刻。"""
         _tts = float(r.get("target_ts") or 0)
         if _tts > 0:
-            tgt = _tts
-        off = (t - tgt) if tgt else None
-        item = by_task.setdefault(task, {
-            "task": task, "count": 0, "offsets": [], "samples": [],
-            "accounts": set(),
+            return _tts
+        _bt = _burst_target.get(id(r))
+        if _bt:
+            return _bt
+        return 0
+
+    by_task = {}
+
+    for r in stock_recs:
+        task = str(r.get("task_name", "") or "?")
+        t = _epoch(r)
+        if not t:
+            continue
+        tgt = _target_epoch(r, t)
+        if not tgt:
+            continue
+
+        dt_obj = _dt.datetime.fromtimestamp(tgt)
+        sess_label = _session_label(dt_obj.hour, dt_obj.minute)
+        date_str = _dt.datetime.fromtimestamp(t).strftime("%Y-%m-%d")
+        # 场次唯一键：日期 + 场次标签（不同天同场次算两场）
+        sess_key = date_str + "|" + sess_label
+
+        off = t - tgt
+        # 只保留合理范围（目标前2分钟 ~ 目标后15分钟）
+        if not (-120 < off < 900):
+            continue
+
+        it = by_task.setdefault(task, {"task": task, "sessions": {}})
+        s = it["sessions"].setdefault(sess_key, {
+            "label": sess_label, "date": date_str, "offs": [],
         })
-        item["count"] += 1
-        item["accounts"].add(str(r.get("account", "") or "?"))
-        if off is not None and -120 < off < 900:
-            item["offsets"].append(off)
-            import datetime as _dt2
-            _lab = ""
-            try:
-                _lb = _dt2.datetime.fromtimestamp(tgt)
-                _lab = _session_label(_lb.hour, _lb.minute)
-            except Exception:
-                pass
-            item["samples"].append((_lab, round(off, 1),
-                                    str(r.get("account", "") or "?")))
+        s["offs"].append(off)
 
     out = []
     for task, it in by_task.items():
-        offs = sorted(it["offsets"])
-        sessions = len(set(s[0] for s in it["samples"] if s[0]))
-        if offs:
-            first_off = offs[0]
-            last_off = offs[-1]
-            win = round(last_off - first_off, 1)
-            # 结论
-            if win <= 0:
-                verdict = "单点告罄（仅1次样本）"
-            elif win <= 3:
-                verdict = "极快告罄（%.0f秒内）" % win
-            elif win <= 10:
-                verdict = "快速告罄（%.0f秒内）" % win
-            elif win <= 60:
-                verdict = "约 %.0f 秒告罄" % win
-            else:
-                verdict = "库存可持续 %.0f 秒" % win
+        per_session = []
+        first_offs = []
+        spans = []
+        multi = 0
+        obs_total = 0
+
+        for key, s in it["sessions"].items():
+            offs = sorted(s["offs"])
+            obs_total += len(offs)
+            f = offs[0]
+            l = offs[-1]
+            span = round(l - f, 1)
+            first_offs.append(f)
+            if len(offs) >= 2:
+                spans.append(span)
+                multi += 1
+            per_session.append({
+                "label": s["label"], "date": s["date"],
+                "first": round(f, 1), "last": round(l, 1),
+                "n": len(offs), "span": span,
+            })
+
+        per_session.sort(key=lambda x: (x["date"], x["first"]))
+
+        first_med = round(_median(first_offs), 1) if first_offs else None
+        first_min = round(min(first_offs), 1) if first_offs else None
+        first_avg = (round(sum(first_offs) / len(first_offs), 1)
+                     if first_offs else None)
+        span_max = round(max(spans), 1) if spans else None
+
+        n_sess = len(it["sessions"])
+        if first_med is None:
+            verdict = "无法对齐目标时刻"
+        elif first_med <= 1:
+            verdict = "开抢瞬间即空"
+        elif first_med <= 5:
+            verdict = "约%.0f秒内告罄" % first_med
+        elif first_med <= 30:
+            verdict = "约%.0f秒内告罄" % first_med
+        elif first_med <= 120:
+            verdict = "库存可持续%.0f秒" % first_med
         else:
-            first_off = last_off = None
-            win = None
-            verdict = "无法对齐目标时刻（缺数据）"
+            verdict = "库存充足"
 
         out.append({
             "task": task,
-            "count": it["count"],
-            "sessions": sessions,
-            "account_n": len(it["accounts"]),
-            "first_off": first_off,
-            "last_off": last_off,
-            "window_s": win,
-            "samples": sorted(it["samples"], key=lambda x: x[1]),
+            "obs": obs_total,
+            "sessions": n_sess,
+            "first_med": first_med,
+            "first_min": first_min,
+            "first_avg": first_avg,
+            "span_max": span_max,
+            "multi_obs": multi,
+            "per_session": per_session,
             "verdict": verdict,
         })
 
-    # 按窗口跨度排序（最快告罄的排前面，最需要重视）
-    out.sort(key=lambda x: (x["window_s"] is None, x["window_s"] or 0))
+    # 告罄越早越需要重视，排前面
+    out.sort(key=lambda x: (x["first_med"] is None, x["first_med"] or 0))
     return out
-
 
 def metrics_all(d):
     """计算全部 16 项指标（v6.4.1 新增）。

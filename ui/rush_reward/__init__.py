@@ -946,14 +946,16 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 scale = 1.0
             if scale < 0.5 or scale > 4:
                 scale = 1.0
-            # 目标：窗口占屏幕 78% 宽、85% 高（留任务栏和边框余量）
-            w = int(sw * 0.78)
-            h = int(sh * 0.85)
+            # v6.4.4: 窗口加大到屏幕 88% 宽、92% 高
+            # 原因：底部按钮（剔除所选/恢复所选/清空全部剔除/刷新）被裁掉，
+            # 用户要求「仪表盘下方的按钮现在是遮住的，你还要调大窗口」。
+            w = int(sw * 0.88)
+            h = int(sh * 0.92)
             x = max(0, (sw - w) // 2)
-            y = max(0, (sh - h) // 2 - 20)
+            y = max(0, (sh - h) // 2 - 10)
             dlg.geometry(f"{w}x{h}+{x}+{y}")
-            # 最小尺寸：保证 4 列指标 + 6 列明细都放得下
-            dlg.minsize(1200, 760)
+            # 最小尺寸：保证 5 列指标 + 6 列明细 + 底部按钮都放得下
+            dlg.minsize(1360, 860)
         except Exception:
             dlg.geometry("1700x900")
         try:
@@ -1000,6 +1002,17 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         tk.Label(title_row, text="📈 抢码成功率仪表盘", bg=COLORS["bg_card"],
                  fg=COLORS["accent"], font=("微软雅黑", 15, "bold")
                  ).pack(side=tk.LEFT)
+        # v6.4.4: 加最小化按钮（用户需求）
+        # 用 iconify() 最小化到任务栏；再次点任务栏图标可还原。
+        def _minimize_dashboard():
+            try:
+                dlg.iconify()
+            except Exception:
+                pass
+
+        DarkButton(title_row, text="— 最小化", command=_minimize_dashboard,
+                   height=28, width=96, bg_color="#2c3e50").pack(side=tk.RIGHT,
+                                                              padx=(0, 6))
         DarkButton(title_row, text="关闭", command=dlg.destroy, height=28, width=80,
                    bg_color="#7f8c8d").pack(side=tk.RIGHT)
 
@@ -1028,6 +1041,13 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         # ============ 主体：左右分栏 ============
         body = tk.PanedWindow(dlg, orient=tk.HORIZONTAL, bg=COLORS["bg_dark"],
                               sashrelief=tk.FLAT, sashwidth=6, bd=0)
+
+        # v6.4.4: 先创建并 pack 底部按钮区，再 pack 主体。
+        # Tk 的 pack 规则是"先 pack 的优先占用空间"，
+        # 原代码 body 先 pack(fill=BOTH, expand=True) 会吃光空间，
+        # 导致后面 pack 的 foot（剔除/恢复/刷新按钮）被挤出窗口外。
+        foot = tk.Frame(dlg, bg=COLORS["bg_dark"])
+        foot.pack(side=tk.BOTTOM, fill=tk.X, padx=14, pady=(0, 12))
         body.pack(fill=tk.BOTH, expand=True, padx=14, pady=(0, 8))
 
         # ---- 左侧：三个分析报表（用 Notebook 节省纵向空间）----
@@ -1683,9 +1703,10 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                      wraplength=660).pack(fill=tk.X, padx=14, pady=(6, 10))
             add_tab(f3, " ④ 风控高发时段 ")
 
-            # --- ⑤ 库存窗口（v6.4.2 新增，用户要求单拎出来）---
-            # 每个任务一个窗口：从"库存已使用完(75255)"首次出现到最后一次的跨度，
-            # 相对该场目标时刻计算偏移。用来判断一个任务到底能抢多久。
+            # --- ⑤ 库存窗口（v6.4.4：明细为主体，汇总精简为一行）---
+            # 用户反馈："明细样本中的数据才是需要观察的，把它移到上面去"
+            # 设计：任务行 + 缩进的每场明细行，合成一张表。
+            # 汇总只保留「典型告罄」（跨场中位数，抗单次异常）。
             f5 = tk.Frame(left, bg=COLORS["bg_card"])
             wins = []
             try:
@@ -1695,83 +1716,87 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
             if wins:
                 _n_fast = sum(1 for w in wins
-                              if w.get("window_s") is not None
-                              and w["window_s"] <= 10)
+                              if w.get("first_med") is not None
+                              and w["first_med"] <= 10)
+                _n_sess_total = sum(int(w.get("sessions") or 0) for w in wins)
                 _top = tk.Frame(f5, bg=COLORS["bg_card"])
                 _top.pack(fill=tk.X, padx=14, pady=(10, 4))
                 tk.Label(_top, text="库存窗口分析", bg=COLORS["bg_card"],
                          fg=D["text2"], font=("微软雅黑", 11, "bold")
                          ).pack(side=tk.LEFT)
                 tk.Label(_top,
-                         text="  %d 个任务有库存耗尽记录，其中 %d 个在10秒内告罄"
-                              % (len(wins), _n_fast),
+                         text="  %d 个任务 / %d 场观测，%d 个任务在10秒内告罄"
+                              % (len(wins), _n_sess_total, _n_fast),
                          bg=COLORS["bg_card"], fg=D["muted"],
                          font=("微软雅黑", 9)).pack(side=tk.LEFT, pady=(3, 0))
 
-                _W5 = (3, 1, 1, 2, 2)
-                _M5 = (130, 42, 42, 80, 100)
+                # 表头
+                _W5 = (4, 1, 1, 1, 2)
+                _M5 = (230, 62, 62, 62, 120)
                 _hd = tk.Frame(f5, bg=COLORS["bg_input"])
                 _hd.pack(fill=tk.X, padx=14)
-                for _i, _t in enumerate(("任务", "次数", "场次", "窗口跨度", "结论")):
+                for _i, _t in enumerate(("任务 / 每场明细", "中位数", "平均数", "最小值", "结论")):
                     _hd.grid_columnconfigure(_i, weight=_W5[_i], minsize=_M5[_i])
                     tk.Label(_hd, text=_t, bg=COLORS["bg_input"], fg=D["text2"],
                              font=("微软雅黑", 9, "bold"), anchor=tk.W
                              ).grid(row=0, column=_i, sticky="w", padx=4, pady=5)
 
+                def _color_of(v):
+                    if v is None:
+                        return D["muted"]
+                    if v <= 10:
+                        return D["bad"]
+                    if v <= 60:
+                        return D["mid"]
+                    return D["ok"]
+
                 for w in wins:
-                    _r = tk.Frame(f5, bg=COLORS["bg_card"])
-                    _r.pack(fill=tk.X, padx=14)
-                    _ws = w.get("window_s")
-                    if _ws is None:
-                        _wc = D["muted"]
-                        _wt = "—"
-                    elif _ws <= 10:
-                        _wc = D["bad"]
-                        _wt = "%.0f秒" % _ws
-                    elif _ws <= 60:
-                        _wc = D["mid"]
-                        _wt = "%.0f秒" % _ws
-                    else:
-                        _wc = D["ok"]
-                        _wt = "%.0f秒" % _ws
+                    _fm = w.get("first_med")
+                    _wc = _color_of(_fm)
+                    # ---- 任务行 ----
+                    _rw = tk.Frame(f5, bg=COLORS["bg_card"])
+                    _rw.pack(fill=tk.X, padx=14, pady=(6, 0))
+                    _fa = w.get("first_avg")
+                    _fn = w.get("first_min")
                     _vals = (
-                        (w["task"][:22], D["text"]),
-                        (str(w["count"]), D["text2"]),
-                        (str(w["sessions"]), D["text2"]),
-                        (_wt, _wc),
-                        (w["verdict"], _wc),
+                        ("● " + w["task"][:26], D["text"]),
+                        (("—" if _fm is None else "%.1f秒" % _fm), _wc),
+                        (("—" if _fa is None else "%.1f秒" % _fa), _color_of(_fa)),
+                        (("—" if _fn is None else "%.1f秒" % _fn), _color_of(_fn)),
+                        (w.get("verdict", ""), _wc),
                     )
                     for _i, (_v, _c) in enumerate(_vals):
-                        _r.grid_columnconfigure(_i, weight=_W5[_i], minsize=_M5[_i])
-                        tk.Label(_r, text=str(_v), bg=COLORS["bg_card"], fg=_c,
-                                 font=("Consolas", 10), anchor=tk.W
-                                 ).grid(row=0, column=_i, sticky="w", padx=4, pady=3)
+                        _rw.grid_columnconfigure(_i, weight=_W5[_i], minsize=_M5[_i])
+                        tk.Label(_rw, text=str(_v), bg=COLORS["bg_card"], fg=_c,
+                                 font=("微软雅黑", 10, "bold"), anchor=tk.W
+                                 ).grid(row=0, column=_i, sticky="w", padx=4, pady=2)
+                    # ---- 每场明细行（缩进，等宽字体保证对齐）----
+                    for _s in (w.get("per_session") or [])[:8]:
+                        _seg = "    %s  %-8s  首次%+5.1fs" % (
+                            _s["date"][5:], _s["label"], _s["first"])
+                        if _s["n"] >= 2:
+                            _seg += "  末次%+5.1fs" % _s["last"]
+                        _seg += "  (%d次)" % _s["n"]
+                        tk.Label(f5, text=_seg, bg=COLORS["bg_card"],
+                                 fg=D["muted"], font=("Consolas", 9),
+                                 anchor=tk.W
+                                 ).pack(fill=tk.X, padx=14, pady=0)
+                    _nf = len(w.get("per_session") or [])
+                    if _nf > 8:
+                        tk.Label(f5, text="    ...另有 %d 场未显示" % (_nf - 8),
+                                 bg=COLORS["bg_card"], fg=D["muted"],
+                                 font=("Consolas", 9), anchor=tk.W
+                                 ).pack(fill=tk.X, padx=14)
 
-                _det = tk.Frame(f5, bg=COLORS["bg_card"])
-                _det.pack(fill=tk.X, padx=14, pady=(8, 2))
-                tk.Label(_det, text="明细样本（相对目标时刻的偏移）",
-                         bg=COLORS["bg_card"], fg=COLORS["accent"],
-                         font=("微软雅黑", 9, "bold"), anchor=tk.W
-                         ).pack(fill=tk.X)
-                for w in wins:
-                    if not w.get("samples"):
-                        continue
-                    _line = " / ".join("%s%+.0fs" % (s[0], s[1])
-                                       for s in w["samples"][:6])
-                    tk.Label(_det,
-                             text="  " + w["task"][:16] + ": " + _line,
-                             bg=COLORS["bg_card"], fg=D["muted"],
-                             font=("Consolas", 9), anchor=tk.W,
-                             justify=tk.LEFT, wraplength=655
-                             ).pack(fill=tk.X, pady=1)
-
-                _note5 = ("说明：库存窗口 = 该任务返回「75255 库存已经使用完」的"
-                          "从首次到最后一次的时间跨度（相对场次目标时刻）。"
-                          "窗口越短说明库存越抢手，必须更早到达。")
+                _note5 = ("说明：中位数/平均数/最小值 都是统计该任务各场次"
+                          "「首次出现 75255 库存已经使用完」的偏移。",
+                          "0秒 = 开抢瞬间即空；数值越大说明库存越耐用。",
+                          "明细行格式：日期 场次 首次偏移 [末次偏移] (该场观测次数)。",
+                          "中位数抗单次异常，最小值代表最坏情况（最快被抢空）。")
                 tk.Label(f5, text=_note5,
                          bg=COLORS["bg_card"], fg=D["muted"],
                          font=("微软雅黑", 9), anchor=tk.W, justify=tk.LEFT,
-                         wraplength=690).pack(fill=tk.X, padx=14, pady=(6, 8))
+                         wraplength=690).pack(fill=tk.X, padx=14, pady=(10, 8))
             else:
                 tk.Label(f5, text="暂无库存耗尽记录（75255）",
                          bg=COLORS["bg_card"], fg=D["muted"],
@@ -2073,8 +2098,6 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             pass
 
         # ---- 底部按钮（v6.3.3: 选中+确认模式）----
-        foot = tk.Frame(dlg, bg=COLORS["bg_dark"])
-        foot.pack(fill=tk.X, padx=14, pady=(0, 12))
 
         tip_text = ("提示：在明细列表中选中记录（Ctrl 多选 / Shift 连选），"
                     "再点「剔除所选」；需勾选「显示已剔除记录」才能恢复")
