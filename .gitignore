@@ -67,3 +67,6 @@ Thumbs.db
 
 # Local Netlify folder
 .netlify
+
+# 快捷方式生成脚本（打包流程必备，需提交）
+!_make_shortcut.py
