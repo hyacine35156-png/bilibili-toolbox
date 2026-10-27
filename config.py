@@ -39,6 +39,8 @@ MANUAL_TASKS_FILE = BASE_DIR / "manual_tasks.json"
 HIDDEN_TASKS_FILE = BASE_DIR / "hidden_tasks.json"
 # v6.4.8: 用户自定义版本集合（查询中心手动创建）
 CUSTOM_VERSIONS_FILE = BASE_DIR / "custom_versions.json"
+# v6.5.0: 自定义版本集合下的任务（修复重启丢失）
+CUSTOM_VERSION_TASKS_FILE = BASE_DIR / "custom_version_tasks.json"
 # 官方任务表（O9：外置 JSON，更新活动无需改代码重打包）
 TASKS_FILE = BASE_DIR / "tasks_official.json"
 # 抢码预案（v6.2.0：整套任务组配置的一键切换方案）
@@ -48,7 +50,7 @@ BACKUP_DIR = BASE_DIR / "backup"
 
 # ---------- 版本 ----------
 # 程序版本号
-APP_VERSION = "v6.4.9"
+APP_VERSION = "v6.5.0"
 
 # ---------- API 地址 ----------
 

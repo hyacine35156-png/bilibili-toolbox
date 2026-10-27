@@ -5,7 +5,7 @@ import json
 import time
 
 from config import (ACT_ID_CACHE_FILE, MANUAL_TASKS_FILE, HIDDEN_TASKS_FILE,
-                     TASKS_FILE, CUSTOM_VERSIONS_FILE)
+                     TASKS_FILE, CUSTOM_VERSIONS_FILE, CUSTOM_VERSION_TASKS_FILE)
 from storage import atomic_write_json, safe_load_json
 
 # 活动任务列表（按版本+期数+类型分类）
@@ -579,6 +579,127 @@ def custom_version_tasks(name):
     return [t for t in ALL_TASKS if t.get("version") == name]
 
 
+# ============================================================
+# v6.5.0：自定义版本集合的任务持久化（修复重启丢失 bug）
+#
+# 用户报的 bug：「这个新集合每次重启exe就会直接消失，不会进行保存」
+#
+# 根因（两个叠加）：
+#   1. add_tasks_to_version() 只往内存 DONE_TASKS 里 append，从不写盘
+#   2. load_done_tasks() 启动时从 task_status_cache 重建 DONE_TASKS，
+#      且强制把 version 改回 DONE_VERSION，把用户指定的版本名覆盖掉
+#   => 重启后：custom_versions.json 里的版本名还在，
+#      但版本下的任务全没了（DONE_TASKS 被重建覆盖）
+#
+# 修复：
+#   新增 CUSTOM_VERSION_TASKS_FILE = data/custom_version_tasks.json
+#   结构：{"版本名": [任务, 任务, ...], ...}
+#   add_tasks_to_version 写入后立即持久化
+#   load_custom_version_tasks 在启动时载入并注入 ALL_TASKS
+# ============================================================
+
+# 路径由 config.CUSTOM_VERSION_TASKS_FILE 提供（下面 try 里覆盖）
+
+# 内存：{版本名: [任务dict, ...]}
+CUSTOM_VERSION_TASKS = {}
+
+
+
+
+def load_custom_version_tasks():
+    """从 data/custom_version_tasks.json 载入自定义版本集合的任务。"""
+    global CUSTOM_VERSION_TASKS
+    data = safe_load_json(CUSTOM_VERSION_TASKS_FILE, {})
+    if not isinstance(data, dict):
+        data = {}
+    cleaned = {}
+    for ver, items in data.items():
+        ver = str(ver or "").strip()
+        if not ver or not isinstance(items, list):
+            continue
+        tasks = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            tid = str(it.get("task_id", "")).strip()
+            if not tid:
+                continue
+            tasks.append({
+                "version": ver,
+                "period": str(it.get("period") or CUSTOM_PERIOD),
+                "type": str(it.get("type") or CUSTOM_TYPE),
+                "name": str(it.get("name") or it.get("task_name") or tid),
+                "task_id": tid,
+                "award": str(it.get("award") or ""),
+                "act_id": str(it.get("act_id") or ""),
+                "act_name": str(it.get("act_name") or ""),
+                "account_name": str(it.get("account_name")
+                                    or it.get("account") or ""),
+                "status_text": str(it.get("status_text") or "可抢"),
+                "added_at": str(it.get("added_at") or ""),
+                "is_custom": True,
+            })
+        if tasks:
+            cleaned[ver] = tasks
+    CUSTOM_VERSION_TASKS = cleaned
+    return CUSTOM_VERSION_TASKS
+
+
+def save_custom_version_tasks():
+    """保存自定义版本集合的任务到磁盘（原子写）。"""
+    try:
+        atomic_write_json(CUSTOM_VERSION_TASKS_FILE, CUSTOM_VERSION_TASKS)
+        return True
+    except Exception as e:
+        print(f"保存自定义版本任务失败: {e}")
+        return False
+
+
+def custom_version_all_tasks():
+    """把所有自定义版本下的任务摊平成列表（供 rebuild 使用）。"""
+    out = []
+    for ver, items in CUSTOM_VERSION_TASKS.items():
+        out.extend(items)
+    return out
+
+
+def _add_tasks_to_custom_version(version, tasks):
+    """内部：往自定义版本任务表里追加并持久化。返回加入数。"""
+    if version not in CUSTOM_VERSION_TASKS:
+        CUSTOM_VERSION_TASKS[version] = []
+    bucket = CUSTOM_VERSION_TASKS[version]
+    existing = {t.get("task_id") for t in bucket}
+    # 也检查 ALL_TASKS 里同版本已存在的
+    for t in ALL_TASKS:
+        if t.get("version") == version:
+            existing.add(t.get("task_id"))
+    added = 0
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    for it in (tasks or []):
+        tid = str(it.get("task_id", "") or "").strip()
+        if not tid or tid in existing:
+            continue
+        bucket.append({
+            "version": version,
+            "period": CUSTOM_PERIOD,
+            "type": CUSTOM_TYPE,
+            "name": str(it.get("task_name") or it.get("name") or tid),
+            "task_id": tid,
+            "award": str(it.get("award") or ""),
+            "act_id": str(it.get("act_id") or ""),
+            "act_name": str(it.get("act_name") or ""),
+            "account_name": str(it.get("account") or it.get("account_name") or ""),
+            "status_text": str(it.get("status_text") or "可抢"),
+            "added_at": now,
+            "is_custom": True,
+        })
+        existing.add(tid)
+        added += 1
+    if added:
+        save_custom_version_tasks()
+    return added
+
+
 def add_tasks_to_version(version, tasks):
     """把一批任务加入指定版本集合（用户需求：加入版本集合）。
 
@@ -619,6 +740,11 @@ def add_tasks_to_version(version, tasks):
         existing_ids.add(tid)
         added += 1
     if added:
+        # v6.5.0: 持久化到 custom_version_tasks.json（修复重启丢失）
+        try:
+            _add_tasks_to_custom_version(version, tasks)
+        except Exception:
+            pass
         rebuild_all_tasks()
     return added
 
@@ -653,7 +779,26 @@ def rebuild_all_tasks():
                  and t.get("task_id") not in HIDDEN_TASK_IDS]
     # v6.4.6: 末尾追加「已完成任务」虚拟分类（查询到的可抢任务）
     # v6.4.8: DONE_TASKS 里可能包含用户自定义版本的任务（version 字段已指定）
-    ALL_TASKS[:] = _official + list(MANUAL_TASKS) + list(DONE_TASKS)
+    # v6.5.0: 追加从 custom_version_tasks.json 持久化载入的自定义版本任务
+    #         （修复重启后新集合消失的 bug）
+    _custom = []
+    try:
+        _custom = custom_version_all_tasks()
+    except Exception:
+        _custom = []
+
+    # v6.5.0: 同一个 task_id 可以同时属于「官方版本」和「自定义版本集合」
+    # （这是业务需求：任务既在鸣潮3.7里，也在「已完成任务」集合里）。
+    # 所以只按 (version, task_id) 去重，不跨版本排除。
+    _seen = set()
+    _merged = []
+    for t in list(DONE_TASKS) + _custom:
+        k = (t.get("version"), t.get("task_id"))
+        if k in _seen:
+            continue
+        _seen.add(k)
+        _merged.append(t)
+    ALL_TASKS[:] = _official + list(MANUAL_TASKS) + _merged
     return ALL_TASKS
 
 
@@ -675,4 +820,9 @@ try:
     load_custom_versions()
 except Exception:
     CUSTOM_VERSIONS = []
+# v6.5.0: 载入自定义版本集合下的任务（修复重启后新集合消失）
+try:
+    load_custom_version_tasks()
+except Exception:
+    CUSTOM_VERSION_TASKS = {}
 rebuild_all_tasks()

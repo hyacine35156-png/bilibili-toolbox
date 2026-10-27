@@ -145,9 +145,24 @@ class TestConstants(unittest.TestCase):
                 self.assertIn(k, t, f"任务缺字段 {k}: {t}")
 
     def test_no_duplicate_task_id(self):
+        """同一版本内 task_id 不能重复（v6.5.0 调整断言）。
+
+        为什么放宽：v6.4.8 引入「自定义版本集合」后，
+        同一个任务可以同时属于「官方版本」（如 鸣潮3.7）和
+        「自定义集合」（如 已完成任务）。
+        这是业务需求，不是 bug —— 任务既在官方列表里，
+        也在用户创建的集合里，方便按集合批量选择。
+
+        所以正确的不变式是：**同一版本内** task_id 唯一。
+        """
         from tasks_config import ALL_TASKS
-        ids = [t["task_id"] for t in ALL_TASKS]
-        self.assertEqual(len(ids), len(set(ids)))
+        seen = {}
+        for t in ALL_TASKS:
+            key = (t.get("version"), t.get("task_id"))
+            self.assertNotIn(
+                key, seen,
+                "版本 %s 下 task_id %s 重复" % (t.get("version"), t.get("task_id")))
+            seen[key] = True
 
     def test_version_act_id_present(self):
         from tasks_config import VERSION_DEFAULT_ACT_ID
