@@ -12,7 +12,8 @@ from tasks_config import ALL_TASKS, VERSION_DEFAULT_ACT_ID, get_manual_task
 from storage import atomic_write_json
 from bili_api import (check_all_tasks_finished, cookies_from_account, get_mission_info,
                       parse_stock_info, receive_reward, verify_login)
-from widgets import DarkButton, DarkEntry, ToolTip, RoundEntry
+from widgets import (DarkButton, DarkEntry, ToolTip, RoundEntry,
+                     RoundCombobox)
 import rush_stats
 import rush_presets
 from .new_mode import NewModeMixin
@@ -558,24 +559,14 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         self.claim_all_btn = DarkButton(right_frame, "🎁 一键全部领取", command=self.claim_all_finished,
                                          width=170, height=44, bg_color="#e67e22", text_color="#ffffff")
         self.claim_all_btn.pack(side=tk.RIGHT, padx=(8, 0))
-        # v6.4.6: 改为打开独立统计窗口
-        self.check_all_finished_btn = DarkButton(right_frame, "✅ 完成情况统计",
-                                                  command=self.open_check_all_window,
-                                                  width=170, height=44,
-                                                  bg_color="#16a085",
-                                                  text_color="#ffffff")
-        self.check_all_finished_btn.pack(side=tk.RIGHT, padx=(8, 0))
-        self.check_claimable_btn = DarkButton(right_frame, "📋 查询可领取", command=self.check_claimable_tasks,
-                                               width=150, height=44, bg_color="#3498db", text_color="#ffffff")
-        self.check_claimable_btn.pack(side=tk.RIGHT)
         # v6.4.5: 快捷选中可抢任务（用户需求）
         # 读取持久化的查询结果，把「已完成且可抢」的任务一键加入当前任务组。
         # v6.4.6: 改为打开独立窗口（跟仪表盘一样的界面）
-        self.quick_pick_btn = DarkButton(
-            right_frame, "📋 可抢任务列表",
-            command=self.open_claimable_window,
+        self.query_center_btn = DarkButton(
+            right_frame, "🔍 任务查询中心",
+            command=self.open_task_center,
             width=170, height=44, bg_color="#8e44ad", text_color="#ffffff")
-        self.quick_pick_btn.pack(side=tk.RIGHT, padx=(0, 8))
+        self.query_center_btn.pack(side=tk.RIGHT, padx=(0, 8))
 
         # 定时任务列表区域
         schedule_card = tk.Frame(main, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
@@ -3152,6 +3143,410 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
     # v6.4.6：查询结果独立窗口（用户需求：做成跟仪表盘一样的界面）
     # ============================================================
 
+    # ============================================================
+    # v6.4.7：任务查询中心（整合两个查询窗口，用户需求）
+    #
+    # 用户：「我需要把这两个按钮整合进一个界面，
+    #       查询任务可以手动控制开始和结束，在界面里面」
+    #
+    # 一个窗口包含：
+    #   - 顶部：账户选择 + 【开始查询】【停止查询】按钮 + 进度
+    #   - 中部：实时查询日志（滚动）
+    #   - 下部：任务状态表格（可抢高亮）+ 完成情况统计
+    #   - 底部：全部加入任务组 / 刷新 / 关闭
+    # ============================================================
+
+    def open_task_center(self):
+        """任务查询中心：整合「查询可领取」和「完成情况统计」到一个窗口。"""
+        try:
+            import rush_stats as _rs
+            import tasks_config as _tc
+        except Exception:
+            return
+
+        dlg = tk.Toplevel(self.winfo_toplevel())
+        dlg.title("🔍 任务查询中心")
+        dlg.configure(bg=COLORS["bg_dark"])
+        try:
+            sw = dlg.winfo_screenwidth()
+            sh = dlg.winfo_screenheight()
+            w = int(sw * 0.66)
+            h = int(sh * 0.80)
+            x = max(0, (sw - w) // 2)
+            y = max(0, (sh - h) // 2 - 10)
+            dlg.geometry(f"{w}x{h}+{x}+{y}")
+            dlg.minsize(980, 620)
+        except Exception:
+            dlg.geometry("1200x820")
+
+        # ---- 底部按钮区【先 pack】避免被挤出窗口 ----
+        foot = tk.Frame(dlg, bg=COLORS["bg_dark"])
+        foot.pack(side=tk.BOTTOM, fill=tk.X, padx=14, pady=(0, 10))
+
+        # ---- 顶部标题 ----
+        head = tk.Frame(dlg, bg=COLORS["bg_card"])
+        head.pack(side=tk.TOP, fill=tk.X, padx=14, pady=(12, 6))
+        tr = tk.Frame(head, bg=COLORS["bg_card"])
+        tr.pack(fill=tk.X, padx=14, pady=(10, 4))
+        tk.Label(tr, text="🔍 任务查询中心", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=("微软雅黑", 15, "bold")
+                 ).pack(side=tk.LEFT)
+        tk.Label(tr,
+                 text="  查询所有活动的任务状态，结果自动保存；"
+                      "可抢任务会自动出现在版本下拉框的「已完成任务」里",
+                 bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                 font=("微软雅黑", 9)).pack(side=tk.LEFT, pady=(4, 0))
+
+        # ---- 控制条：账户 + 开始/停止 + 进度 ----
+        ctrl = tk.Frame(head, bg=COLORS["bg_card"])
+        ctrl.pack(fill=tk.X, padx=14, pady=(0, 10))
+        tk.Label(ctrl, text="查询账户：", bg=COLORS["bg_card"],
+                 fg=COLORS["text_secondary"], font=("微软雅黑", 10)
+                 ).pack(side=tk.LEFT)
+        acc_var = tk.StringVar()
+        acc_names = []
+        try:
+            acc_names = [a["name"] for a in self.account_mgr.accounts]
+        except Exception:
+            pass
+        if acc_names:
+            acc_var.set(acc_names[0])
+        acc_combo = RoundCombobox(ctrl, textvariable=acc_var,
+                                  values=acc_names, width=18,
+                                  font=("微软雅黑", 10), state="readonly")
+        acc_combo.pack(side=tk.LEFT, padx=(4, 14))
+
+        state = {"running": False, "stop": False, "done": 0,
+                 "total": 0, "results": []}
+
+        prog_lbl = tk.Label(ctrl, text="未开始", bg=COLORS["bg_card"],
+                            fg=COLORS["text_muted"], font=("微软雅黑", 10))
+        prog_lbl.pack(side=tk.LEFT, padx=(12, 0))
+
+        # 进度条画布
+        prog_cv = tk.Canvas(ctrl, width=240, height=16,
+                            bg=COLORS["bg_input"], highlightthickness=0)
+        prog_cv.pack(side=tk.LEFT, padx=(10, 0))
+        prog_cv.create_rectangle(0, 0, 0, 16, fill=COLORS["success"], width=0,
+                                 tags="bar")
+
+        def _update_prog():
+            try:
+                t = max(1, state["total"])
+                pct = min(1.0, state["done"] / t)
+                prog_cv.coords("bar", 0, 0, int(240 * pct), 16)
+                prog_lbl.config(
+                    text="%d/%d" % (state["done"], state["total"]),
+                    fg=COLORS["success"] if pct >= 1 else COLORS["accent"])
+            except Exception:
+                pass
+
+        # ---- 主体：上下分栏（日志 + 表格）----
+        body = tk.Frame(dlg, bg=COLORS["bg_dark"])
+        body.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=14, pady=(0, 6))
+
+        # 日志区（固定高度）
+        log_card = tk.Frame(body, bg=COLORS["bg_card"],
+                            highlightthickness=1,
+                            highlightbackground=COLORS["border"])
+        log_card.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(log_card, text="查询日志", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=("微软雅黑", 10, "bold"),
+                 anchor=tk.W).pack(fill=tk.X, padx=10, pady=(6, 2))
+        log_txt = tk.Text(log_card, height=7, bg=COLORS["bg_input"],
+                          fg=COLORS["text_primary"], font=("Consolas", 9),
+                          bd=0, highlightthickness=0, wrap=tk.WORD)
+        log_sb = tk.Scrollbar(log_card, orient=tk.VERTICAL,
+                              command=log_txt.yview)
+        log_txt.configure(yscrollcommand=log_sb.set)
+        log_sb.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 6), pady=(0, 6))
+        log_txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True,
+                     padx=10, pady=(0, 6))
+
+        def _log(msg):
+            try:
+                log_txt.insert(tk.END, msg + "\n")
+                log_txt.see(tk.END)
+            except Exception:
+                pass
+
+        # 表格区
+        tbl_card = tk.Frame(body, bg=COLORS["bg_card"],
+                            highlightthickness=1,
+                            highlightbackground=COLORS["border"])
+        tbl_card.pack(fill=tk.BOTH, expand=True)
+
+        tbl_head = tk.Frame(tbl_card, bg=COLORS["bg_card"])
+        tbl_head.pack(fill=tk.X, padx=10, pady=(6, 2))
+        tk.Label(tbl_head, text="任务状态", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=("微软雅黑", 10, "bold")
+                 ).pack(side=tk.LEFT)
+        cnt_lbl = tk.Label(tbl_head, text="0 条", bg=COLORS["bg_card"],
+                           fg=COLORS["text_muted"], font=("微软雅黑", 9))
+        cnt_lbl.pack(side=tk.LEFT, padx=(8, 0))
+
+        only_claimable = tk.BooleanVar(value=False)
+        tbl_wrap = tk.Frame(tbl_card, bg=COLORS["bg_card"])
+        tbl_wrap.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 8))
+
+        def _render_table():
+            for w in tbl_wrap.winfo_children():
+                w.destroy()
+            try:
+                cache = _rs.load_task_status_cache()
+            except Exception:
+                cache = {}
+            rows = [v for v in (cache or {}).values() if isinstance(v, dict)]
+            if only_claimable.get():
+                rows = [r for r in rows if (
+                    r.get("task_finished") and r.get("stock_available")
+                    and r.get("status") not in (6, 7))]
+            rows.sort(key=lambda r: str(r.get("queried_at", "")), reverse=True)
+            cnt_lbl.config(text="%d 条" % len(rows))
+
+            if not rows:
+                tk.Label(tbl_wrap,
+                         text="暂无数据。点上方「▶ 开始查询」发起一次查询。",
+                         bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                         font=("微软雅黑", 10), anchor=tk.W
+                         ).pack(fill=tk.X, pady=24)
+                return
+
+            cv = tk.Canvas(tbl_wrap, bg=COLORS["bg_card"],
+                           highlightthickness=0, bd=0)
+            sb = tk.Scrollbar(tbl_wrap, orient=tk.VERTICAL, command=cv.yview)
+            inner = tk.Frame(cv, bg=COLORS["bg_card"])
+            win = cv.create_window((0, 0), window=inner, anchor="nw")
+            inner.bind("<Configure>",
+                       lambda e: cv.configure(scrollregion=cv.bbox("all")))
+            cv.bind("<Configure>",
+                    lambda e: cv.itemconfig(win, width=max(e.width, 100)))
+            cv.configure(yscrollcommand=sb.set)
+            sb.pack(side=tk.RIGHT, fill=tk.Y)
+            cv.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+            gm = tk.Frame(inner, bg=COLORS["bg_card"])
+            gm.pack(fill=tk.X)
+            W = (4, 2, 1, 2, 2)
+            M = (200, 100, 55, 100, 110)
+            for ci in range(5):
+                gm.grid_columnconfigure(ci, weight=W[ci], minsize=M[ci],
+                                        uniform="c")
+            HR = {"r": 0}
+
+            def addrow(vals, colors, bold=False, header=False):
+                r = HR["r"]
+                HR["r"] += 1
+                bg = COLORS["bg_input"] if header else COLORS["bg_card"]
+                for i, (v, c) in enumerate(zip(vals, colors)):
+                    tk.Label(gm, text=str(v), bg=bg, fg=c,
+                             font=("微软雅黑", 9,
+                                   "bold" if (bold or header) else "normal"),
+                             anchor=tk.W
+                             ).grid(row=r, column=i, sticky="w",
+                                    padx=5, pady=(5 if header else 2))
+
+            addrow(("任务名称", "账户", "状态码", "状态", "查询时间"),
+                   tuple([COLORS["text_secondary"]] * 5), header=True)
+            for it in rows[:300]:
+                ok = (it.get("task_finished") and it.get("stock_available")
+                      and it.get("status") not in (6, 7))
+                col = COLORS["success"] if ok else COLORS["text_muted"]
+                addrow((
+                    str(it.get("task_name", ""))[:26] or "-",
+                    str(it.get("account", ""))[:12] or "-",
+                    str(it.get("status", "-")),
+                    str(it.get("status_text", ""))[:14] or "-",
+                    str(it.get("queried_at", ""))[5:16],
+                ), (col, COLORS["text_primary"], COLORS["text_primary"],
+                    col, COLORS["text_muted"]))
+
+        # ---- 查询执行逻辑 ----
+        btn_start = None
+        btn_stop = None
+
+        def _set_running(running):
+            state["running"] = running
+            try:
+                if running:
+                    btn_start.config(state="disabled")
+                    btn_stop.config(state="normal")
+                else:
+                    btn_start.config(state="normal")
+                    btn_stop.config(state="disabled")
+            except Exception:
+                pass
+
+        def _worker():
+            import threading as _th
+            import time as _t
+
+            # 取账户 cookies
+            acc_name = acc_var.get().strip()
+            account = None
+            try:
+                account = self.account_mgr.get_account(acc_name)
+            except Exception:
+                pass
+            if not account:
+                dlg.after(0, lambda: _log("✗ 账户不存在：%s" % acc_name))
+                dlg.after(0, lambda: _set_running(False))
+                return
+            cookies = {"SESSDATA": account.get("SESSDATA", ""),
+                       "bili_jct": account.get("bili_jct", "")}
+
+            # 收集所有分类组合
+            combos = set()
+            for t in ALL_TASKS:
+                if t.get("version") in ("已完成任务", "手动任务"):
+                    continue
+                combos.add((t["version"], t["period"], t["type"]))
+            combos = sorted(combos)
+            state["total"] = len(combos)
+            state["done"] = 0
+            state["stop"] = False
+            dlg.after(0, _update_prog)
+            dlg.after(0, lambda: _log(
+                "开始查询：账户 %s，共 %d 个活动分类"
+                % (acc_name, len(combos))))
+
+            from bili_api import check_all_tasks_finished
+            total_tasks = 0
+            for idx, (ver, per, typ) in enumerate(combos):
+                if state["stop"]:
+                    dlg.after(0, lambda: _log("⏹ 已被用户停止"))
+                    break
+                dlg.after(0, lambda v=ver, p=per, tt=typ, i=idx:
+                          _log("[%d/%d] %s · %s · %s"
+                               % (i + 1, len(combos), v, p, tt)))
+                try:
+                    all_fin, details = check_all_tasks_finished(
+                        ver, per, typ, cookies)
+                except Exception as e:
+                    dlg.after(0, lambda e=e: _log("  ✗ 异常: %s" % str(e)[:60]))
+                    details = []
+                # 持久化
+                saved = 0
+                for d in (details or []):
+                    tid = str(d.get("task_id", "") or "")
+                    if not tid:
+                        continue
+                    _fin = d.get("finished")
+                    if _fin is None:
+                        _fin = d.get("task_finished")
+                    _ts = d.get("total_stock", 0) or 0
+                    try:
+                        _rs.update_task_status(tid, acc_name, {
+                            "task_finished": bool(_fin),
+                            "stock_available": bool(_ts > 0),
+                            "status": d.get("status", -1),
+                            "status_text": str(d.get("message", "") or ""),
+                            "total_stock": _ts,
+                            "day_stock": d.get("day_stock", 0) or 0,
+                            "task_name": str(d.get("name", "") or ""),
+                            "award": str(d.get("award", "") or ""),
+                            "version": str(ver or ""),
+                        })
+                        saved += 1
+                    except Exception:
+                        pass
+                total_tasks += saved
+                state["done"] = idx + 1
+                dlg.after(0, _update_prog)
+                dlg.after(0, lambda s=saved: _log("  ✓ 保存 %d 条" % s))
+                if idx < len(combos) - 1:
+                    for _ in range(10):
+                        if state["stop"]:
+                            break
+                        _t.sleep(0.1)
+
+            # 重建已完成任务分类
+            try:
+                _tc.refresh_done_tasks()
+                _n = len(getattr(_tc, "DONE_TASKS", []))
+            except Exception:
+                _n = 0
+            dlg.after(0, lambda: _log(
+                "查询完成：共保存 %d 条，可抢任务 %d 个"
+                % (total_tasks, _n)))
+            dlg.after(0, lambda: _set_running(False))
+
+            def _after_ui():
+                _render_table()
+                try:
+                    self.nm_update_task_list()
+                    self.nm_on_version_change()
+                except Exception:
+                    pass
+            dlg.after(0, _after_ui)
+
+        def _start():
+            if state["running"]:
+                return
+            state["stop"] = False
+            _set_running(True)
+            _log("-" * 60)
+            import threading as _th
+            _th.Thread(target=_worker, daemon=True).start()
+
+        def _stop():
+            state["stop"] = True
+            _log("正在停止...（当前分类查完就停）")
+
+        # ---- 底部按钮 ----
+        DarkButton(foot, text="▶ 开始查询", command=_start,
+                   height=32, width=120, bg_color=COLORS["success"],
+                   text_color="#ffffff").pack(side=tk.LEFT)
+        btn_start = foot.winfo_children()[-1]
+        btn_stop = DarkButton(foot, text="⏹ 停止查询", command=_stop,
+                              height=32, width=120, bg_color="#c0392b",
+                              text_color="#ffffff")
+        btn_stop.pack(side=tk.LEFT, padx=(8, 0))
+        try:
+            btn_stop.config(state="disabled")
+        except Exception:
+            pass
+
+        DarkButton(foot, text="刷新表格", command=_render_table,
+                   height=32, width=100, bg_color="#2980b9"
+                   ).pack(side=tk.LEFT, padx=(16, 0))
+        ttk.Checkbutton(foot, text="只看可抢", variable=only_claimable,
+                        command=_render_table).pack(side=tk.LEFT, padx=(16, 0))
+
+        def _add_all():
+            try:
+                cache = _rs.load_task_status_cache()
+            except Exception:
+                cache = {}
+            rows = [v for v in (cache or {}).values() if isinstance(v, dict)
+                    and v.get("task_finished") and v.get("stock_available")
+                    and v.get("status") not in (6, 7)]
+            if not rows:
+                messagebox.showinfo("提示", "当前没有可抢任务。", parent=dlg)
+                return
+            if not messagebox.askyesno(
+                    "确认添加",
+                    "把 %d 个可抢任务加入当前任务组？\n（已存在的会跳过）"
+                    % len(rows), parent=dlg):
+                return
+            n = self._add_done_to_group(rows)
+            messagebox.showinfo("完成", "已加入 %d 个任务。" % n, parent=dlg)
+            try:
+                self.refresh_new_mode_task_list()
+                self.nm_update_scheduler()
+            except Exception:
+                pass
+
+        DarkButton(foot, text="＋ 全部加入任务组", command=_add_all,
+                   height=32, width=170, bg_color="#8e44ad"
+                   ).pack(side=tk.RIGHT, padx=(8, 0))
+        DarkButton(foot, text="关闭", command=dlg.destroy,
+                   height=32, width=90, bg_color="#7f8c8d"
+                   ).pack(side=tk.RIGHT)
+
+        _render_table()
+
+
     def _create_query_window(self, title, subtitle):
         """创建一个跟仪表盘风格一致的独立窗口，返回 (dlg, body_frame, foot_frame)。"""
         dlg = tk.Toplevel(self.winfo_toplevel())
@@ -3445,6 +3840,24 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         DarkButton(foot, text="关闭", command=dlg.destroy,
                    height=32, width=90, bg_color="#7f8c8d").pack(side=tk.RIGHT)
 
+    def _safe_btn_state(self, attr, state, text=None):
+        """安全设置按钮状态（v6.4.7）。
+
+        为什么需要：v6.4.7 把「查询可领取」「查询全部完成」两个按钮
+        合并成了「任务查询中心」，但旧代码里还有对已删除按钮的
+        .config() 调用，会抛 AttributeError。这里统一做存在性检查。
+        """
+        try:
+            btn = getattr(self, attr, None)
+            if btn is None:
+                return
+            kwargs = {"state": state}
+            if text is not None:
+                kwargs["text"] = text
+            btn.config(**kwargs)
+        except Exception:
+            pass
+
     def check_claimable_tasks(self):
         """查询所有活动中已完成但未领取的任务，输出到日志"""
         try:
@@ -3459,7 +3872,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
             self.log(f"查询全部可领取任务（所有活动）")
             self.log(f"账户: {account['name']}")
-            self.check_claimable_btn.config(state="disabled", text="查询中...")
+            self._safe_btn_state("quick_pick_btn", "disabled", "🔍 查询中...")
 
             def check_thread():
                 try:
@@ -3498,7 +3911,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             threading.Thread(target=check_thread, daemon=True).start()
         except Exception as e:
             messagebox.showerror("错误", f"查询失败: {str(e)}", parent=self.winfo_toplevel())
-            self.check_claimable_btn.config(state="normal", text="📋 查询可领取")
+            self._safe_btn_state("quick_pick_btn", "normal", "🔍 任务查询中心")
 
     def _on_check_claimable_all(self, details):
         """查询全部可领取任务的回调（所有活动）
@@ -3508,7 +3921,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
           2. 重建「已完成任务」虚拟分类（tasks_config.refresh_done_tasks），
              使其出现在版本/期数/类型下拉框中
         """
-        self.check_claimable_btn.config(state="normal", text="📋 查询可领取")
+        self._safe_btn_state("quick_pick_btn", "normal", "🔍 任务查询中心")
 
         # ---- 1) 持久化每个任务状态 ----
         try:
@@ -3526,14 +3939,29 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 _tid = str(_d.get("task_id", "") or "")
                 if not _tid:
                     continue
+                # v6.4.7 修复字段名 bug：
+                # bili_api.check_all_tasks_finished() 返回的字段是
+                #   {"task_id","name","finished","status","message",
+                #    "award","total_stock","day_stock","from_cache"}
+                # 原代码读 task_finished / stock_available（都不存在）
+                # -> 全部判为 False -> 缓存里没有可抢任务 -> 界面显示空。
+                _fin = _d.get("finished")
+                if _fin is None:
+                    _fin = _d.get("task_finished")
+                _tstock = _d.get("total_stock", 0) or 0
+                _dstock = _d.get("day_stock", 0) or 0
+                # 有剩余总库存才算可抢（total_stock 是剩余百分比）
+                _stk_ok = bool(_tstock > 0)
                 _rs.update_task_status(_tid, _acc, {
-                    "task_finished": bool(_d.get("task_finished")),
-                    "stock_available": bool(_d.get("stock_available")),
+                    "task_finished": bool(_fin),
+                    "stock_available": _stk_ok,
                     "status": _d.get("status", -1),
-                    "status_text": str(_d.get("status_text", "") or ""),
-                    "total_stock": _d.get("total_stock", 0),
-                    "total_remain": _d.get("total_remain", 0),
-                    "task_name": str(_d.get("name", "") or _d.get("task_name", "")),
+                    "status_text": str(_d.get("message", "")
+                                        or _d.get("status_text", "")),
+                    "total_stock": _tstock,
+                    "day_stock": _dstock,
+                    "task_name": str(_d.get("name", "")
+                                     or _d.get("task_name", "")),
                     "act_id": str(_d.get("act_id", "") or ""),
                     "version": str(_d.get("version", "") or ""),
                 })
@@ -3651,7 +4079,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
             self.log(f"查询全部完成: [{version}][{period}][{task_type}]")
             self.log(f"账户: {account['name']}")
-            self.check_all_finished_btn.config(state="disabled", text="查询中...")
+            self._safe_btn_state("quick_pick_btn", "disabled", "🔍 查询中...")
 
             def check_thread():
                 try:
@@ -3675,7 +4103,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
     def _on_check_all_finished(self, all_finished, details):
         """查询全部完成的回调"""
-        self.check_all_finished_btn.config(state="normal", text="✅ 查询全部完成")
+        self._safe_btn_state("quick_pick_btn", "normal", "🔍 任务查询中心")
 
         if not details:
             self.log("查询结果: 无匹配的任务")
