@@ -1918,32 +1918,57 @@ class WatchLiveFrame(tk.Frame):
                 if _s.get("status") == "观看中":
                     _s["watch_seconds"] = _elapsed
 
-            all_done = True
-            has_watching = False
-            has_failed = False
+            # v6.6.1 修复死循环：原逻辑在账户被标记"已完成"后，
+            # has_watching 变 False 且 all_done 仍为 True，
+            # 两个退出条件（"无观看且有失败"、"达标且有观看"）都不满足 -> 永久循环。
+            # 这就是"到达指定时间不停看播"和"日程看播任务无法结束"的真因。
+            #
+            # 新逻辑：用"是否还有未完成账户"作为唯一判据，覆盖所有状态组合。
+            pending = 0        # 还在观看且未达标的
+            watching = 0       # 状态为观看中的
+            failed = 0         # 进入失败的
+            done = 0           # 已达标的
+            total = len(self.account_stats)
+
             for name, stats in self.account_stats.items():
-                if stats["status"] == "观看中":
-                    has_watching = True
-                    # v6.2.0 修复：两个计时源取"任一达标"即算完成。
-                    # 原来只用 beat_count * beat_interval（服务端确认时长）判断，
-                    # 但 watch_seconds（local monotonic，也是界面显示值）会先到达目标，
-                    # 两者相差一个心跳周期（通常60秒），导致界面显示"已观看10分53秒"
-                    # 已超目标，但 beat_count 只有 9 次（540<600）判不达标，于是永远不停。
+                st = stats.get("status", "")
+                if st == "观看中":
+                    watching += 1
                     _watch_sec = stats.get("watch_seconds", 0)
                     _beat_count = stats.get("beat_count", 0)
                     _beat_interval = stats.get("heartbeat_interval", 0)
-                    _confirmed_sec = _beat_count * _beat_interval if (_beat_count > 0 and _beat_interval > 0) else 0
-                    if _watch_sec < target_seconds and _confirmed_sec < target_seconds:
-                        all_done = False
-                        break
-                elif stats["status"] == "进入失败":
-                    has_failed = True
-            # P2-A: 如果没有观看中的账户且有进入失败的，不应标记为完成
-            if not has_watching and has_failed:
-                self.log("⚠ 所有账户均进入失败，任务终止")
+                    _confirmed = (_beat_count * _beat_interval
+                                  if (_beat_count > 0 and _beat_interval > 0) else 0)
+                    if _watch_sec < target_seconds and _confirmed < target_seconds:
+                        pending += 1
+                    else:
+                        done += 1
+                elif st in ("已完成", "已结束"):
+                    done += 1
+                elif st == "进入失败":
+                    failed += 1
+                else:
+                    # 其他状态（进入中/未知）也不应阻塞退出
+                    pass
+
+            # 退出条件1: 已无未完成账户（全部达标/完成/失败/其他）
+            if pending == 0:
+                if done > 0:
+                    self.log("所有账户已达到目标观看时长，自动停止")
+                elif failed > 0:
+                    self.log("⚠ 所有账户均进入失败，任务终止")
+                else:
+                    self.log("无有效观看账户，任务终止")
                 break
-            if all_done and has_watching:
-                self.log("所有账户已达到目标观看时长，自动停止")
+
+            # 退出条件2: 兜底——已超时目标时长 + 120 秒，强制结束
+            # 防止某些账户状态卡住导致永不退出
+            _hard_limit = target_seconds + 120
+            if _elapsed > _hard_limit:
+                self.log(f"⚠ 已超目标时长 {_elapsed - target_seconds}秒，强制结束看播")
+                for _n, _s in self.account_stats.items():
+                    if _s.get("status") == "观看中":
+                        _s["status"] = "已完成"
                 break
             interval = base_interval * random.uniform(0.8, 1.2)
             wait_segments = int(interval)

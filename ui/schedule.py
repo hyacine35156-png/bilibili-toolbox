@@ -34,6 +34,8 @@ class ScheduleFrame(tk.Frame):
         super().__init__(parent, bg=COLORS["bg_dark"])
         self.app = app  # DanmakuApp实例，用于访问其他页面
         self.account_mgr = account_mgr
+        # v6.6.2: ScheduleFrame 没有独立 room_mgr，统一走 app 的
+        self.room_mgr = getattr(app, "room_mgr", None)
         self.schedule_tasks = []
         self.scheduler_running = False
         self.scheduler_stop = {"stop": False}
@@ -46,143 +48,197 @@ class ScheduleFrame(tk.Frame):
         self.start_scheduler()
 
     def build_ui(self):
-        # 顶部：添加任务卡片
-        add_card = tk.Frame(self, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
-        add_card.pack(fill=tk.X, pady=(0, 8))
+        """构建日程任务页面（v6.6.1 B+C 融合：参数内嵌 + 模板复用）。
 
-        tk.Label(add_card, text="➕ 添加日程任务", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 12, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 8))
+        布局：
+          ① 创建区（紧凑单行 + 常用时间快捷按钮）
+          ② 参数区（随类型动态切换，不切屏即可配置）
+          ③ 任务列表（表格化，行内操作）
+          ④ 底部：模板管理(折叠) + 日志(35%宽度)
+        """
+        from widgets import RoundCombobox
+        import schedule_params as sp
 
-        add_inner = tk.Frame(add_card, bg=COLORS["bg_card"])
-        add_inner.pack(fill=tk.X, padx=15, pady=(0, 12))
+        # ============ ① 创建区 ============
+        create_card = tk.Frame(self, bg=COLORS["bg_card"],
+                               highlightthickness=1,
+                               highlightbackground=COLORS["border"])
+        create_card.pack(fill=tk.X, pady=(0, 6))
 
-        # 第一行：任务名称 + 类型
-        row1 = tk.Frame(add_inner, bg=COLORS["bg_card"])
-        row1.pack(fill=tk.X, pady=3)
-
-        tk.Label(row1, text="任务名称:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT)
-        self.task_name_entry = DarkEntry(row1, width=20)
-        self.task_name_entry.pack(side=tk.LEFT, padx=(8, 20))
-
-        tk.Label(row1, text="任务类型:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT)
-        self.task_type_var = tk.StringVar(value="rush")
-        ttk.Radiobutton(row1, text="⚡ 抢码", variable=self.task_type_var, value="rush",
-                        style="Dark.TRadiobutton").pack(side=tk.LEFT, padx=(8, 8))
-        ttk.Radiobutton(row1, text="📺 看播", variable=self.task_type_var, value="watch",
-                        style="Dark.TRadiobutton").pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Radiobutton(row1, text="💬 弹幕", variable=self.task_type_var, value="danmaku",
-                        style="Dark.TRadiobutton").pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Radiobutton(row1, text="⏻ 关机", variable=self.task_type_var, value="shutdown",
-                        style="Dark.TRadiobutton").pack(side=tk.LEFT)
-
-        # 类型切换时自动填名称+控制时间输入框
-        self.task_type_var.trace_add("write", self._on_type_changed)
-
-        # 第二行：执行时间
-        row2 = tk.Frame(add_inner, bg=COLORS["bg_card"])
-        row2.pack(fill=tk.X, pady=3)
-
-        tk.Label(row2, text="执行时间:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT)
-        self.schedule_hour = DarkEntry(row2, width=5)
-        self.schedule_hour.insert(0, "20")
-        self.schedule_hour.pack(side=tk.LEFT, padx=(8, 2))
-        tk.Label(row2, text=":", bg=COLORS["bg_card"], fg=COLORS["text_primary"],
-                 font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
-        self.schedule_minute = DarkEntry(row2, width=5)
-        self.schedule_minute.insert(0, "00")
-        self.schedule_minute.pack(side=tk.LEFT, padx=(2, 10))
-        self.time_hint_label = tk.Label(row2, text="（每天自动执行，使用各页面当前已设置的参数）", bg=COLORS["bg_card"],
-                                         fg=COLORS["text_muted"], font=("微软雅黑", 8))
-        self.time_hint_label.pack(side=tk.LEFT)
-
-        # 第三行：添加按钮
-        row3 = tk.Frame(add_inner, bg=COLORS["bg_card"])
-        row3.pack(fill=tk.X, pady=(8, 0))
-
-        DarkButton(row3, "+ 添加任务", command=self.add_schedule_task,
-                   width=160, height=40, bg_color=COLORS["accent"], text_color="#000000").pack(side=tk.LEFT)
-        DarkButton(row3, "✏ 编辑", command=self.edit_selected_task,
-                   width=150, height=38, bg_color="#3498db", text_color="#ffffff").pack(side=tk.LEFT, padx=(8, 0))
-        DarkButton(row3, "▶ 执行", command=self.run_selected_task,
-                   width=150, height=38, bg_color=COLORS["success"], text_color="#ffffff").pack(side=tk.LEFT, padx=(8, 0))
-        DarkButton(row3, "☑ 全选", command=self.toggle_select_all,
-                   width=150, height=38, bg_color="#9b59b6", text_color="#ffffff").pack(side=tk.LEFT, padx=(8, 0))
-        DarkButton(row3, "🗑 批量删除", command=self.delete_selected_tasks,
-                   width=140, height=38, bg_color=COLORS["danger"], text_color="#ffffff").pack(side=tk.LEFT, padx=(8, 0))
-        DarkButton(row3, "⚡ 全部启用", command=self.enable_all_tasks,
-                   width=140, height=38, bg_color="#e67e22", text_color="#ffffff").pack(side=tk.LEFT, padx=(8, 0))
-
-        # 调度器状态
-        self.scheduler_status_label = tk.Label(row3, text="● 调度器运行中", bg=COLORS["bg_card"],
-                                                fg=COLORS["success"], font=("微软雅黑", 10, "bold"))
+        head = tk.Frame(create_card, bg=COLORS["bg_card"])
+        head.pack(fill=tk.X, padx=12, pady=(8, 4))
+        tk.Label(head, text="➕ 创建日程任务", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
+        self.scheduler_status_label = tk.Label(
+            head, text="● 调度器运行中", bg=COLORS["bg_card"],
+            fg=COLORS["success"], font=("微软雅黑", 10, "bold"))
         self.scheduler_status_label.pack(side=tk.RIGHT)
 
-        # 方案管理行
-        preset_row = tk.Frame(add_inner, bg=COLORS["bg_card"])
-        preset_row.pack(fill=tk.X, pady=(8, 0))
+        row1 = tk.Frame(create_card, bg=COLORS["bg_card"])
+        row1.pack(fill=tk.X, padx=12, pady=2)
 
-        tk.Label(preset_row, text="📦 方案管理:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        tk.Label(row1, text="名称", bg=COLORS["bg_card"],
+                 fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+        self.task_name_entry = DarkEntry(row1, width=16)
+        self.task_name_entry.pack(side=tk.LEFT, padx=(6, 14))
 
-        tk.Label(preset_row, text="方案名:", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(10, 2))
-        self.preset_name_entry = DarkEntry(preset_row, width=15)
-        self.preset_name_entry.pack(side=tk.LEFT)
+        tk.Label(row1, text="类型", bg=COLORS["bg_card"],
+                 fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
 
-        DarkButton(preset_row, "💾 保存方案", command=self.save_schedule_preset,
-                   width=140, height=38, bg_color="#27ae60", text_color="#ffffff").pack(side=tk.LEFT, padx=(8, 0))
+        # 类型：卡片式单选（选中高亮）
+        self.task_type_var = tk.StringVar(value="watch")
+        self._type_cards = {}
+        for val, txt in [("rush", "⚡ 抢码"), ("watch", "📺 看播"),
+                         ("danmaku", "💬 弹幕"), ("shutdown", "⏻ 关机")]:
+            lbl = tk.Label(row1, text=txt, bg=COLORS["bg_input"],
+                           fg=COLORS["text_secondary"],
+                           font=("微软雅黑", 9), padx=10, pady=4,
+                           cursor="hand2")
+            lbl.pack(side=tk.LEFT, padx=2)
+            lbl.bind("<Button-1>",
+                     lambda e, v=val: self._select_type_card(v))
+            self._type_cards[val] = lbl
 
-        tk.Label(preset_row, text="选择方案:", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(15, 2))
-        self.preset_var = tk.StringVar()
-        self.preset_combo = ttk.Combobox(preset_row, textvariable=self.preset_var,
-                                           values=[], state="readonly", width=15, font=("微软雅黑", 9))
-        self.preset_combo.pack(side=tk.LEFT)
+        tk.Label(row1, text="  时间", bg=COLORS["bg_card"],
+                 fg=COLORS["text_secondary"],
+                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(12, 0))
+        self.schedule_hour = DarkEntry(row1, width=3)
+        self.schedule_hour.insert(0, "02")
+        self.schedule_hour.pack(side=tk.LEFT, padx=(6, 1))
+        tk.Label(row1, text=":", bg=COLORS["bg_card"],
+                 fg=COLORS["text_primary"],
+                 font=("微软雅黑", 11, "bold")).pack(side=tk.LEFT)
+        self.schedule_minute = DarkEntry(row1, width=3)
+        self.schedule_minute.insert(0, "00")
+        self.schedule_minute.pack(side=tk.LEFT, padx=(1, 10))
 
-        DarkButton(preset_row, "📂 加载方案", command=self.load_schedule_preset,
-                   width=140, height=38, bg_color="#3498db", text_color="#ffffff").pack(side=tk.LEFT, padx=(8, 0))
-        DarkButton(preset_row, "🗑 删除方案", command=self.delete_schedule_preset,
-                   width=140, height=38, bg_color=COLORS["danger"], text_color="#ffffff").pack(side=tk.LEFT, padx=(8, 0))
+        # 常用时间快捷
+        for hhmm in ["00:10", "01:00", "02:00", "18:00"]:
+            b = tk.Label(row1, text=hhmm, bg=COLORS["bg_input"],
+                         fg=COLORS["text_secondary"],
+                         font=("Consolas", 9), padx=6, pady=3,
+                         cursor="hand2")
+            b.pack(side=tk.LEFT, padx=1)
+            b.bind("<Button-1>",
+                   lambda e, t=hhmm: self._apply_quick_time(t))
 
-        self._refresh_preset_combo()
+        # 第二行：参数区（动态）+ 添加按钮
+        row2 = tk.Frame(create_card, bg=COLORS["bg_card"])
+        row2.pack(fill=tk.X, padx=12, pady=(2, 2))
 
-        # 底部：任务列表 + 日志
-        bottom = tk.Frame(self, bg=COLORS["bg_dark"])
-        bottom.pack(fill=tk.BOTH, expand=True)
+        self.param_frame = tk.Frame(row2, bg=COLORS["bg_card"])
+        self.param_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        # 左侧：任务列表
-        list_card = tk.Frame(bottom, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
-        list_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 6))
+        btn_box = tk.Frame(row2, bg=COLORS["bg_card"])
+        btn_box.pack(side=tk.RIGHT)
+        DarkButton(btn_box, "＋ 添加", command=self.add_schedule_task,
+                   width=110, height=34, bg_color=COLORS["accent"],
+                   text_color="#000000").pack(side=tk.LEFT, padx=(0, 6))
+        DarkButton(btn_box, "📋 带入当前页面",
+                   command=self.import_current_params,
+                   width=130, height=34, bg_color="#8e44ad",
+                   text_color="#ffffff").pack(side=tk.LEFT)
 
-        list_header = tk.Frame(list_card, bg=COLORS["bg_card"])
-        list_header.pack(fill=tk.X, padx=15, pady=(10, 6))
-        tk.Label(list_header, text="📋 日程任务列表", bg=COLORS["bg_card"], fg=COLORS["accent"],
+        # 第三行：保存为模板
+        row3 = tk.Frame(create_card, bg=COLORS["bg_card"])
+        row3.pack(fill=tk.X, padx=12, pady=(0, 8))
+        tk.Label(row3, text="💾 存为模板", bg=COLORS["bg_card"],
+                 fg=COLORS["text_muted"],
+                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+        self.tpl_save_name = DarkEntry(row3, width=14)
+        self.tpl_save_name.pack(side=tk.LEFT, padx=(6, 4))
+        DarkButton(row3, "保存", command=self.save_current_as_template,
+                   width=64, height=28, bg_color="#27ae60",
+                   text_color="#ffffff", compact=True).pack(side=tk.LEFT)
+        tk.Label(row3, text="   或载入模板：", bg=COLORS["bg_card"],
+                 fg=COLORS["text_muted"],
+                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+        self.tpl_load_var = tk.StringVar()
+        # v6.6.2: width 是"字符数"，RoundCombobox 会算成 char*9+40 像素，
+        # 之前误写 150 -> 1390px 撑满整行。16 字符 ≈ 184px 合适。
+        self.tpl_load_combo = RoundCombobox(row3, textvariable=self.tpl_load_var,
+                                            values=[], width=16, height=28)
+        self.tpl_load_combo.pack(side=tk.LEFT, padx=(4, 4))
+        DarkButton(row3, "载入", command=self.load_template_to_form,
+                   width=64, height=28, bg_color="#3498db",
+                   text_color="#ffffff", compact=True).pack(side=tk.LEFT)
+        DarkButton(row3, "删除", command=self.delete_template_from_lib,
+                   width=64, height=28, bg_color=COLORS["danger"],
+                   text_color="#ffffff", compact=True).pack(side=tk.LEFT, padx=(3, 0))
+
+        # ============ ③ 任务列表 ============
+        mid = tk.Frame(self, bg=COLORS["bg_dark"])
+        mid.pack(fill=tk.BOTH, expand=True)
+
+        # v6.6.2: grid weight 会被列表内容的最小宽度撑破比例（实测 54/46），
+        # 改用 place + relwidth 精确实现 65% / 35%。
+        list_card = tk.Frame(mid, bg=COLORS["bg_card"],
+                             highlightthickness=1,
+                             highlightbackground=COLORS["border"])
+        list_card.place(x=0, y=0, relwidth=0.648, relheight=1.0)
+
+        lh = tk.Frame(list_card, bg=COLORS["bg_card"])
+        lh.pack(fill=tk.X, padx=12, pady=(8, 4))
+        tk.Label(lh, text="📋 日程任务列表", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"],
                  font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
-        tk.Label(list_header, text="（勾选「选」可批量删除；点「启动/取消」控制是否执行；双击编辑）", bg=COLORS["bg_card"],
-                 fg=COLORS["text_muted"], font=("微软雅黑", 8)).pack(side=tk.LEFT, padx=(10, 0))
+        self.task_count_label = tk.Label(lh, text="", bg=COLORS["bg_card"],
+                                         fg=COLORS["text_muted"],
+                                         font=("微软雅黑", 9))
+        self.task_count_label.pack(side=tk.LEFT, padx=(8, 0))
+
+        # 批量操作条
+        bar = tk.Frame(list_card, bg=COLORS["bg_card"])
+        bar.pack(fill=tk.X, padx=12, pady=(0, 4))
+        # v6.6.2: 加宽按钮避免中文字被截断（compact 模式文字宽度=设定值）
+        DarkButton(bar, "☑ 全选", command=self.toggle_select_all,
+                   width=110, height=28, bg_color="#9b59b6",
+                   text_color="#ffffff", compact=True).pack(side=tk.LEFT)
+        DarkButton(bar, "🗑 删除选中", command=self.delete_selected_tasks,
+                   width=150, height=28, bg_color=COLORS["danger"],
+                   text_color="#ffffff", compact=True).pack(side=tk.LEFT, padx=(6, 0))
+        DarkButton(bar, "⚡ 全部启用", command=self.enable_all_tasks,
+                   width=150, height=28, bg_color="#e67e22",
+                   text_color="#ffffff", compact=True).pack(side=tk.LEFT, padx=(6, 0))
+        DarkButton(bar, "⏸ 全部停用", command=self.disable_all_tasks,
+                   width=150, height=28, bg_color="#7f8c8d",
+                   text_color="#ffffff", compact=True).pack(side=tk.LEFT, padx=(6, 0))
 
         self.task_list_frame = tk.Frame(list_card, bg=COLORS["bg_card"])
-        self.task_list_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 12))
+        self.task_list_frame.pack(fill=tk.BOTH, expand=True,
+                                  padx=12, pady=(0, 8))
 
-        # 右侧：日志
-        log_card = tk.Frame(bottom, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
-        log_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(6, 0))
+        # ============ ④ 日志（35%） ============
+        log_card = tk.Frame(mid, bg=COLORS["bg_card"],
+                            highlightthickness=1,
+                            highlightbackground=COLORS["border"])
+        log_card.place(relx=0.652, y=0, relwidth=0.348, relheight=1.0)
 
-        tk.Label(log_card, text="📝 执行日志", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 12, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 6))
+        tk.Label(log_card, text="📝 执行日志", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"],
+                 font=("微软雅黑", 12, "bold")).pack(anchor=tk.W, padx=12, pady=(8, 4))
 
         log_frame = tk.Frame(log_card, bg=COLORS["bg_card"])
-        log_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 12))
-
-        self.schedule_log_text = tk.Text(log_frame, bg="#0d1117", fg=COLORS["text_secondary"],
-                                          insertbackground=COLORS["accent"], font=("Consolas", 9),
-                                          bd=0, highlightthickness=0, wrap=tk.WORD, state=tk.DISABLED)
-        self.schedule_log_text.pack(fill=tk.BOTH, expand=True)
+        log_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 10))
+        self.schedule_log_text = tk.Text(
+            log_frame, bg="#0d1117", fg=COLORS["text_secondary"],
+            insertbackground=COLORS["accent"], font=("Consolas", 9),
+            bd=0, highlightthickness=0, wrap=tk.WORD, state=tk.DISABLED)
+        self.schedule_log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb = tk.Scrollbar(log_frame, orient=tk.VERTICAL,
+                          command=self.schedule_log_text.yview,
+                          bg=COLORS["bg_input"])
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.schedule_log_text.config(yscrollcommand=sb.set)
 
         self.selected_task_id = None
+        if not hasattr(self, "selected_ids"):
+            self.selected_ids = set()
+
+        # 初始化类型卡片 + 参数区
+        self._select_type_card("watch")
 
     def log(self, msg):
         """线程安全的日志输出（O5: 同时写文件，便于排障）"""
@@ -232,6 +288,485 @@ class ScheduleFrame(tk.Frame):
         except Exception:
             pass
 
+    # ==================== v6.6.1 新增：参数内嵌 + 模板 ====================
+
+    def _select_type_card(self, task_type):
+        """选中任务类型卡片（高亮）+ 重建参数区。"""
+        try:
+            self.task_type_var.set(task_type)
+        except Exception:
+            pass
+        # 卡片高亮
+        for val, lbl in getattr(self, "_type_cards", {}).items():
+            try:
+                if val == task_type:
+                    lbl.config(bg=COLORS["accent"], fg="#000000",
+                               font=("微软雅黑", 9, "bold"))
+                else:
+                    lbl.config(bg=COLORS["bg_input"],
+                               fg=COLORS["text_secondary"],
+                               font=("微软雅黑", 9))
+            except Exception:
+                pass
+        self._auto_fill_name(task_type)
+        self._rebuild_param_panel(task_type)
+        # 时间输入可用性
+        try:
+            if task_type in ("rush", "shutdown"):
+                self.schedule_hour.config(state=tk.DISABLED)
+                self.schedule_minute.config(state=tk.DISABLED)
+            else:
+                self.schedule_hour.config(state=tk.NORMAL)
+                self.schedule_minute.config(state=tk.NORMAL)
+        except Exception:
+            pass
+        self._refresh_template_combo(task_type)
+
+    def _rebuild_param_panel(self, task_type):
+        """按类型重建参数编辑区（就地配置，不用切屏）。"""
+        import schedule_params as sp
+        try:
+            for w in self.param_frame.winfo_children():
+                w.destroy()
+        except Exception:
+            return
+
+        self._param_vars = {}
+        spec = sp.task_param_spec(task_type)
+        if not spec:
+            tk.Label(self.param_frame,
+                     text="（该类型无需额外参数）",
+                     bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                     font=("微软雅黑", 9)).pack(side=tk.LEFT)
+            return
+
+        # 图标 + 标题
+        tk.Label(self.param_frame, text=spec.get("icon", "⚙") + " ",
+                 bg=COLORS["bg_card"], fg=COLORS["accent"],
+                 font=("微软雅黑", 10, "bold")).pack(side=tk.LEFT)
+
+        for f in spec.get("fields", []):
+            key = f["key"]
+            typ = f["type"]
+            label = f.get("label", key)
+            default = f.get("default")
+
+            if typ == "accounts":
+                # 账户多选：按钮弹窗选择
+                txt = tk.Label(self.param_frame, text="账户: 未选",
+                               bg=COLORS["bg_input"],
+                               fg=COLORS["warning"],
+                               font=("微软雅黑", 9),
+                               padx=8, pady=3, cursor="hand2")
+                txt.pack(side=tk.LEFT, padx=(2, 8))
+                txt.bind("<Button-1>",
+                         lambda e, k=key, t=txt:
+                         self._pick_accounts(k, t))
+                self._param_vars[key] = {"type": "accounts",
+                                         "widget": txt,
+                                         "value": list(default or [])}
+
+            elif typ == "rooms":
+                txt = tk.Label(self.param_frame, text="直播间: 未选",
+                               bg=COLORS["bg_input"],
+                               fg=COLORS["warning"],
+                               font=("微软雅黑", 9),
+                               padx=8, pady=3, cursor="hand2")
+                txt.pack(side=tk.LEFT, padx=(2, 8))
+                txt.bind("<Button-1>",
+                         lambda e, k=key, t=txt:
+                         self._pick_rooms(k, t, multi=True))
+                self._param_vars[key] = {"type": "rooms",
+                                         "widget": txt,
+                                         "value": list(default or [])}
+
+            elif typ == "room":
+                txt = tk.Label(self.param_frame, text="直播间: 未选",
+                               bg=COLORS["bg_input"],
+                               fg=COLORS["warning"],
+                               font=("微软雅黑", 9),
+                               padx=8, pady=3, cursor="hand2")
+                txt.pack(side=tk.LEFT, padx=(2, 8))
+                txt.bind("<Button-1>",
+                         lambda e, k=key, t=txt:
+                         self._pick_rooms(k, t, multi=False))
+                self._param_vars[key] = {"type": "room",
+                                         "widget": txt,
+                                         "value": default or ""}
+
+            elif typ == "int":
+                tk.Label(self.param_frame, text=label + ":",
+                         bg=COLORS["bg_card"],
+                         fg=COLORS["text_secondary"],
+                         font=("微软雅黑", 9)).pack(side=tk.LEFT,
+                                                    padx=(0, 2))
+                ent = DarkEntry(self.param_frame, width=6)
+                try:
+                    ent.insert(0, str(default))
+                except Exception:
+                    pass
+                ent.pack(side=tk.LEFT, padx=(0, 8))
+                self._param_vars[key] = {"type": "int",
+                                         "widget": ent,
+                                         "value": default}
+
+            elif typ == "choice":
+                tk.Label(self.param_frame, text=label + ":",
+                         bg=COLORS["bg_card"],
+                         fg=COLORS["text_secondary"],
+                         font=("微软雅黑", 9)).pack(side=tk.LEFT,
+                                                    padx=(0, 2))
+                var = tk.StringVar(value=default)
+                vals = [c[0] for c in f.get("choices", [])]
+                try:
+                    from widgets import RoundCombobox
+                    cb = RoundCombobox(self.param_frame, textvariable=var,
+                                       values=vals, width=110, height=26)
+                except Exception:
+                    cb = ttk.Combobox(self.param_frame, textvariable=var,
+                                      values=vals, width=10, state="readonly")
+                cb.pack(side=tk.LEFT, padx=(0, 8))
+                self._param_vars[key] = {"type": "choice",
+                                         "widget": cb,
+                                         "var": var,
+                                         "value": default}
+
+            elif typ == "bool":
+                var = tk.BooleanVar(value=bool(default))
+                chk = tk.Checkbutton(self.param_frame, text=label,
+                                     variable=var,
+                                     bg=COLORS["bg_card"],
+                                     fg=COLORS["text_secondary"],
+                                     selectcolor=COLORS["bg_input"],
+                                     activebackground=COLORS["bg_card"],
+                                     font=("微软雅黑", 9))
+                chk.pack(side=tk.LEFT, padx=(0, 8))
+                self._param_vars[key] = {"type": "bool",
+                                         "widget": chk,
+                                         "var": var,
+                                         "value": default}
+
+            elif typ == "groups":
+                # 抢码任务组多选（只在 scope=select 时有意义）
+                txt = tk.Label(self.param_frame, text="任务组: 全部",
+                               bg=COLORS["bg_input"],
+                               fg=COLORS["text_secondary"],
+                               font=("微软雅黑", 9),
+                               padx=8, pady=3, cursor="hand2")
+                txt.pack(side=tk.LEFT, padx=(2, 8))
+                txt.bind("<Button-1>",
+                         lambda e, k=key, t=txt:
+                         self._pick_rush_groups(k, t))
+                self._param_vars[key] = {"type": "groups",
+                                         "widget": txt,
+                                         "value": list(default or [])}
+
+    def _get_param_values(self):
+        """从参数区收集当前值。"""
+        out = {}
+        for key, info in getattr(self, "_param_vars", {}).items():
+            typ = info.get("type")
+            if typ in ("accounts", "rooms", "room", "groups"):
+                out[key] = info.get("value")
+            elif typ == "int":
+                try:
+                    out[key] = int(info["widget"].get().strip())
+                except Exception:
+                    out[key] = 0
+            elif typ in ("choice", "bool"):
+                try:
+                    out[key] = info["var"].get()
+                except Exception:
+                    out[key] = info.get("value")
+        return out
+
+    def _set_param_values(self, params):
+        """把参数回填到参数区（载入模板用）。"""
+        for key, info in getattr(self, "_param_vars", {}).items():
+            if key not in (params or {}):
+                continue
+            typ = info.get("type")
+            val = params.get(key)
+            if typ in ("accounts", "rooms", "room", "groups"):
+                info["value"] = val
+                self._refresh_param_label(key, typ, info)
+            elif typ == "int":
+                try:
+                    w = info["widget"]
+                    w.delete(0, tk.END)
+                    w.insert(0, str(val))
+                except Exception:
+                    pass
+            elif typ in ("choice", "bool"):
+                try:
+                    info["var"].set(val)
+                except Exception:
+                    pass
+
+    def _refresh_param_label(self, key, typ, info):
+        """更新账户/房间标签的显示文本。"""
+        w = info.get("widget")
+        if w is None:
+            return
+        try:
+            val = info.get("value")
+            if typ == "accounts":
+                if val:
+                    w.config(text="账户: %d个" % len(val),
+                             fg=COLORS["success"])
+                else:
+                    w.config(text="账户: 未选", fg=COLORS["warning"])
+            elif typ == "rooms":
+                if val:
+                    w.config(text="直播间: %d个" % len(val),
+                             fg=COLORS["success"])
+                else:
+                    w.config(text="直播间: 未选", fg=COLORS["warning"])
+            elif typ == "room":
+                if val:
+                    w.config(text="直播间: 已选", fg=COLORS["success"])
+                else:
+                    w.config(text="直播间: 未选", fg=COLORS["warning"])
+            elif typ == "groups":
+                if val:
+                    w.config(text="任务组: %d个" % len(val),
+                             fg=COLORS["success"])
+                else:
+                    w.config(text="任务组: 全部",
+                             fg=COLORS["text_secondary"])
+        except Exception:
+            pass
+
+    def _apply_quick_time(self, hhmm):
+        """常用时间快捷按钮。"""
+        try:
+            h, m = hhmm.split(":")
+            self.schedule_hour.config(state=tk.NORMAL)
+            self.schedule_minute.config(state=tk.NORMAL)
+            self.schedule_hour.delete(0, tk.END)
+            self.schedule_hour.insert(0, h)
+            self.schedule_minute.delete(0, tk.END)
+            self.schedule_minute.insert(0, m)
+        except Exception:
+            pass
+
+    def import_current_params(self):
+        """从对应页面读取当前参数（B+C 方案的兼容入口）。"""
+        import schedule_params as sp
+        task_type = self.task_type_var.get()
+        params = sp.collect_current_params(self.app, task_type)
+        self._set_param_values(params)
+        self.log("✓ 已带入当前页面参数: " + sp.describe_params(task_type, params))
+
+    # ---------- 账户/房间/任务组选择弹窗 ----------
+
+    def _pick_accounts(self, key, label_widget):
+        """弹窗多选账户。"""
+        info = self._param_vars.get(key)
+        if not info:
+            return
+        try:
+            names = [a.get("name", "") for a in self.account_mgr.accounts]
+        except Exception:
+            names = []
+        if not names:
+            messagebox.showwarning("提示", "还没有任何账户，请先到「账户管理」添加",
+                                   parent=self.winfo_toplevel())
+            return
+        cur = set(info.get("value") or [])
+        self._open_multi_pick("选择账户", names, cur,
+                              lambda sel: self._on_picked(key, "accounts", sel))
+
+    def _pick_rooms(self, key, label_widget, multi=True):
+        """弹窗选择直播间。"""
+        info = self._param_vars.get(key)
+        if not info:
+            return
+        try:
+            rooms = [r.get("name", "") for r in self.app.room_mgr.rooms]
+        except Exception:
+            rooms = []
+        if not rooms:
+            messagebox.showwarning("提示", "还没有任何直播间，请先到「账户管理」添加",
+                                   parent=self.winfo_toplevel())
+            return
+        cur = info.get("value")
+        if multi:
+            cur = set(cur or [])
+        else:
+            cur = set([cur]) if cur else set()
+        typ = "rooms" if multi else "room"
+        self._open_multi_pick("选择直播间", rooms, cur,
+                              lambda sel: self._on_picked(key, typ, sel),
+                              single=not multi)
+
+    def _pick_rush_groups(self, key, label_widget):
+        """弹窗选择抢码任务组。"""
+        info = self._param_vars.get(key)
+        if not info:
+            return
+        try:
+            groups = [g.get("name", "") for g in self.app.rush_page.rush_groups]
+        except Exception:
+            groups = []
+        if not groups:
+            messagebox.showwarning("提示", "还没有任务组，请先在抢码页创建",
+                                   parent=self.winfo_toplevel())
+            return
+        cur = set(info.get("value") or [])
+        self._open_multi_pick("选择任务组", groups, cur,
+                              lambda sel: self._on_picked(key, "groups", sel))
+
+    def _open_multi_pick(self, title, items, selected, on_ok, single=False):
+        """通用多选弹窗。"""
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.geometry("360x420")
+        win.configure(bg=COLORS["bg_card"])
+        win.transient(self.winfo_toplevel())
+        win.grab_set()
+
+        tk.Label(win, text=title, bg=COLORS["bg_card"], fg=COLORS["accent"],
+                 font=("微软雅黑", 11, "bold")).pack(pady=(10, 6))
+
+        body = tk.Frame(win, bg=COLORS["bg_card"])
+        body.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 8))
+
+        vars_map = {}
+        for it in items:
+            var = tk.BooleanVar(value=it in selected)
+            cb = tk.Checkbutton(body, text=it, variable=var,
+                                bg=COLORS["bg_card"],
+                                fg=COLORS["text_primary"],
+                                selectcolor=COLORS["bg_input"],
+                                activebackground=COLORS["bg_card"],
+                                font=("微软雅黑", 9), anchor="w")
+            cb.pack(fill=tk.X, pady=1)
+            vars_map[it] = var
+
+        foot = tk.Frame(win, bg=COLORS["bg_card"])
+        foot.pack(fill=tk.X, padx=12, pady=(0, 10))
+
+        def do_ok():
+            sel = [it for it, v in vars_map.items() if v.get()]
+            if single and len(sel) > 1:
+                sel = sel[:1]
+            on_ok(sel)
+            win.destroy()
+
+        DarkButton(foot, "确定", command=do_ok, width=90, height=30,
+                   bg_color=COLORS["accent"],
+                   text_color="#000000").pack(side=tk.LEFT)
+        DarkButton(foot, "全选", width=70, height=30, bg_color="#9b59b6",
+                   text_color="#ffffff",
+                   command=lambda: [v.set(True) for v in vars_map.values()]
+                   ).pack(side=tk.LEFT, padx=(6, 0))
+        DarkButton(foot, "清空", width=70, height=30, bg_color="#7f8c8d",
+                   text_color="#ffffff",
+                   command=lambda: [v.set(False) for v in vars_map.values()]
+                   ).pack(side=tk.LEFT, padx=(6, 0))
+        DarkButton(foot, "取消", command=win.destroy, width=70, height=30,
+                   bg_color=COLORS["danger"],
+                   text_color="#ffffff").pack(side=tk.RIGHT)
+
+    def _on_picked(self, key, typ, selections):
+        """选择回调。"""
+        info = self._param_vars.get(key)
+        if not info:
+            return
+        if typ == "room":
+            info["value"] = selections[0] if selections else ""
+        else:
+            info["value"] = list(selections)
+        self._refresh_param_label(key, typ, info)
+
+    # ---------- 模板 ----------
+
+    def _refresh_template_combo(self, task_type=None):
+        """刷新模板下拉框（只显示当前类型的模板）。"""
+        import schedule_params as sp
+        if task_type is None:
+            task_type = self.task_type_var.get()
+        try:
+            names = list(sp.templates_of_type(task_type))
+            self.tpl_load_combo["values"] = names
+            if names and not self.tpl_load_var.get():
+                self.tpl_load_var.set(names[0])
+            elif names and self.tpl_load_var.get() not in names:
+                self.tpl_load_var.set(names[0])
+        except Exception:
+            pass
+
+    def save_current_as_template(self):
+        """把当前参数存为模板。"""
+        import schedule_params as sp
+        name = ""
+        try:
+            name = self.tpl_save_name.get().strip()
+        except Exception:
+            pass
+        if not name:
+            messagebox.showwarning("提示", "请先填写模板名", parent=self.winfo_toplevel())
+            return
+        task_type = self.task_type_var.get()
+        params = self._get_param_values()
+        ok, err = sp.validate_params(task_type, params)
+        if not ok:
+            messagebox.showwarning("参数不完整", err, parent=self.winfo_toplevel())
+            return
+        if sp.upsert_template(name, task_type, params):
+            self.log("✓ 模板「%s」已保存" % name)
+            self._refresh_template_combo(task_type)
+        else:
+            messagebox.showerror("保存失败", "写入模板文件失败", parent=self.winfo_toplevel())
+
+    def load_template_to_form(self):
+        """把选定模板的参数载入到参数区。"""
+        import schedule_params as sp
+        try:
+            name = self.tpl_load_var.get()
+        except Exception:
+            name = ""
+        if not name:
+            messagebox.showwarning("提示", "请先选择一个模板", parent=self.winfo_toplevel())
+            return
+        tpls = sp.load_templates()
+        t = tpls.get(name)
+        if not t:
+            messagebox.showwarning("提示", "模板不存在", parent=self.winfo_toplevel())
+            return
+        ttype = t.get("type", "")
+        if ttype != self.task_type_var.get():
+            self._select_type_card(ttype)
+        self._set_param_values(t.get("params") or {})
+        self.log("✓ 已载入模板「%s」" % name)
+
+    def delete_template_from_lib(self):
+        """删除选定模板。"""
+        import schedule_params as sp
+        try:
+            name = self.tpl_load_var.get()
+        except Exception:
+            name = ""
+        if not name:
+            return
+        if not custom_askyesno("确认删除", "确定删除模板「%s」？" % name,
+                               parent=self.winfo_toplevel()):
+            return
+        if sp.delete_template(name):
+            self.log("✓ 模板「%s」已删除" % name)
+            self._refresh_template_combo()
+
+    def disable_all_tasks(self):
+        """全部停用。"""
+        for t in self.schedule_tasks:
+            t["enabled"] = False
+            t["status"] = "已取消"
+        self.save_schedule()
+        self.refresh_task_list()
+        self.log("⏸ 已停用全部日程任务")
+
+
     def _on_type_changed(self, *args):
         """类型切换时：自动填名称 + 控制时间输入框"""
         task_type = self.task_type_var.get()
@@ -269,174 +804,273 @@ class ScheduleFrame(tk.Frame):
         self.task_name_entry.insert(0, auto_name)
 
     def add_schedule_task(self):
-        name = self.task_name_entry.get().strip()
-        if not name:
-            messagebox.showwarning("提示", "请输入任务名称", parent=self.winfo_toplevel())
-            return
+        """添加当前设置为日程任务（v6.6.1：含参数快照）。"""
+        import schedule_params as sp
 
         task_type = self.task_type_var.get()
-        type_names = {"watch": "📺 看播", "danmaku": "💬 弹幕", "rush": "⚡ 抢码", "shutdown": "⏻ 关机"}
+        params = self._get_param_values()
 
-        if task_type == "rush":
-            # 抢码不需要时间，添加后立即执行
-            hour = -1
-            minute = -1
-            time_str = "立即执行"
-        elif task_type == "shutdown":
-            # 关机任务时间从关机页面读取，不在日程页面设置
-            hour = -2
-            minute = -2
-            time_str = "关机页面设置"
-        else:
-            try:
-                hour = int(self.schedule_hour.get().strip())
-                minute = int(self.schedule_minute.get().strip())
-                if not (0 <= hour <= 23 and 0 <= minute <= 59):
-                    raise ValueError
-            except ValueError:
-                messagebox.showwarning("提示", "请输入有效的时间（时: 0-23，分: 0-59）", parent=self.winfo_toplevel())
+        # 参数校验
+        ok, err = sp.validate_params(task_type, params)
+        if not ok:
+            messagebox.showwarning("参数不完整", err,
+                                   parent=self.winfo_toplevel())
+            return
+
+        try:
+            name = self.task_name_entry.get().strip()
+        except Exception:
+            name = ""
+        if not name:
+            name = sp.TASK_PARAM_SPEC.get(task_type, {}).get("icon", "") + "任务"
+        task_name = name
+
+        # 时间
+        try:
+            h = int(self.schedule_hour.get().strip() or "0")
+            m = int(self.schedule_minute.get().strip() or "0")
+            if h < 0 or h > 23 or m < 0 or m > 59:
+                raise ValueError
+        except ValueError:
+            if task_type == "rush":
+                h, m = 0, 0
+            elif task_type == "shutdown":
+                h, m = 0, 0
+            else:
+                messagebox.showwarning("提示", "请输入有效的时间（0-23时 / 0-59分）",
+                                       parent=self.winfo_toplevel())
                 return
-            time_str = f"{hour:02d}:{minute:02d}"
 
-        task = {
-            "id": f"schedule_{int(time.time()*1000)}",
-            "name": name,
+        import uuid
+        task_id = str(uuid.uuid4())[:8]
+
+        icon = sp.TASK_PARAM_SPEC.get(task_type, {}).get("icon", "")
+        type_name = {
+            "rush": "⚡ 抢码", "watch": "📺 看播",
+            "danmaku": "💬 弹幕", "shutdown": "⏻ 关机",
+        }.get(task_type, task_type)
+
+        scheduled_task = {
+            "id": task_id,
+            "name": task_name,
             "type": task_type,
-            "type_name": type_names[task_type],
-            "hour": hour,
-            "minute": minute,
-            "time_str": time_str,
+            "type_name": type_name,
+            "hour": h,
+            "minute": m,
+            "time_str": "%02d:%02d" % (h, m),
             "enabled": True,
             "last_run": "",
             "status": "等待中",
+            # v6.6.1 核心：参数快照，执行时不再依赖其他页面
+            "params": dict(params),
         }
-        self.schedule_tasks.append(task)
-        self.refresh_task_list()
+
+        self.schedule_tasks.append(scheduled_task)
         self.save_schedule()
-        # 保存表单设置
-        self._save_form_settings()
+        self.refresh_task_list()
+        self.log("✓ 已添加日程「%s」@ %s  %s"
+                 % (task_name, scheduled_task["time_str"],
+                    sp.describe_params(task_type, params)))
 
-        if task_type == "rush":
-            self.log(f"➕ 已添加任务「{name}」({type_names[task_type]})，立即执行")
-            # 抢码任务添加后立即执行
-            self.after(100, lambda t=task: self.execute_task(t))
-        elif task_type == "shutdown":
-            self.log(f"➕ 已添加任务「{name}」({type_names[task_type]})，每天按关机页面设置的时间执行")
-        else:
-            self.log(f"➕ 已添加任务「{name}」({type_names[task_type]})，每天 {time_str} 执行")
+    def copy_schedule_task(self, task_id):
+        """复制任务（v6.6.1 新增）：参数和时间完全复制，名称加「副本」。"""
+        src_task = None
+        for t in self.schedule_tasks:
+            if t["id"] == task_id:
+                src_task = t
+                break
+        if not src_task:
+            return
+        import uuid, copy
+        new_task = copy.deepcopy(src_task)
+        new_task["id"] = str(uuid.uuid4())[:8]
+        new_task["name"] = src_task.get("name", "") + "副本"
+        new_task["last_run"] = ""
+        new_task["status"] = "等待中"
+        self.schedule_tasks.append(new_task)
+        self.save_schedule()
+        self.refresh_task_list()
+        self.log("⧉ 已复制日程「%s」" % src_task.get("name", ""))
 
-        # 添加后自动填下一个名称
-        self._auto_fill_name(task_type)
+    def run_task_now(self, task_id):
+        """行内「立即执行」按钮。"""
+        for t in self.schedule_tasks:
+            if t["id"] == task_id:
+                self.execute_task(t, manual=True)
+                return
+
+    def toggle_task_enabled(self, task_id):
+        """行内「启用/停用」切换。"""
+        for t in self.schedule_tasks:
+            if t["id"] == task_id:
+                t["enabled"] = not t.get("enabled", True)
+                t["status"] = "等待中" if t["enabled"] else "已取消"
+                self.save_schedule()
+                self.refresh_task_list()
+                self.log("%s 日程「%s」"
+                         % ("✅ 已启用" if t["enabled"] else "⏸ 已停用",
+                            t.get("name", "")))
+                return
+
+    def delete_one_task(self, task_id):
+        """行内「删除」按钮。"""
+        t = next((x for x in self.schedule_tasks if x["id"] == task_id), None)
+        if not t:
+            return
+        if not custom_askyesno("确认删除",
+                               "确定删除日程「%s」？" % t.get("name", ""),
+                               parent=self.winfo_toplevel()):
+            return
+        self.schedule_tasks = [x for x in self.schedule_tasks
+                               if x["id"] != task_id]
+        self.schedule_task_stop_flags.pop(task_id, None)
+        self.save_schedule()
+        self.refresh_task_list()
+        self.log("🗑 已删除日程「%s」" % t.get("name", ""))
 
     def refresh_task_list(self):
-        for widget in self.task_list_frame.winfo_children():
-            widget.destroy()
+        """刷新任务列表（v6.6.1 表格化 + 行内操作）。"""
+        import schedule_params as sp
+
+        for w in self.task_list_frame.winfo_children():
+            w.destroy()
+
+        n = len(self.schedule_tasks)
+        try:
+            enabled_n = sum(1 for t in self.schedule_tasks if t.get("enabled"))
+            self.task_count_label.config(
+                text="共 %d 项（启用 %d）" % (n, enabled_n))
+        except Exception:
+            pass
 
         if not self.schedule_tasks:
-            tk.Label(self.task_list_frame, text="暂无日程任务，设置好参数后点击「+ 添加任务」",
-                     bg=COLORS["bg_card"], fg=COLORS["text_muted"], font=("微软雅黑", 10)).pack(pady=30)
+            tk.Label(self.task_list_frame,
+                     text="还没有日程任务\n\n选好类型、配好参数、设好时间，点「＋ 添加」即可",
+                     bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                     font=("微软雅黑", 10), justify=tk.CENTER).pack(pady=40)
             return
 
+        # ---- 表头 ----
+        COLS = [
+            ("", 30), ("状态", 76), ("类型", 76), ("任务名称", 200),
+            ("执行时间", 78), ("参数", 150), ("上次执行", 132), ("操作", 230),
+        ]
+        head = tk.Frame(self.task_list_frame, bg=COLORS["bg_input"])
+        head.pack(fill=tk.X, pady=(0, 2))
+        for c, (txt, px) in enumerate(COLS):
+            head.grid_columnconfigure(c, minsize=px, weight=0)
+            tk.Label(head, text=txt, bg=COLORS["bg_input"],
+                     fg=COLORS["text_secondary"],
+                     font=("微软雅黑", 9, "bold"),
+                     anchor=tk.W).grid(row=0, column=c, sticky="w",
+                                       padx=(4, 0), pady=4)
+
+        # ---- 数据行 ----
         for idx, task in enumerate(self.schedule_tasks):
-            is_selected = (task["id"] == self.selected_task_id)
-            is_checked = (task["id"] in self.selected_ids)
-            bg_color = COLORS["accent"] if is_selected else (COLORS["bg_input"] if idx % 2 == 0 else COLORS["bg_card"])
-            text_color = "#000000" if is_selected else COLORS["text_primary"]
+            try:
+                bg = COLORS["bg_card"] if idx % 2 == 0 else COLORS["bg_input"]
+                row = tk.Frame(self.task_list_frame, bg=bg)
+                row.pack(fill=tk.X, pady=1)
 
-            row_frame = tk.Frame(self.task_list_frame, bg=bg_color)
-            row_frame.pack(fill=tk.X, pady=3)
-            row_frame.bind("<Button-1>", lambda e, tid=task["id"]: self.select_task(tid))
+                for c, (_, px) in enumerate(COLS):
+                    row.grid_columnconfigure(c, minsize=px, weight=0)
 
-            # 选择复选框（多选）
-            check_var = tk.BooleanVar(value=is_checked)
-            def toggle_check(var=check_var, tid=task["id"]):
-                if var.get():
-                    self.selected_ids.add(tid)
+                # 选择框
+                var = tk.BooleanVar(value=(task["id"] in self.selected_ids))
+                def _tog(v=var, tid=task["id"]):
+                    if v.get():
+                        self.selected_ids.add(tid)
+                    else:
+                        self.selected_ids.discard(tid)
+                tk.Checkbutton(row, variable=var, command=_tog, bg=bg,
+                               activebackground=bg,
+                               selectcolor=COLORS["bg_input"]
+                               ).grid(row=0, column=0, sticky="w", padx=(4, 0))
+
+                # 状态
+                if not task.get("enabled"):
+                    stxt, sfg = "已停用", COLORS["text_muted"]
                 else:
-                    self.selected_ids.discard(tid)
-            check_chk = tk.Checkbutton(row_frame, variable=check_var, command=toggle_check,
-                                        bg=bg_color, activebackground=bg_color, selectcolor=COLORS["bg_input"],
-                                        fg=text_color, font=("微软雅黑", 8))
-            check_chk.pack(side=tk.LEFT, padx=(4, 0), pady=8)
+                    stxt = task.get("status", "等待中")
+                    if stxt == "执行中":
+                        sfg = COLORS["accent"]
+                    elif "启动失败" in stxt or stxt == "失败":
+                        sfg = COLORS["danger"]
+                    elif stxt in ("已完成", "已结束"):
+                        sfg = COLORS["success"]
+                    elif "已跳过" in stxt:
+                        sfg = COLORS["warning"]
+                    else:
+                        sfg = COLORS["text_secondary"]
+                tk.Label(row, text="● " + stxt, bg=bg, fg=sfg,
+                         font=("微软雅黑", 9), anchor=tk.W
+                         ).grid(row=0, column=1, sticky="w", padx=(4, 0), pady=4)
 
+                # 类型
+                tk.Label(row, text=task.get("type_name", ""), bg=bg,
+                         fg=COLORS["text_primary"], font=("微软雅黑", 9),
+                         anchor=tk.W
+                         ).grid(row=0, column=2, sticky="w", padx=(4, 0))
 
-            # 任务名称（双击编辑）
-            name_label = tk.Label(row_frame, text=task["name"], bg=bg_color, fg=text_color,
-                                  font=("微软雅黑", 10, "bold"), width=8, anchor=tk.W)
-            name_label.pack(side=tk.LEFT, padx=(4, 0), pady=8)
-            name_label.bind("<Button-1>", lambda e, tid=task["id"]: self.select_task(tid))
-            name_label.bind("<Double-Button-1>", lambda e, tid=task["id"]: self._edit_task_by_id(tid))
+                # 名称
+                tk.Label(row, text=task.get("name", "")[:18], bg=bg,
+                         fg=COLORS["text_primary"],
+                         font=("微软雅黑", 9, "bold"), anchor=tk.W
+                         ).grid(row=0, column=3, sticky="w", padx=(4, 0))
 
-            # 类型
-            type_label = tk.Label(row_frame, text=task["type_name"], bg=bg_color,
-                                  fg=text_color if not is_selected else "#000000",
-                                  font=("微软雅黑", 9), width=6, anchor=tk.W)
-            type_label.pack(side=tk.LEFT, padx=(4, 0))
-            type_label.bind("<Button-1>", lambda e, tid=task["id"]: self.select_task(tid))
+                # 时间
+                tk.Label(row, text=task.get("time_str", "--:--"), bg=bg,
+                         fg=COLORS["accent"],
+                         font=("Consolas", 10, "bold"), anchor=tk.W
+                         ).grid(row=0, column=4, sticky="w", padx=(4, 0))
 
-            # 时间
-            time_label = tk.Label(row_frame, text=task["time_str"], bg=bg_color,
-                                  fg=text_color if not is_selected else "#000000",
-                                  font=("微软雅黑", 10, "bold"), width=10, anchor=tk.W)
-            time_label.pack(side=tk.LEFT, padx=(4, 0))
-            time_label.bind("<Button-1>", lambda e, tid=task["id"]: self.select_task(tid))
+                # 参数摘要
+                desc = sp.describe_params(task.get("type", ""),
+                                          task.get("params") or {})
+                if not task.get("params"):
+                    desc = "（旧任务·用页面参数）"
+                tk.Label(row, text=desc[:20], bg=bg,
+                         fg=COLORS["text_secondary"], font=("微软雅黑", 8),
+                         anchor=tk.W
+                         ).grid(row=0, column=5, sticky="w", padx=(4, 0))
 
-            # 状态
-            if not task["enabled"]:
-                status_text = "已取消"
-                status_fg = COLORS["text_muted"]
-            else:
-                status_text = task.get("status", "等待中")
-                if status_text == "执行中":
-                    status_fg = COLORS["danger"]
-                elif status_text in ["已完成", "已结束"]:
-                    status_fg = COLORS["success"]
-                elif "已结束" in status_text:
-                    status_fg = COLORS["success"]
-                elif status_text == "失败":
-                    status_fg = COLORS["warning"]
-                else:
-                    status_fg = COLORS["text_muted"]
-            status_label = tk.Label(row_frame, text=f"● {status_text}", bg=bg_color,
-                                    fg=status_fg if not is_selected else "#000000",
-                                    font=("微软雅黑", 9), width=7, anchor=tk.W)
-            status_label.pack(side=tk.LEFT, padx=(4, 0))
-            status_label.bind("<Button-1>", lambda e, tid=task["id"]: self.select_task(tid))
+                # 上次执行
+                lr = task.get("last_run", "") or "-"
+                if lr != "-":
+                    lr = lr[5:16] if len(lr) > 16 else lr
+                tk.Label(row, text=lr, bg=bg, fg=COLORS["text_muted"],
+                         font=("Consolas", 8), anchor=tk.W
+                         ).grid(row=0, column=6, sticky="w", padx=(4, 0))
 
-            # 上次执行
-            last_run = task.get("last_run", "-")
-            if last_run and last_run != "-":
-                try:
-                    from datetime import datetime as _dt
-                    _parsed = _dt.strptime(last_run, "%Y-%m-%d %H:%M:%S")
-                    last_run = _parsed.strftime("%m-%d %H:%M")
-                except Exception:
-                    pass
-            last_label = tk.Label(row_frame, text=last_run, bg=bg_color,
-                                  fg=text_color if not is_selected else "#000000",
-                                  font=("微软雅黑", 8), width=12, anchor=tk.W)
-            last_label.pack(side=tk.LEFT, padx=(4, 0))
-            last_label.bind("<Button-1>", lambda e, tid=task["id"]: self.select_task(tid))
-            # 启用/取消按钮
-            if task["enabled"]:
-                btn_text = "取消"
-                btn_bg = COLORS["warning"]
-                def toggle_task(t=task):
-                    t["enabled"] = False
-                    self.save_schedule()
-                    self.refresh_task_list()
-                    self.log(f"⏸ 已取消日程「{t['name']}」")
-            else:
-                btn_text = "启用"
-                btn_bg = COLORS["success"]
-                def toggle_task(t=task):
-                    t["enabled"] = True
-                    self.save_schedule()
-                    self.refresh_task_list()
-                    self.log(f"✅ 已启用日程「{t['name']}」")
-            toggle_btn = DarkButton(row_frame, btn_text, command=toggle_task,
-                                     width=90, height=34, bg_color=btn_bg, text_color="#ffffff")
-            toggle_btn.pack(side=tk.RIGHT, padx=(4, 4), pady=6)
+                # 操作按钮
+                ops = tk.Frame(row, bg=bg)
+                ops.grid(row=0, column=7, sticky="w", padx=(4, 0))
+                tid = task["id"]
+                DarkButton(ops, "✏", command=lambda i=tid: self._edit_task_by_id(i),
+                           width=28, height=22, bg_color="#3498db",
+                           text_color="#ffffff", compact=True
+                           ).pack(side=tk.LEFT, padx=1)
+                DarkButton(ops, "⧉", command=lambda i=tid: self.copy_schedule_task(i),
+                           width=28, height=22, bg_color="#8e44ad",
+                           text_color="#ffffff", compact=True
+                           ).pack(side=tk.LEFT, padx=1)
+                DarkButton(ops, "▶", command=lambda i=tid: self.run_task_now(i),
+                           width=28, height=22, bg_color=COLORS["success"],
+                           text_color="#ffffff", compact=True
+                           ).pack(side=tk.LEFT, padx=1)
+                en_txt = "⏸" if task.get("enabled") else "▶"
+                en_bg = "#e67e22" if task.get("enabled") else "#27ae60"
+                DarkButton(ops, en_txt,
+                           command=lambda i=tid: self.toggle_task_enabled(i),
+                           width=28, height=22, bg_color=en_bg,
+                           text_color="#ffffff", compact=True
+                           ).pack(side=tk.LEFT, padx=1)
+                DarkButton(ops, "×", command=lambda i=tid: self.delete_one_task(i),
+                           width=28, height=22, bg_color=COLORS["danger"],
+                           text_color="#ffffff", compact=True
+                           ).pack(side=tk.LEFT, padx=1)
+            except Exception as e:
+                self.log("渲染任务行异常: %s" % e)
 
     def select_task(self, task_id):
         self.selected_task_id = task_id
@@ -680,40 +1314,49 @@ class ScheduleFrame(tk.Frame):
             self.log(f"✗ 任务「{task['name']}」执行失败: {e}")
 
     def _start_watch_safe(self, task):
-        """启动看播（v6.6.0 修复：页面懒加载 + 校验是否真的启动成功）。"""
+        """启动看播（v6.6.1：优先用任务自带参数快照，不依赖当前页面）。"""
         try:
-            # 懒加载：确保页面已构建
             self.app._ensure_page_built("watch")
             wp = getattr(self.app, 'watch_page', None)
             if wp is None:
-                msg = ("✗ [日程] 看播页未构建，无法启动「%s」。"
-                       "请先手动打开一次「看播任务」标签页。" % task['name'])
+                msg = ("✗ [日程] 看播页未构建，无法启动「%s」"
+                       % task.get('name', ''))
                 self.log(msg)
                 self.sync_log_to_modules(msg)
                 task["status"] = "启动失败"
                 self.refresh_task_list()
                 return
 
-            if not hasattr(wp, 'start_watch'):
-                msg = f"✗ [日程] 看播页缺少 start_watch 方法"
-                self.log(msg)
-                task["status"] = "启动失败"
-                self.refresh_task_list()
-                return
+            params = task.get("params") or {}
+
+            # ---- 关键：把参数注入看播页，覆盖当前 UI 状态 ----
+            if params:
+                applied = self._apply_watch_params(wp, params)
+                if not applied:
+                    task["status"] = "启动失败"
+                    self.refresh_task_list()
+                    return
+            else:
+                self.log("  ⚠ 该任务无参数快照（旧任务），使用看播页当前设置")
 
             wp.start_watch()
 
-            # 关键：校验是否真的启动成功（running 会变 True）
             if getattr(wp, 'running', False):
-                msg = f"✓ [日程] 看播任务「{task['name']}」已启动"
+                msg = ("✓ [日程] 看播任务「%s」已启动  %s"
+                       % (task.get('name', ''),
+                          ("(%d账户/%d房间/%s分钟)"
+                           % (len(params.get("accounts") or []),
+                              len(params.get("rooms") or []),
+                              params.get("duration_minutes", 0)))
+                          if params else ""))
                 self.log(msg)
                 self.sync_log_to_modules(msg)
                 if hasattr(wp, 'log'):
                     wp.log(msg)
             else:
-                # 没启动成功（通常是缺少直播间/账户配置，start_watch 弹框后 return）
-                msg = (f"✗ [日程] 看播任务「{task['name']}」启动失败："
-                       "请检查看播页是否已选好直播间和账户")
+                msg = ("✗ [日程] 看播任务「%s」启动失败："
+                       "请检查任务的账户/直播间参数是否有效"
+                       % task.get('name', ''))
                 self.log(msg)
                 self.sync_log_to_modules(msg)
                 if hasattr(wp, 'log'):
@@ -721,7 +1364,154 @@ class ScheduleFrame(tk.Frame):
                 task["status"] = "启动失败"
                 self.refresh_task_list()
         except Exception as e:
+            import traceback
             msg = f"✗ [日程] 启动看播失败: {e}"
+            self.log(msg)
+            self.log(traceback.format_exc()[:300])
+            self.sync_log_to_modules(msg)
+            task["status"] = "启动失败"
+            try:
+                self.refresh_task_list()
+            except Exception:
+                pass
+
+    def _apply_watch_params(self, wp, params):
+        """把参数快照注入看播页（v6.6.1 核心）。返回是否成功。"""
+        try:
+            accounts = params.get("accounts") or []
+            rooms = params.get("rooms") or []
+            duration = params.get("duration_minutes")
+            hb = params.get("heartbeat_interval")
+
+            if not accounts:
+                self.log("  ✗ 任务参数里没有账户")
+                return False
+            if not rooms:
+                self.log("  ✗ 任务参数里没有直播间")
+                return False
+
+            # 1) 账户勾选：按参数精确设置
+            for name, var in getattr(wp, "account_vars", {}).items():
+                try:
+                    var.set(name in accounts)
+                except Exception:
+                    pass
+            # 若无匹配账户（账户被删），提示
+            existing = set(getattr(wp, "account_vars", {}).keys())
+            missing = [a for a in accounts if a not in existing]
+            if missing:
+                self.log("  ⚠ 以下账户已不存在，将跳过: %s" % ", ".join(missing))
+            if len(missing) >= len(accounts):
+                self.log("  ✗ 任务参数里的账户全部不存在")
+                return False
+
+            # 2) 直播间：确保选择框里有该房间并选中
+            self._apply_watch_rooms(wp, rooms)
+
+            # 3) 时长
+            if duration is not None:
+                try:
+                    wp.duration_var.set(int(duration))
+                except Exception:
+                    pass
+            # 4) 心跳间隔
+            if hb is not None:
+                try:
+                    wp.interval_var.set(int(hb))
+                except Exception:
+                    pass
+
+            self.log("  已注入参数: %d账户 / %d房间 / %s分钟 / %s秒心跳"
+                     % (len(accounts), len(rooms), duration, hb))
+            return True
+        except Exception as e:
+            self.log("  ✗ 注入看播参数异常: %s" % e)
+            return False
+
+    def _apply_watch_rooms(self, wp, room_ids):
+        """确保看播页选中指定的直播间（必要时动态添加选择框）。"""
+        try:
+            # 找到房间对象
+            rooms = []
+            for rid in room_ids:
+                r = next((x for x in self.app.room_mgr.rooms
+                          if str(x.get("id")) == str(rid)), None)
+                if r:
+                    rooms.append(r)
+            if not rooms:
+                self.log("  ⚠ 参数里的直播间都不存在")
+                return
+
+            bars = getattr(wp, "watch_room_bars", [])
+            names_wanted = [r.get("name", "") for r in rooms]
+
+            # 已有的选择框：逐个设置为目标房间
+            for i, name in enumerate(names_wanted):
+                if i < len(bars):
+                    bar, combo, del_btn = bars[i]
+                    try:
+                        combo.set(name)
+                    except Exception:
+                        pass
+                else:
+                    # 需要新增选择框
+                    try:
+                        if hasattr(wp, "add_room_bar"):
+                            wp.add_room_bar()
+                    except Exception:
+                        pass
+
+            # 刷新后重新尝试设置
+            bars = getattr(wp, "watch_room_bars", [])
+            for i, name in enumerate(names_wanted):
+                if i < len(bars):
+                    bar, combo, del_btn = bars[i]
+                    try:
+                        combo.set(name)
+                    except Exception:
+                        pass
+        except Exception as e:
+            self.log("  设置直播间异常: %s" % e)
+
+    def _start_danmaku_safe(self, task):
+        """启动弹幕（v6.6.1：优先用任务参数快照）。"""
+        try:
+            params = task.get("params") or {}
+            if params:
+                ok = self._apply_danmaku_params(params)
+                if not ok:
+                    task["status"] = "启动失败"
+                    self.refresh_task_list()
+                    return
+            else:
+                self.log("  ⚠ 该任务无参数快照（旧任务），使用弹幕页当前设置")
+
+            if not hasattr(self.app, 'start_sending'):
+                msg = "✗ [日程] 主程序缺少 start_sending 方法"
+                self.log(msg)
+                task["status"] = "启动失败"
+                self.refresh_task_list()
+                return
+
+            before = bool(getattr(self.app, 'running', False))
+            self.app.start_sending()
+            after = bool(getattr(self.app, 'running', False))
+
+            if after and not before:
+                msg = f"✓ [日程] 弹幕任务「{task.get('name','')}」已启动"
+                self.log(msg)
+                self.sync_log_to_modules(msg)
+                if hasattr(self.app, 'log'):
+                    self.app.log(msg)
+            else:
+                msg = (f"✗ [日程] 弹幕任务「{task.get('name','')}」启动失败："
+                       "请检查账户/直播间/弹幕内容是否齐全")
+                self.log(msg)
+                self.sync_log_to_modules(msg)
+                task["status"] = "启动失败"
+                self.refresh_task_list()
+        except Exception as e:
+            msg = f"✗ [日程] 启动弹幕失败: {e}"
             self.log(msg)
             self.sync_log_to_modules(msg)
             task["status"] = "启动失败"
@@ -730,43 +1520,140 @@ class ScheduleFrame(tk.Frame):
             except Exception:
                 pass
 
-    def _start_danmaku_safe(self, task):
+    def _apply_danmaku_params(self, params):
+        """把参数注入弹幕页。返回是否成功。"""
         try:
-            if hasattr(self.app, 'start_sending'):
-                self.app.start_sending()
-                msg = f"✓ [日程] 弹幕任务「{task['name']}」已启动"
-                self.log(msg)
-                self.sync_log_to_modules(msg)
-                # 同时写主页面日志（弹幕工具的日志）
-                if hasattr(self.app, 'log'):
-                    self.app.log(msg)
+            accounts = params.get("accounts") or []
+            room = params.get("room")
+            mode = params.get("account_mode")
+            cnt = params.get("max_send_count")
+
+            if not accounts:
+                self.log("  ✗ 弹幕任务参数里没有账户")
+                return False
+
+            # 账户勾选
+            try:
+                for name, var in getattr(self.app, "danmaku_account_vars",
+                                         {}).items():
+                    var.set(name in accounts)
+            except Exception:
+                pass
+
+            # 发送模式
+            if mode:
+                try:
+                    self.app.account_mode_var.set(mode)
+                except Exception:
+                    pass
+
+            # 直播间：弹幕页用 room_combo 选择「房间名称」，不是 room_id
+            if room:
+                try:
+                    target = None
+                    for r in self.app.room_mgr.rooms:
+                        if str(r.get("id")) == str(room):
+                            target = r.get("name", "")
+                            break
+                    if target and hasattr(self.app, "room_combo"):
+                        self.app.room_combo.set(target)
+                        self.log("  已设置弹幕直播间: %s" % target)
+                    elif target is None:
+                        self.log("  ⚠ 参数里的直播间 %s 不存在" % room)
+                except Exception as e:
+                    self.log("  设置直播间异常: %s" % e)
+
+            # 条数
+            if cnt is not None:
+                try:
+                    self.app.max_send_entry.delete(0, tk.END)
+                    self.app.max_send_entry.insert(0, str(cnt))
+                except Exception:
+                    pass
+
+            self.log("  已注入弹幕参数: %d账户 / 房间%s / %s条"
+                     % (len(accounts), room, cnt))
+            return True
         except Exception as e:
-            msg = f"✗ [日程] 启动弹幕失败: {e}"
-            self.log(msg)
-            self.sync_log_to_modules(msg)
-            if hasattr(self.app, 'log'):
-                self.app.log(msg)
+            self.log("  ✗ 注入弹幕参数异常: %s" % e)
+            return False
 
     def _start_rush_safe(self, task):
+        """启动抢码（v6.6.1：只负责启动，抢码本身自带定时）。
+
+        用户明确要求：抢码任务本身是自动定时的，
+        日程只需负责「启动任务」即可：
+          · 旧模式：启动任务栏内全部任务，或仅选中的
+          · 新模式：启动所有任务组，或仅选中的组
+        """
         try:
-            if hasattr(self.app, 'rush_page') and hasattr(self.app.rush_page, 'start_all_scheduled_tasks'):
-                self.app.rush_page.start_all_scheduled_tasks()
-                msg = f"✓ [日程] 抢码任务「{task['name']}」已全部启动"
+            rp = getattr(self.app, 'rush_page', None)
+            if rp is None:
+                msg = "✗ [日程] 抢码页不存在"
                 self.log(msg)
-                # 同时写抢码页面日志
-                if hasattr(self.app.rush_page, 'log'):
-                    self.app.rush_page.log(msg)
-            elif hasattr(self.app, 'rush_page') and hasattr(self.app.rush_page, 'start_rush'):
-                self.app.rush_page.start_rush()
-                msg = f"✓ [日程] 抢码监控「{task['name']}」已启动"
+                task["status"] = "启动失败"
+                self.refresh_task_list()
+                return
+
+            params = task.get("params") or {}
+            scope = params.get("start_scope", "all")
+            groups = params.get("selected_groups") or []
+            mode = params.get("rush_mode", "")
+
+            started = False
+
+            if groups:
+                # 指定了任务组 -> 只启动这些
+                for gname in groups:
+                    try:
+                        g = next((x for x in rp.rush_groups
+                                  if x.get("name") == gname), None)
+                        if g:
+                            rp.nm_start_group(g.get("group_id", ""))
+                            started = True
+                    except Exception as e:
+                        self.log("  启动任务组「%s」失败: %s" % (gname, e))
+                if started:
+                    msg = ("✓ [日程] 抢码任务「%s」已启动 %d 个任务组"
+                           % (task.get('name', ''), len(groups)))
+            else:
+                # 全部启动：优先新模式的"启动全部"
+                if hasattr(rp, "nm_start_all_groups"):
+                    try:
+                        rp.nm_start_all_groups()
+                        started = True
+                    except Exception as e:
+                        self.log("  nm_start_all_groups 失败: %s" % e)
+                if not started and hasattr(rp, "start_all_scheduled_tasks"):
+                    try:
+                        rp.start_all_scheduled_tasks()
+                        started = True
+                    except Exception as e:
+                        self.log("  start_all_scheduled_tasks 失败: %s" % e)
+                if started:
+                    msg = ("✓ [日程] 抢码任务「%s」已启动全部任务/任务组"
+                           % task.get('name', ''))
+
+            if started:
                 self.log(msg)
-                if hasattr(self.app.rush_page, 'log'):
-                    self.app.rush_page.log(msg)
+                self.sync_log_to_modules(msg)
+                if hasattr(rp, 'log'):
+                    rp.log(msg)
+                task["status"] = "已完成"
+            else:
+                msg = ("✗ [日程] 抢码任务「%s」启动失败：未找到可启动的任务组"
+                       % task.get('name', ''))
+                self.log(msg)
+                task["status"] = "启动失败"
+            self.refresh_task_list()
         except Exception as e:
             msg = f"✗ [日程] 启动抢码失败: {e}"
             self.log(msg)
-            if hasattr(self.app, 'rush_page') and hasattr(self.app.rush_page, 'log'):
-                self.app.rush_page.log(msg)
+            task["status"] = "启动失败"
+            try:
+                self.refresh_task_list()
+            except Exception:
+                pass
 
     def _execute_shutdown_safe(self, task):
         """执行关机任务（带确认弹窗，超时60秒自动关机）"""
