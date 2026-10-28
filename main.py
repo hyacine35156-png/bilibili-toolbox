@@ -660,122 +660,241 @@ class DanmakuApp:
                 self.account_listbox.insert(tk.END, display)
 
     def build_account_page(self):
-        """构建账户管理页面（独立标签页）"""
+        """构建账户管理页面（v6.6.3 重新设计，保留全部原有功能）。
+
+        布局（三栏，比例 2:3.5:4.5）：
+          ① 账户栏（左）：列表 + 垂直按钮列
+          ② 详情栏（中）：账户信息文本 + 复制按钮
+          ③ 直播间栏（右）：列表 + 表单并排，紧凑填充
+
+        关键：所有控件名保持不变（manager_account_listbox 等），
+        保证 _on_manager_account_select / _manager_show_info 等
+        既有方法无需修改即可工作。
+        """
         main = tk.Frame(self.account_page, bg=COLORS["bg_dark"])
-        main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        main.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        # 左侧：账户列表
-        left_card = tk.Frame(main, bg=COLORS["bg_card"], bd=0, highlightthickness=1, highlightbackground=COLORS["border"])
-        left_card.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
-        left_card.pack_propagate(False)
-        left_card.configure(width=300)
+        # 三栏用 grid 精确控制比例：2 : 3.5 : 4.5
+        main.grid_rowconfigure(0, weight=1)
+        # v6.6.3: 账户20 / 详情32 / 直播间48（直播间内容最多，需要更宽）
+        main.grid_columnconfigure(0, weight=20)
+        main.grid_columnconfigure(1, weight=32)
+        main.grid_columnconfigure(2, weight=48)
 
-        tk.Label(left_card, text="账户列表", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=theme.font(12, bold=True)).pack(anchor=tk.W, padx=15, pady=(12, 8))
+        CARD_BORDER = {
+            "bg": COLORS["bg_card"],
+            "bd": 0,
+            "highlightthickness": 1,
+            "highlightbackground": COLORS["border"],
+        }
 
-        # 账户列表（Listbox）
+        # ================= ① 账户栏 =================
+        left_card = tk.Frame(main, **CARD_BORDER)
+        left_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+
+        head_l = tk.Frame(left_card, bg=COLORS["bg_card"])
+        head_l.pack(fill=tk.X, padx=10, pady=(8, 4))
+        tk.Label(head_l, text="👤 账户列表", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=theme.font(11, bold=True)
+                 ).pack(side=tk.LEFT)
+        self.account_count_label = tk.Label(
+            head_l, text="", bg=COLORS["bg_card"],
+            fg=COLORS["text_muted"], font=theme.font(9))
+        self.account_count_label.pack(side=tk.RIGHT)
+
         list_frame = tk.Frame(left_card, bg=COLORS["bg_card"])
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=12)
-        self.manager_account_listbox = tk.Listbox(list_frame, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                                                    selectbackground=COLORS["accent"], selectforeground="#000000",
-                                                    font=theme.font(10), bd=0, highlightthickness=0,
-                                                    activestyle="none", exportselection=False)
-        self.manager_account_listbox.pack(fill=tk.BOTH, expand=True)
-        self.manager_account_listbox.bind("<<ListboxSelect>>", self._on_manager_account_select)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 4))
 
-        # 按钮区
+        acct_sb = tk.Scrollbar(list_frame, orient=tk.VERTICAL)
+        acct_sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.manager_account_listbox = tk.Listbox(
+            list_frame, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+            selectbackground=COLORS["accent"], selectforeground="#000000",
+            font=theme.font(10), bd=0, highlightthickness=0,
+            activestyle="none", exportselection=False,
+            yscrollcommand=acct_sb.set)
+        acct_sb.config(command=self.manager_account_listbox.yview)
+        self.manager_account_listbox.pack(side=tk.LEFT, fill=tk.BOTH,
+                                          expand=True)
+        self.manager_account_listbox.bind("<<ListboxSelect>>",
+                                          self._on_manager_account_select)
+
+        # 按钮区：主操作与辅助操作分组
         btn_frame = tk.Frame(left_card, bg=COLORS["bg_card"])
-        btn_frame.pack(fill=tk.X, padx=12, pady=(10, 12))
-        DarkButton(btn_frame, "+ 添加账户", command=self.add_account,
-                   width=270, height=38).pack(pady=(0, 6))
-        DarkButton(btn_frame, "编辑账户", command=self._manager_edit_account,
-                   width=270, height=38, bg_color="#27ae60", text_color="#ffffff").pack(pady=(0, 6))
-        DarkButton(btn_frame, "删除账户", command=self._manager_delete_account,
-                   width=270, height=38, bg_color=COLORS["danger"], text_color="#ffffff").pack(pady=(0, 6))
-        DarkButton(btn_frame, "验证登录", command=self._manager_verify_account,
-                   width=270, height=38, bg_color="#444466", text_color="#ffffff").pack(pady=(0, 6))
-        DarkButton(btn_frame, "刷新信息", command=self._manager_refresh_info,
-                   width=270, height=38, bg_color="#2980b9", text_color="#ffffff").pack(pady=(0, 6))
-        DarkButton(btn_frame, "🛡 数据备份与恢复", command=self._open_backup_manager,
-                   width=270, height=38, bg_color="#7d3c98", text_color="#ffffff").pack()
+        btn_frame.pack(fill=tk.X, padx=8, pady=(0, 8))
 
-        # 右侧：账户详细信息
-        right_card = tk.Frame(main, bg=COLORS["bg_card"], bd=0, highlightthickness=1, highlightbackground=COLORS["border"])
-        right_card.pack(side=tk.LEFT, fill=tk.Y, padx=(8, 8))
-        right_card.pack_propagate(False)
-        right_card.configure(width=400)
+        tk.Label(btn_frame, text="账户操作", bg=COLORS["bg_card"],
+                 fg=COLORS["text_muted"], font=theme.font(8)
+                 ).pack(anchor=tk.W, pady=(0, 3))
+        DarkButton(btn_frame, "＋ 添加账户", command=self.add_account,
+                   height=32).pack(fill=tk.X, pady=(0, 4))
+        row_edit = tk.Frame(btn_frame, bg=COLORS["bg_card"])
+        row_edit.pack(fill=tk.X, pady=(0, 4))
+        DarkButton(row_edit, "编辑", command=self._manager_edit_account,
+                   height=30, bg_color="#27ae60", text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT, fill=tk.X, expand=True,
+                                      padx=(0, 3))
+        DarkButton(row_edit, "删除", command=self._manager_delete_account,
+                   height=30, bg_color=COLORS["danger"],
+                   text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT, fill=tk.X,
+                                      expand=True)
 
-        tk.Label(right_card, text="账户详细信息", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=theme.font(12, bold=True)).pack(anchor=tk.W, padx=15, pady=(12, 8))
+        tk.Label(btn_frame, text="账户校验", bg=COLORS["bg_card"],
+                 fg=COLORS["text_muted"], font=theme.font(8)
+                 ).pack(anchor=tk.W, pady=(4, 3))
+        row_v = tk.Frame(btn_frame, bg=COLORS["bg_card"])
+        row_v.pack(fill=tk.X, pady=(0, 4))
+        DarkButton(row_v, "验证登录", command=self._manager_verify_account,
+                   height=30, bg_color="#444466", text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT, fill=tk.X,
+                                      expand=True, padx=(0, 3))
+        DarkButton(row_v, "刷新信息", command=self._manager_refresh_info,
+                   height=30, bg_color="#2980b9", text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT, fill=tk.X,
+                                      expand=True)
 
-        info_frame = tk.Frame(right_card, bg=COLORS["bg_card"])
-        info_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
+        DarkButton(btn_frame, "🛡 数据备份与恢复",
+                   command=self._open_backup_manager,
+                   height=30, bg_color="#7d3c98", text_color="#ffffff"
+                   ).pack(fill=tk.X, pady=(4, 0))
 
-        # 信息展示区
-        self.manager_info_text = tk.Text(info_frame, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                                          font=("Consolas", 10), bd=0, highlightthickness=0, wrap=tk.WORD,
-                                          padx=12, pady=12)
-        self.manager_info_text.pack(fill=tk.BOTH, expand=True)
+        # ================= ② 详情栏 =================
+        mid_card = tk.Frame(main, **CARD_BORDER)
+        mid_card.grid(row=0, column=1, sticky="nsew", padx=(0, 6))
+
+        head_m = tk.Frame(mid_card, bg=COLORS["bg_card"])
+        head_m.pack(fill=tk.X, padx=10, pady=(8, 4))
+        tk.Label(head_m, text="📄 账户详细信息", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=theme.font(11, bold=True)
+                 ).pack(side=tk.LEFT)
+
+        info_frame = tk.Frame(mid_card, bg=COLORS["bg_card"])
+        info_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+
+        info_sb = tk.Scrollbar(info_frame, orient=tk.VERTICAL)
+        info_sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.manager_info_text = tk.Text(
+            info_frame, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+            font=("Consolas", 11), bd=0, highlightthickness=0,
+            wrap=tk.WORD, padx=10, pady=8,
+            yscrollcommand=info_sb.set)
+        info_sb.config(command=self.manager_info_text.yview)
+        self.manager_info_text.pack(side=tk.LEFT, fill=tk.BOTH,
+                                    expand=True)
         self.manager_info_text.config(state=tk.DISABLED)
         self._manager_show_info(None)
 
-        # 复制按钮区（竖向两行，每行占满宽度，避免并排时被挤压截断）
-        copy_frame = tk.Frame(info_frame, bg=COLORS["bg_card"])
-        copy_frame.pack(fill=tk.X, pady=(8, 0))
-        DarkButton(copy_frame, "📋 复制 SESSDATA", command=self._manager_copy_sessdata,
-                   height=32, bg_color="#8e44ad", text_color="#ffffff").pack(fill=tk.X, pady=(0, 6))
-        DarkButton(copy_frame, "📋 复制 bili_jct", command=self._manager_copy_bili_jct,
-                   height=32, bg_color="#16a085", text_color="#ffffff").pack(fill=tk.X)
+        # 复制按钮：并排两列
+        copy_frame = tk.Frame(mid_card, bg=COLORS["bg_card"])
+        copy_frame.pack(fill=tk.X, padx=8, pady=(0, 8))
+        DarkButton(copy_frame, "📋 复制 SESSDATA",
+                   command=self._manager_copy_sessdata, height=30,
+                   bg_color="#8e44ad", text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT, fill=tk.X,
+                                      expand=True, padx=(0, 3))
+        DarkButton(copy_frame, "📋 复制 bili_jct",
+                   command=self._manager_copy_bili_jct, height=30,
+                   bg_color="#16a085", text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT, fill=tk.X,
+                                      expand=True)
 
-        # ===== 直播间管理子区域 =====
-        room_card = tk.Frame(main, bg=COLORS["bg_card"], bd=0, highlightthickness=1, highlightbackground=COLORS["border"])
-        room_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 0))
+        # ================= ③ 直播间栏 =================
+        right_card = tk.Frame(main, **CARD_BORDER)
+        right_card.grid(row=0, column=2, sticky="nsew")
 
-        tk.Label(room_card, text="直播间管理", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=theme.font(12, bold=True)).pack(anchor=tk.W, padx=15, pady=(12, 8))
+        head_r = tk.Frame(right_card, bg=COLORS["bg_card"])
+        head_r.pack(fill=tk.X, padx=10, pady=(8, 4))
+        tk.Label(head_r, text="📺 直播间管理", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=theme.font(11, bold=True)
+                 ).pack(side=tk.LEFT)
+        self.room_count_label = tk.Label(
+            head_r, text="", bg=COLORS["bg_card"],
+            fg=COLORS["text_muted"], font=theme.font(9))
+        self.room_count_label.pack(side=tk.RIGHT)
 
-        room_inner = tk.Frame(room_card, bg=COLORS["bg_card"])
-        room_inner.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
+        body_r = tk.Frame(right_card, bg=COLORS["bg_card"])
+        body_r.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
 
-        # 左侧：直播间列表
-        room_left = tk.Frame(room_inner, bg=COLORS["bg_card"])
-        room_left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        # 上半：直播间列表（占满宽度，最常用）
+        room_list_wrap = tk.Frame(body_r, bg=COLORS["bg_card"])
+        room_list_wrap.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
 
-        self.manager_room_listbox = tk.Listbox(room_left, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                                                  selectbackground=COLORS["accent"], selectforeground="#000000",
-                                                  font=theme.font(10), bd=0, highlightthickness=0,
-                                                  activestyle="none", exportselection=False)
-        self.manager_room_listbox.pack(fill=tk.BOTH, expand=True)
-        self.manager_room_listbox.bind("<<ListboxSelect>>", self._on_manager_room_select)
+        room_sb = tk.Scrollbar(room_list_wrap, orient=tk.VERTICAL)
+        room_sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.manager_room_listbox = tk.Listbox(
+            room_list_wrap, bg=COLORS["bg_input"],
+            fg=COLORS["text_primary"],
+            selectbackground=COLORS["accent"], selectforeground="#000000",
+            font=theme.font(9), bd=0, highlightthickness=0,
+            activestyle="none", exportselection=False,
+            yscrollcommand=room_sb.set)
+        room_sb.config(command=self.manager_room_listbox.yview)
+        self.manager_room_listbox.pack(side=tk.LEFT, fill=tk.BOTH,
+                                       expand=True)
+        self.manager_room_listbox.bind("<<ListboxSelect>>",
+                                       self._on_manager_room_select)
 
-        # 右侧：添加/编辑表单
-        room_right = tk.Frame(room_inner, bg=COLORS["bg_card"], width=340)
-        room_right.pack(side=tk.LEFT, fill=tk.Y)
-        room_right.pack_propagate(False)
+        # 下半：表单（三字段横向排列，紧凑）
+        form = tk.Frame(body_r, bg=COLORS["bg_input"])
+        form.pack(fill=tk.X, pady=(0, 6))
 
-        tk.Label(room_right, text="直播间号:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=theme.font(9)).pack(anchor=tk.W)
-        self.room_id_entry = DarkEntry(room_right, width=28)
-        self.room_id_entry.pack(fill=tk.X, pady=(2, 8))
+        tk.Label(form, text="添加/编辑直播间", bg=COLORS["bg_input"],
+                 fg=COLORS["accent"], font=theme.font(9, bold=True)
+                 ).pack(anchor=tk.W, padx=6, pady=(5, 3))
 
-        tk.Label(room_right, text="显示名称:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=theme.font(9)).pack(anchor=tk.W)
-        self.room_name_entry = DarkEntry(room_right, width=28)
-        self.room_name_entry.pack(fill=tk.X, pady=(2, 8))
+        r1 = tk.Frame(form, bg=COLORS["bg_input"])
+        r1.pack(fill=tk.X, padx=6, pady=(0, 3))
+        tk.Label(r1, text="直播间号", bg=COLORS["bg_input"],
+                 fg=COLORS["text_secondary"],
+                 font=theme.font(9), width=7, anchor=tk.W
+                 ).pack(side=tk.LEFT)
+        self.room_id_entry = DarkEntry(r1, width=20)
+        self.room_id_entry.pack(side=tk.LEFT, fill=tk.X, expand=True,
+                                padx=(4, 0))
 
-        tk.Label(room_right, text="备注:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=theme.font(9)).pack(anchor=tk.W)
-        self.room_remark_entry = DarkEntry(room_right, width=28)
-        self.room_remark_entry.pack(fill=tk.X, pady=(2, 10))
+        r2 = tk.Frame(form, bg=COLORS["bg_input"])
+        r2.pack(fill=tk.X, padx=6, pady=(0, 3))
+        tk.Label(r2, text="显示名称", bg=COLORS["bg_input"],
+                 fg=COLORS["text_secondary"],
+                 font=theme.font(9), width=7, anchor=tk.W
+                 ).pack(side=tk.LEFT)
+        self.room_name_entry = DarkEntry(r2, width=20)
+        self.room_name_entry.pack(side=tk.LEFT, fill=tk.X, expand=True,
+                                  padx=(4, 0))
 
-        DarkButton(room_right, "+ 添加直播间", command=self._manager_add_room,
-                   width=320, height=34).pack(pady=(0, 5))
-        DarkButton(room_right, "删除直播间", command=self._manager_delete_room,
-                   width=320, height=34, bg_color=COLORS["danger"], text_color="#ffffff").pack(pady=(0, 5))
-        DarkButton(room_right, "从账户导入", command=self._manager_import_rooms_from_accounts,
-                   width=320, height=34, bg_color="#2980b9", text_color="#ffffff").pack()
+        r3 = tk.Frame(form, bg=COLORS["bg_input"])
+        r3.pack(fill=tk.X, padx=6, pady=(0, 6))
+        tk.Label(r3, text="备注", bg=COLORS["bg_input"],
+                 fg=COLORS["text_secondary"],
+                 font=theme.font(9), width=7, anchor=tk.W
+                 ).pack(side=tk.LEFT)
+        self.room_remark_entry = DarkEntry(r3, width=20)
+        self.room_remark_entry.pack(side=tk.LEFT, fill=tk.X, expand=True,
+                                    padx=(4, 0))
+
+        # 直播间按钮：三列并排
+        room_btns = tk.Frame(body_r, bg=COLORS["bg_card"])
+        room_btns.pack(fill=tk.X)
+        DarkButton(room_btns, "＋ 添加", command=self._manager_add_room,
+                   height=30, compact=True).pack(side=tk.LEFT, fill=tk.X,
+                                                 expand=True, padx=(0, 3))
+        DarkButton(room_btns, "删除", command=self._manager_delete_room,
+                   height=30, bg_color=COLORS["danger"],
+                   text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT, fill=tk.X,
+                                      expand=True, padx=(0, 3))
+        DarkButton(room_btns, "从账户导入",
+                   command=self._manager_import_rooms_from_accounts,
+                   height=30, bg_color="#2980b9", text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT, fill=tk.X,
+                                      expand=True)
 
         self._refresh_manager_room_list()
+        try:
+            self._update_account_room_counts()
+        except Exception:
+            pass
 
     def _build_guide_page(self):
         """构建任务说明页面（左侧固定目录树 + 右侧内容，点击目录跳转）"""
@@ -904,6 +1023,18 @@ class DanmakuApp:
         self._guide_toc_list = toc_list
         self._guide_toc_entries = toc_entries
         self._guide_text = text
+
+    def _update_account_room_counts(self):
+        """更新账户/直播间数量标签（v6.6.3）。"""
+        try:
+            n_acc = len(getattr(self.account_mgr, "accounts", []) or [])
+            n_room = len(getattr(self.room_mgr, "rooms", []) or [])
+            if hasattr(self, "account_count_label"):
+                self.account_count_label.config(text="%d 个" % n_acc)
+            if hasattr(self, "room_count_label"):
+                self.room_count_label.config(text="%d 个" % n_room)
+        except Exception:
+            pass
 
     def _refresh_manager_room_list(self):
         """刷新直播间管理列表"""

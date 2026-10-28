@@ -413,7 +413,7 @@ def _get_measure_font():
     return f
 
 
-def _estimate_text_width(text):
+def _estimate_text_width(text, size_ratio=1.0):
     """按字符类型估算文字像素宽度（不用 font.measure）。
 
     为什么不用 font.measure：
@@ -424,19 +424,20 @@ def _estimate_text_width(text):
       误差在 ±8% 内，配合足够的内边距完全够用。
     """
     w = 0
+    _r = float(size_ratio or 1.0)
     for ch in text:
         cp = ord(ch)
         if cp >= 0x1F000 or 0x2600 <= cp <= 0x27BF:
-            w += 20          # emoji / 杂项符号
+            w += 20 * _r          # emoji / 杂项符号
         elif cp >= 0x2E80:   # CJK 统一表意文字及扩展
-            w += 15
+            w += 15 * _r
         elif ch in "ilI.,:;'!|":
-            w += 4           # 窄 ASCII
+            w += 4 * _r           # 窄 ASCII
         elif ch.isupper():
-            w += 10          # 大写字母
+            w += 10 * _r          # 大写字母
         else:
-            w += 8           # 常规 ASCII
-    return w
+            w += 8 * _r           # 常规 ASCII
+    return int(w + 0.5)
 
 
 def _measure_button_width(text, height=44, pad_x=_BTN_PAD_X, min_width=_BTN_MIN_WIDTH):
@@ -448,7 +449,11 @@ def _measure_button_width(text, height=44, pad_x=_BTN_PAD_X, min_width=_BTN_MIN_
     if key in _measure_cache:
         return _measure_cache[key]
 
-    tw = _estimate_text_width(text)
+    try:
+        from ui.theme import FONT_GROW as _FG
+    except Exception:
+        _FG = 1.0
+    tw = _estimate_text_width(text, size_ratio=_FG)
     width = max(min_width, tw + pad_x)
     _measure_cache[key] = width
     return width

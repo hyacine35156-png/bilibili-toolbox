@@ -416,19 +416,26 @@ class ScheduleFrame(tk.Frame):
                          fg=COLORS["text_secondary"],
                          font=("微软雅黑", 9)).pack(side=tk.LEFT,
                                                     padx=(0, 2))
-                var = tk.StringVar(value=default)
-                vals = [c[0] for c in f.get("choices", [])]
+                # v6.6.3: 下拉框显示【中文标签】，内部存英文键值
+                choices = f.get("choices", [])
+                eng2cn = {c[0]: c[1] for c in choices}
+                cn2eng = {c[1]: c[0] for c in choices}
+                cn_vals = [c[1] for c in choices]
+                init_cn = eng2cn.get(default, cn_vals[0] if cn_vals else "")
+                disp_var = tk.StringVar(value=init_cn)
                 try:
                     from widgets import RoundCombobox
-                    cb = RoundCombobox(self.param_frame, textvariable=var,
-                                       values=vals, width=110, height=26)
+                    cb = RoundCombobox(self.param_frame, textvariable=disp_var,
+                                       values=cn_vals, width=11, height=26)
                 except Exception:
-                    cb = ttk.Combobox(self.param_frame, textvariable=var,
-                                      values=vals, width=10, state="readonly")
+                    cb = ttk.Combobox(self.param_frame, textvariable=disp_var,
+                                      values=cn_vals, width=11, state="readonly")
                 cb.pack(side=tk.LEFT, padx=(0, 8))
                 self._param_vars[key] = {"type": "choice",
                                          "widget": cb,
-                                         "var": var,
+                                         "var": disp_var,
+                                         "cn2eng": cn2eng,
+                                         "eng2cn": eng2cn,
                                          "value": default}
 
             elif typ == "bool":
@@ -473,7 +480,15 @@ class ScheduleFrame(tk.Frame):
                     out[key] = int(info["widget"].get().strip())
                 except Exception:
                     out[key] = 0
-            elif typ in ("choice", "bool"):
+            elif typ == "choice":
+                # v6.6.3: 界面显示中文，保存时转回英文键
+                try:
+                    disp = info["var"].get()
+                    cn2eng = info.get("cn2eng") or {}
+                    out[key] = cn2eng.get(disp, disp)
+                except Exception:
+                    out[key] = info.get("value")
+            elif typ == "bool":
                 try:
                     out[key] = info["var"].get()
                 except Exception:
@@ -497,7 +512,14 @@ class ScheduleFrame(tk.Frame):
                     w.insert(0, str(val))
                 except Exception:
                     pass
-            elif typ in ("choice", "bool"):
+            elif typ == "choice":
+                # v6.6.3: 载入模板时英文键转中文显示
+                try:
+                    eng2cn = info.get("eng2cn") or {}
+                    info["var"].set(eng2cn.get(val, val))
+                except Exception:
+                    pass
+            elif typ == "bool":
                 try:
                     info["var"].set(val)
                 except Exception:

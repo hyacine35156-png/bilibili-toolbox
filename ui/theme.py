@@ -56,6 +56,10 @@ def sz(n, widget=None):
 
 FONT_FAMILY = "微软雅黑"
 
+# v6.6.3: 全局字号放大因子（1.0=原样，1.15=放大15%）
+# 用户反馈"字体太小"，统一放大一点，兼顾可读性与布局不溢出
+FONT_GROW = 1.15
+
 
 def font(size=10, bold=False, family=None, italic=False):
     """字号元组。支持 bold / italic 组合。
@@ -67,7 +71,9 @@ def font(size=10, bold=False, family=None, italic=False):
     这正是 v6.1.0 初版字体被放大的原因。这里保持与历史硬编码
     ("微软雅黑", 10) 完全一致的行为。
     """
-    s = int(size)
+    # v6.6.3: 全局字号放大因子（用户要求"字体太小，都稍微放大一点"）
+    # 只在 theme.font 这一处控制，所有页面统一生效
+    s = int(round(int(size) * FONT_GROW))
     fam = family or FONT_FAMILY
     styles = []
     if bold:
