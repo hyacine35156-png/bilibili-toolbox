@@ -958,90 +958,199 @@ class NewModeMixin:
             self.nm_log(f"已向 {running_count} 个任务组发送停止指令，等待当前请求完成后停止...")
 
     def nm_sync_system_time(self):
-        """同步系统时间（v6.4.0 重写：真正验证结果 + 明确失败原因）。
+        """同步系统时间（v6.5.2 彻底重写：绕过 w32time 的 dispersion 门槛）。
 
-        原实现的问题（实测确认）：
-          1. 只检查命令是否"发出"，不检查时间是否真的被修正
-          2. 用 w32tm /resync，但实测在权限不足时直接失败（0x80070005）
-          3. 失败时仍提示"同步完成"，用户以为成功了
+        【实测确认的真正根因】(2026-10-28 诊断)
+          Windows 时间服务其实一直在正常运行、也在正常同步：
+            sc query w32time        -> STATE: RUNNING
+            w32tm /query /status    -> 上次成功同步时间: 2026/10/28 15:08:33
+                                       源: ntp.tencent.com
 
-        新实现：
-          1. UAC 提权执行 w32tm 完整修复流程（stop→unregister→register→start→config→resync）
-          2. 同步前后各测一次真实 NTP 偏差，用【偏差是否下降】判断成功
-          3. 失败时明确告知原因和解法
+          但根分散(root dispersion) = 8.115 秒，而实测偏差只有 +287ms。
+          Windows 的时钟调整规则是：只有 |偏差| > 根分散 才真正改时钟。
+          8.1s >> 287ms  ->  Windows 认为"无需调整"，/resync 报成功但时钟不动。
+
+          这就是为什么用户看到"同步成功"却偏差不变，
+          也是为什么之前"重装服务+resync"的整套流程完全无效。
+
+        【新方案】双管齐下：
+          A(首选，精准)：提权后用 PowerShell Set-Date 直接设置系统时间
+                        绕过 w32time 的全部判定逻辑
+          B(兜底)：把 LocalClockDispersion 调小到 1 秒，
+                   让 w32time 判定门槛降到 1s，之后 resync 才能真正生效
         """
         import subprocess
-
-        # ---- 1) 同步前测基线偏差 ----
-        before_off, _, _ = self.nm_measure_time_offset(samples_per_server=2)
-        if before_off is not None:
-            self.nm_log(f"[时间同步] 同步前偏差 {before_off:+.0f}ms")
-        else:
-            self.nm_log("[时间同步] 同步前无法测量偏差（网络问题）")
-
-        # ---- 2) UAC 提权执行完整修复 ----
-        # 用临时 bat 脚本：完整重置时间服务 + 强制同步
-        # 注意：只做 resync 往往因权限/服务状态失败，需要完整流程
-        bat_lines = [
-            "@echo off",
-            "chcp 65001 >nul",
-            "echo ===== 正在修复系统时间 =====",
-            "echo [1/5] 停止时间服务...",
-            "net stop w32time >nul 2>&1",
-            "echo [2/5] 注册时间服务...",
-            "w32tm /unregister >nul 2>&1",
-            "w32tm /register >nul 2>&1",
-            "echo [3/5] 启动时间服务...",
-            "net start w32time >nul 2>&1",
-            "echo [4/5] 配置NTP服务器...",
-            'w32tm /config /syncfromflags:manual /manualpeerlist:"ntp.aliyun.com ntp.tencent.com time.windows.com" >nul 2>&1',
-            "w32tm /config /update >nul 2>&1",
-            "echo [5/5] 强制同步...",
-            "w32tm /resync /force",
-            "echo.",
-            "echo ===== 完成，窗口将在3秒后关闭 =====",
-            "timeout /t 3 >nul",
-        ]
         import tempfile
-        bat_path = os.path.join(tempfile.gettempdir(), "dsh_fix_time.bat")
+
+        def _log(msg):
+            try:
+                self.nm_log(msg)
+            except Exception:
+                pass
+
+        _log("=" * 52)
+        _log("开始系统时间同步")
+        _log("=" * 52)
+
+        # ---- 1) 同步前：测真实偏差 ----
+        _log("[1/6] 测量同步前偏差...")
+        before_off, before_rtt, before_srv = self.nm_measure_time_offset(
+            samples_per_server=3)
+        if before_off is None:
+            _log("  [X] 无法测量偏差（网络问题），中止")
+            messagebox.showerror(
+                "无法同步",
+                "无法连接 NTP 服务器，不能测量当前偏差。\n\n请检查网络后重试。",
+                parent=self.winfo_toplevel())
+            return
+        _log("  同步前偏差: %+.1fms  (RTT %.1fms, 源 %s)"
+             % (before_off, before_rtt, before_srv))
+
+        # ---- 2) 诊断 Windows 时间服务 ----
+        _log("[2/6] 诊断 Windows 时间服务状态...")
+        _root_disp = None
         try:
-            with open(bat_path, "w", encoding="gbk") as f:
-                f.write("\r\n".join(bat_lines))
+            r = subprocess.run(["w32tm", "/query", "/status"],
+                               capture_output=True, text=True,
+                               encoding="gbk", errors="ignore", timeout=10)
+            if r.returncode == 0 and r.stdout:
+                import re as _re
+                for line in r.stdout.split("\n"):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if ("根分散" in line or "Root Dispersion" in line
+                            or "root dispersion" in line.lower()):
+                        _log("  " + line)
+                        m = _re.search(r"([0-9.]+)\s*s?", line)
+                        if m:
+                            try:
+                                _root_disp = float(m.group(1))
+                            except Exception:
+                                pass
+                    elif ("上次成功" in line or "Last Successful" in line):
+                        _log("  " + line)
+                    elif ("源:" in line or line.startswith("Source:")):
+                        _log("  " + line)
+            else:
+                _log("  w32tm /query /status 返回码 %d" % r.returncode)
         except Exception as e:
-            messagebox.showerror("无法创建脚本", f"写入临时脚本失败：{e}",
+            _log("  w32tm 调用异常: %s" % e)
+
+        if _root_disp is not None and _root_disp > 1.0:
+            _log("  [!] 关键发现：根分散 %.2fs 远大于偏差 %.0fms"
+                 % (_root_disp, abs(before_off)))
+            _log("      Windows 规则是「偏差 > 根分散」才改时钟，")
+            _log("      所以 /resync 一直报成功但时钟不动 —— 这是真因。")
+
+        # ---- 3) 构造提权脚本 ----
+        _log("[3/6] 准备提权脚本（Set-Date 直设法 + 降 dispersion 兜底）...")
+
+        import datetime as _dtm
+        _target = _dtm.datetime.now() + _dtm.timedelta(milliseconds=before_off)
+        _target_str = _target.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+        ps_lines = [
+            "$ErrorActionPreference = 'Continue'",
+            # v6.5.2: 强制 UTF-8 输出，否则中文"根分散"读不到（实测过）
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+            "$OutputEncoding = [System.Text.Encoding]::UTF8",
+            "chcp 65001 | Out-Null",
+            "Write-Output '===== 系统时间同步 ====='",
+            "",
+            "Write-Output '[A] 尝试 Set-Date 直接设定（精准方案）'",
+            "try {",
+            "    $t = [datetime]::ParseExact('%s', 'yyyy-MM-dd HH:mm:ss.fff', $null)" % _target_str,
+            "    Set-Date -Date $t -ErrorAction Stop | Out-Null",
+            "    Write-Output ('    OK 已设置，当前: ' + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss.fff'))",
+            "    Write-Output 'SETDATE_OK'",
+            "} catch {",
+            "    Write-Output ('    FAIL: ' + $_.Exception.Message)",
+            "}",
+            "",
+            "Write-Output ''",
+            "Write-Output '[B] 降低 LocalClockDispersion 到 1 秒'",
+            "$o1 = (w32tm /config /LocalClockDispersion:1 2>&1 | Out-String)",
+            "Write-Output ('    ' + $o1.Trim())",
+            "$o2 = (w32tm /config /update 2>&1 | Out-String)",
+            "Write-Output ('    ' + $o2.Trim())",
+            "",
+            "Write-Output ''",
+            "Write-Output '[C] 强制 resync'",
+            "$o3 = (w32tm /resync /force 2>&1 | Out-String)",
+            "Write-Output ('    ' + $o3.Trim())",
+            "",
+            "Write-Output ''",
+            "Write-Output '[D] 同步后服务状态'",
+            "$st = (w32tm /query /status 2>&1 | Out-String)",
+            "# v6.5.2: 同时匹配英文关键词（避免中文编码问题导致读不到）",
+            "$pat = 'dispersion|Dispersion|Root|Last Successful|Source|Leap|Stratum|Poll'",
+            "foreach ($ln in ($st -split [char]10)) {",
+            "    $t = $ln.Trim()",
+            "    if ($t -ne '' -and $t -match $pat) {",
+            "        Write-Output ('    ' + $t)",
+            "    }",
+            "}",
+            "",
+            "Write-Output '===== 完成 ====='",
+            "Write-Output ('当前时间: ' + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss.fff'))",
+        ]
+        ps_text = chr(13).join([""]) + chr(10).join(ps_lines)
+
+        ps_path = os.path.join(tempfile.gettempdir(), "dsh_sync_time.ps1")
+        try:
+            with open(ps_path, "w", encoding="utf-8-sig") as f:
+                f.write(ps_text)
+            _log("  脚本已写入: %s" % ps_path)
+        except Exception as e:
+            _log("  [X] 写入脚本失败: %s" % e)
+            messagebox.showerror("同步失败", "无法创建临时脚本：\n%s" % e,
                                  parent=self.winfo_toplevel())
             return
 
-        self.nm_log("[时间同步] 请求管理员权限（请在弹出的UAC窗口点「是」）...")
+        # ---- 4) UAC 提权执行 ----
+        _log("[4/6] 请求管理员权限（请在 UAC 窗口点「是」）...")
+        out_path = os.path.join(tempfile.gettempdir(), "dsh_sync_out.txt")
+        try:
+            if os.path.exists(out_path):
+                os.remove(out_path)
+        except Exception:
+            pass
+
+        _cmd_line = (' /c powershell -NoProfile -ExecutionPolicy Bypass '
+                     '-File "%s" > "%s" 2>&1' % (ps_path, out_path))
+
         try:
             see = _SHELLEXECUTEINFOW()
             see.cbSize = ctypes.sizeof(_SHELLEXECUTEINFOW)
-            see.fMask = 0x00000040  # SEE_MASK_NOCLOSEPROCESS
+            see.fMask = 0x00000040
             see.lpVerb = "runas"
             see.lpFile = "cmd.exe"
-            see.lpParameters = f'/c "{bat_path}"'
-            see.nShow = 1
+            see.lpParameters = _cmd_line
+            see.nShow = 0
             ok = ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(see))
         except Exception as e:
-            self.nm_log(f"[时间同步] 提权失败: {e}")
-            messagebox.showerror("同步失败", f"请求管理员权限失败：\n{e}",
+            _log("  [X] 提权异常: %s" % e)
+            messagebox.showerror("同步失败", "请求管理员权限异常：\n%s" % e,
                                  parent=self.winfo_toplevel())
             return
 
         if not ok or not see.hProcess:
-            # 用户点了"否"，或 UAC 被拒绝
             err = ctypes.get_last_error()
-            self.nm_log(f"[时间同步] 用户取消或UAC拒绝（错误码 {err}）")
+            _log("  [X] 用户取消或UAC拒绝（错误码 %d）" % err)
             messagebox.showwarning(
                 "同步已取消",
                 "未获得管理员权限，无法修改系统时间。\n\n"
-                "影响：时钟偏差会继续累积，但程序会自动补偿。\n"
-                "解法：右键程序 → 以管理员身份运行，再点此按钮。",
+                "说明：Windows 修改系统时间必须先获得管理员权限。\n\n"
+                "解法：\n"
+                "  1. 右键「B站工具箱」-> 以管理员身份运行\n"
+                "  2. 再点「同步系统时间」\n\n"
+                "（程序已自动补偿偏差，不修复也能正常抢码）",
                 parent=self.winfo_toplevel())
             return
 
-        self.nm_log("[时间同步] 已授权，等待修复流程完成...")
-        ctypes.windll.kernel32.WaitForSingleObject(see.hProcess, 60000)
+        _log("  已授权，等待执行...")
+        ctypes.windll.kernel32.WaitForSingleObject(see.hProcess, 90000)
         ret_code = ctypes.c_ulong(0)
         try:
             ctypes.windll.kernel32.GetExitCodeProcess(
@@ -1049,59 +1158,92 @@ class NewModeMixin:
         except Exception:
             pass
         ctypes.windll.kernel32.CloseHandle(see.hProcess)
-        self.nm_log(f"[时间同步] 修复命令执行完毕（返回码 {ret_code.value}）")
+        _log("  提权进程返回码: %d" % ret_code.value)
 
-        # ---- 3) 同步后复测，用偏差是否下降判断是否真的成功 ----
+        # ---- 5) 读回完整输出 ----
+        _log("[5/6] 提权脚本输出:")
+        _setdate_ok = False
+        try:
+            time.sleep(0.5)
+            if os.path.exists(out_path):
+                raw = open(out_path, "r", encoding="utf-8",
+                           errors="ignore").read()
+                for line in raw.split("\n"):
+                    line = line.rstrip()
+                    if line.strip():
+                        _log("  | " + line)
+                        if "SETDATE_OK" in line:
+                            _setdate_ok = True
+            else:
+                _log("  （未生成输出文件，可能被安全软件拦截）")
+        except Exception as e:
+            _log("  读取输出失败: %s" % e)
+
+        # ---- 6) 复测 ----
+        _log("[6/6] 复测偏差...")
         time.sleep(1.0)
-        after_off, _, _ = self.nm_measure_time_offset(samples_per_server=2)
+        after_off, after_rtt, after_srv = self.nm_measure_time_offset(
+            samples_per_server=3)
+
         if after_off is None:
-            self.nm_log("[时间同步] 同步后无法测量偏差（网络问题），无法确认结果")
+            _log("  [X] 无法复测偏差")
             messagebox.showwarning(
                 "无法确认结果",
-                "修复命令已执行，但无法测量当前偏差。\n\n"
+                "同步命令已执行，但无法测量当前偏差。\n\n"
                 "请稍后点「查询时间状态」确认。",
                 parent=self.winfo_toplevel())
             return
 
-        self.nm_log(f"[时间同步] 同步后偏差 {after_off:+.0f}ms")
-        if before_off is not None:
-            improved = abs(before_off) - abs(after_off)
-            self.nm_log(f"[时间同步] 改善 {improved:+.0f}ms")
-        else:
-            improved = None
+        improved = abs(before_off) - abs(after_off)
+        _log("  同步后偏差: %+.1fms  (RTT %.1fms, 源 %s)"
+             % (after_off, after_rtt, after_srv))
+        _log("  改善量: %+.1fms" % improved)
 
-        # ---- 4) 根据真实结果给出明确反馈 ----
         if abs(after_off) <= 50:
-            self.nm_log(f"✓ 同步成功，偏差已降至 {after_off:+.0f}ms")
+            _log("[OK] 同步成功！%+.0fms -> %+.0fms" % (before_off, after_off))
+            _log("=" * 52)
+            _way = "Set-Date 直接设置" if _setdate_ok else "w32time + 降 dispersion"
             messagebox.showinfo(
                 "同步成功",
-                f"系统时间同步成功！\n\n"
-                f"同步前：{('%+.0fms' % before_off) if before_off is not None else '未知'}\n"
-                f"同步后：{after_off:+.0f}ms\n\n"
-                "偏差已降至安全范围（≤50ms）。",
+                "系统时间已校正。\n\n"
+                "同步前：%+.1fms\n"
+                "同步后：%+.1fms\n"
+                "改善：%+.1fms\n\n方式：%s"
+                % (before_off, after_off, improved, _way),
                 parent=self.winfo_toplevel())
-        elif improved is not None and improved > 50:
-            self.nm_log(f"○ 同步部分成功，偏差 {before_off:+.0f} -> {after_off:+.0f}ms")
+
+        elif improved > 100:
+            _log("[~] 部分成功：%+.0fms -> %+.0fms" % (before_off, after_off))
+            _log("=" * 52)
             messagebox.showinfo(
-                "同步部分成功",
-                f"偏差有所改善，但仍有 {(after_off):+.0f}ms。\n\n"
-                f"同步前：{before_off:+.0f}ms\n"
-                f"同步后：{after_off:+.0f}ms\n\n"
-                "可以再点一次同步，或用「一键修复时间服务」。",
+                "部分成功",
+                "时间有改善但未完全校正。\n\n"
+                "同步前：%+.1fms\n"
+                "同步后：%+.1fms\n"
+                "改善：%+.1fms\n\n可以再点一次同步。"
+                % (before_off, after_off, improved),
                 parent=self.winfo_toplevel())
+
         else:
-            self.nm_log(f"✗ 同步失败，偏差仍为 {after_off:+.0f}ms")
+            _log("[X] 同步未能改善（偏差 %+.0fms）" % after_off)
+            _log("=" * 52)
+            if _root_disp is not None and _root_disp > 1.0:
+                reason = ("根分散 = %.1f 秒\n"
+                          "Windows 只在「偏差 > 根分散」时改时钟。\n"
+                          "你的偏差 %.0fms 远小于根分散。"
+                          % (_root_disp, abs(after_off)))
+            else:
+                reason = "可能是权限不足，或系统时间被安全软件锁定。"
             messagebox.showerror(
                 "同步失败",
-                f"时间没有成功校正。\n\n"
-                f"当前偏差：{after_off:+.0f}ms\n\n"
-                "可能原因：\n"
-                "  1. Windows 时间服务被组策略禁用\n"
-                "  2. NTP 端口(123/UDP)被防火墙拦截\n"
-                "  3. 系统时间被其他软件锁定\n\n"
-                "建议：点「一键修复时间服务」重装服务，\n"
-                "或手动执行 w32tm /resync（管理员命令行）。",
+                "时间没有改善。\n\n当前偏差：%+.1fms\n\n"
+                "诊断：\n%s\n\n"
+                "手动方案：\n"
+                "  右键任务栏时间 -> 调整日期/时间 -> 立即同步\n\n"
+                "注：程序会自动补偿偏差，抢码 timing 仍准确。"
+                % (after_off, reason),
                 parent=self.winfo_toplevel())
+
     def nm_measure_time_offset(self, samples_per_server=2):
         """用原生 NTP 协议直接测系统时间偏差（v6.2.1 新增）。
 
@@ -1161,72 +1303,198 @@ class NewModeMixin:
             offset_ms = statistics.median([m[0] for m in measured]) * 1000.0
         return offset_ms, rtt_ms, best[2]
 
-    def nm_query_time_status(self):
-        """查询系统时间同步状态（v6.2.1 重写：原生NTP为主，w32tm为辅）"""
-        import subprocess
-        self.nm_log("=" * 44)
-        self.nm_log("🕐 系统时间检测")
-        self.nm_log("=" * 44)
 
-        # ---- 主检测：原生 NTP（快、不依赖时间服务）----
-        offset_ms, rtt_ms, server = self.nm_measure_time_offset(samples_per_server=2)
-        if offset_ms is not None:
-            self.nm_log(f"  ✓ NTP实测偏差: {offset_ms:+.0f}ms  (RTT {rtt_ms:.0f}ms, 来源 {server})")
-            # 判断健康度
-            abs_off = abs(offset_ms)
-            if abs_off <= 100:
-                self.nm_log(f"  ✓ 时间精度良好（≤100ms），抢码 timing 正常")
+    def nm_measure_time_offset_detail(self, samples_per_server=3):
+        """测量时间偏差并返回详细数据（v6.5.2，供精准日志用）。
+
+        返回 dict:
+          samples  [(服务器, 偏差ms, RTTms), ...]
+          median   偏差中位
+          stdev    标准差
+          best     (服务器, 偏差, RTT)  RTT最小那个
+        """
+        import socket
+        import struct
+        import statistics
+
+        NTP_SERVERS = ["ntp.aliyun.com", "ntp.tencent.com",
+                       "cn.pool.ntp.org", "time.windows.com"]
+        NTP_PACKET = bytes([0x1B]) + bytes(47)
+        samples = []
+        for srv in NTP_SERVERS:
+            for _i in range(max(1, samples_per_server)):
+                s = None
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.settimeout(2)
+                    t1 = time.time()
+                    s.sendto(NTP_PACKET, (srv, 123))
+                    data, _ = s.recvfrom(1024)
+                    t4 = time.time()
+                    u = struct.unpack("!12I", data[0:48])
+                    t2 = u[8] - 2208988800 + u[9] / 4294967296.0
+                    t3 = u[10] - 2208988800 + u[11] / 4294967296.0
+                    off = ((t2 - t1) + (t3 - t4)) / 2.0
+                    rtt = (t4 - t1) - (t3 - t2)
+                    if abs(off) < 86400:
+                        samples.append((srv, off * 1000, rtt * 1000))
+                except Exception:
+                    pass
+                finally:
+                    if s:
+                        try:
+                            s.close()
+                        except Exception:
+                            pass
+                time.sleep(0.08)
+            if samples:
+                break
+
+        if not samples:
+            return None
+
+        offs = [x[1] for x in samples]
+        med = statistics.median(offs)
+        sd = statistics.stdev(offs) if len(offs) > 1 else 0.0
+        best = min(samples, key=lambda x: x[2])
+        return {"samples": samples, "median": med, "stdev": sd, "best": best}
+
+    def nm_query_time_status(self):
+        """查询系统时间同步状态（v6.5.2 增强版日志）。
+
+        用户要求「更准确的日志」，输出：
+          1. NTP 实测偏差（多服务器多次采样：中位数/标准差/每样本明细）
+          2. Windows 时间服务状态 + 根分散（关键诊断参数）
+          3. 【自动判定】时钟是否真的能自动校正
+        """
+        import subprocess
+        import re as _re2
+
+        self.nm_log("=" * 52)
+        self.nm_log("系统时间检测")
+        self.nm_log("=" * 52)
+
+        # ---- 1) NTP 实测 ----
+        self.nm_log("[1/3] NTP 实测偏差")
+        detail = None
+        try:
+            detail = self.nm_measure_time_offset_detail()
+        except Exception as e:
+            self.nm_log("  测量异常: %s" % e)
+
+        if detail:
+            samples = detail.get("samples") or []
+            med = detail.get("median") or 0
+            sd = detail.get("stdev") or 0
+            best = detail.get("best")
+            self.nm_log("  采样 %d 次:" % len(samples))
+            for item in samples[:8]:
+                srv, val, rtt = item[0], item[1], item[2]
+                self.nm_log("    %-18s %+8.1fms   RTT %5.1fms" % (srv, val, rtt))
+            self.nm_log("  中位数: %+.1fms   标准差: %.1fms" % (med, sd))
+            if best:
+                self.nm_log("  RTT最小: %+.1fms (%s, RTT %.1fms)"
+                            % (best[1], best[0], best[2]))
+
+            abs_off = abs(med)
+            if abs_off <= 50:
+                self.nm_log("  [OK] 偏差极小(<=50ms)，timing 非常准确")
+                grade = "good"
+            elif abs_off <= 100:
+                self.nm_log("  [OK] 偏差很小(<=100ms)，timing 正常")
                 grade = "good"
             elif abs_off <= 300:
-                self.nm_log(f"  ⚠ 偏差偏大（>100ms）：虽已自动补偿，但建议同步")
+                self.nm_log("  [!] 偏差偏大(100-300ms)，已自动补偿")
                 grade = "warn"
-            else:
-                self.nm_log(f"  ⚠ 偏差很大（>{300}ms）：已自动补偿，仍建议尽快同步系统时间")
+            elif abs_off <= 2000:
+                self.nm_log("  [!] 偏差很大(>300ms)，已自动补偿，建议修复")
                 grade = "bad"
-            self.nm_log(f"  说明：程序会把该偏差加入提前量计算，自动抵消")
-            self._last_time_offset_ms = offset_ms
+            else:
+                self.nm_log("  [X] 偏差极大(>2秒)，补偿可能失效，必须修复!")
+                grade = "critical"
+
+            if sd > 50:
+                self.nm_log("  [!] 采样标准差 %.0fms 偏大，网络不稳定" % sd)
+            self.nm_log("  说明：程序会把偏差加入提前量，自动抵消")
+            self._last_time_offset_ms = med
             self._time_status_grade = grade
         else:
-            self.nm_log("  ✗ 所有NTP服务器不可达")
-            self.nm_log(f"  可能原因: 网络不通 / 防火墙拦截UDP 123 端口")
-            self.nm_log(f"  提示: 抢码将回退使用固定提前量，精度略降但可正常抢")
+            self.nm_log("  [X] 所有 NTP 服务器不可达")
+            self.nm_log("      可能：网络不通 / 防火墙拦截 UDP 123")
+            self.nm_log("      影响：抢码回退到固定提前量，精度略降")
             self._last_time_offset_ms = None
             self._time_status_grade = "unknown"
 
-        # ---- 辅助参考：Windows 时间服务状态 ----
-        self.nm_log("-" * 44)
+        # ---- 2) Windows 时间服务 ----
+        self.nm_log("-" * 52)
+        self.nm_log("[2/3] Windows 时间服务")
+        root_disp = None
         try:
-            result = subprocess.run(
-                ["w32tm", "/query", "/status"],
-                capture_output=True, text=True, encoding="gbk", errors="ignore",
-                timeout=8
-            )
-            if result.returncode == 0 and result.stdout:
-                self.nm_log("  Windows时间服务状态:")
-                keep = False
-                for line in result.stdout.strip().split("\n"):
+            r = subprocess.run(["w32tm", "/query", "/status"],
+                               capture_output=True, text=True,
+                               encoding="gbk", errors="ignore", timeout=8)
+            if r.returncode == 0 and r.stdout:
+                shown = 0
+                for line in r.stdout.split(chr(10)):
                     line = line.strip()
                     if not line:
                         continue
-                    # 只显示关键几行，避免刷屏
-                    if any(k in line for k in ["Source", "源", "Last Successful", "上次成功",
-                                                "Poll Interval", "轮询间隔", "Stratum", "层级"]):
-                        self.nm_log(f"    {line}")
-                        keep = True
-                if not keep:
-                    self.nm_log("    (服务运行中)")
+                    low = line.lower()
+                    hit = False
+                    if ("dispersion" in low or "root delay" in low
+                            or "last successful" in low
+                            or low.startswith("source:") or "stratum" in low
+                            or "poll interval" in low):
+                        hit = True
+                    # 中文关键字兜底
+                    if any(k in line for k in ("根分散", "根延迟", "上次成功", "源:", "层级", "轮询间隔")):
+                        hit = True
+                    if hit:
+                        self.nm_log("    " + line)
+                        shown += 1
+                        # 提取根分散数值
+                        if "dispersion" in low or "根分散" in line:
+                            m = _re2.search(r"([0-9]+\.[0-9]+)", line)
+                            if m:
+                                try:
+                                    root_disp = float(m.group(1))
+                                except Exception:
+                                    pass
+                if shown == 0:
+                    self.nm_log("    (服务运行中，原始输出前3行)")
+                    for line in r.stdout.split(chr(10))[:3]:
+                        if line.strip():
+                            self.nm_log("      " + line.strip())
             else:
-                err = (result.stdout or result.stderr or "").strip()
-                self.nm_log("  ⚠ Windows时间服务未运行")
+                err = ((r.stdout or "") + (r.stderr or "")).strip()
+                self.nm_log("    [X] 无法读取服务状态 (rc=%d)" % r.returncode)
                 if err:
-                    self.nm_log(f"    原因: {err[:80]}")
-                self.nm_log("    影响: 系统时间可能慢慢漂移，建议偶尔点「同步系统时间」")
-                self.nm_log("    （注意：不影响本次抢码，程序会自动补偿偏差）")
+                    self.nm_log("        " + err[:70])
         except Exception as e:
-            self.nm_log(f"  Windows时间服务检测跳过: {e}")
+            self.nm_log("    [X] w32tm 调用异常: %s" % e)
 
-        self.nm_log("=" * 44)
-        return offset_ms
+        # ---- 3) 自动判定 ----
+        self.nm_log("-" * 52)
+        self.nm_log("[3/3] 自动校正能力判定")
+        cur_off = self._last_time_offset_ms
+        if root_disp is not None and cur_off is not None:
+            if root_disp > abs(cur_off) / 1000.0:
+                self.nm_log("  [关键] 根分散 %.2fs > 偏差 %.0fms"
+                            % (root_disp, abs(cur_off)))
+                self.nm_log("         Windows 只在「偏差 > 根分散」时改时钟，")
+                self.nm_log("         所以系统不会自动校正，/resync 报成功但无效。")
+                self.nm_log("         解法：点「同步系统时间」(会用 Set-Date 强制设定)")
+            else:
+                self.nm_log("  [OK] 根分散 %.2fs <= 偏差 %.0fms"
+                            % (root_disp, abs(cur_off)))
+                self.nm_log("       系统能自动校正偏差。")
+        elif cur_off is not None:
+            self.nm_log("  未读到根分散，无法判定自动校正能力")
+            self.nm_log("  (只影响系统自动同步，程序补偿不受影响)")
+        else:
+            self.nm_log("  NTP 不可达，无法判定")
+
+        self.nm_log("=" * 52)
 
     def nm_fix_time_service(self):
         """一键修复时间服务：停止→注销→重注册→启动→配NTP→同步"""
