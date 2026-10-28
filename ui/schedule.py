@@ -649,9 +649,12 @@ class ScheduleFrame(tk.Frame):
 
         try:
             if task["type"] == "watch":
+                # v6.6.0: 懒加载页面必须先构建，否则 watch_page=None 导致启动直接失败
+                self.app._ensure_page_built("watch")
                 # 不跳转，直接后台启动看播
                 self.app.root.after(100, lambda: self._start_watch_safe(task))
             elif task["type"] == "danmaku":
+                # 弹幕页常驻，无需构建
                 # 不跳转，直接后台启动弹幕
                 self.app.root.after(100, lambda: self._start_danmaku_safe(task))
             elif task["type"] == "rush":
@@ -677,21 +680,55 @@ class ScheduleFrame(tk.Frame):
             self.log(f"✗ 任务「{task['name']}」执行失败: {e}")
 
     def _start_watch_safe(self, task):
+        """启动看播（v6.6.0 修复：页面懒加载 + 校验是否真的启动成功）。"""
         try:
-            if hasattr(self.app, 'watch_page') and hasattr(self.app.watch_page, 'start_watch'):
-                self.app.watch_page.start_watch()
+            # 懒加载：确保页面已构建
+            self.app._ensure_page_built("watch")
+            wp = getattr(self.app, 'watch_page', None)
+            if wp is None:
+                msg = ("✗ [日程] 看播页未构建，无法启动「%s」。"
+                       "请先手动打开一次「看播任务」标签页。" % task['name'])
+                self.log(msg)
+                self.sync_log_to_modules(msg)
+                task["status"] = "启动失败"
+                self.refresh_task_list()
+                return
+
+            if not hasattr(wp, 'start_watch'):
+                msg = f"✗ [日程] 看播页缺少 start_watch 方法"
+                self.log(msg)
+                task["status"] = "启动失败"
+                self.refresh_task_list()
+                return
+
+            wp.start_watch()
+
+            # 关键：校验是否真的启动成功（running 会变 True）
+            if getattr(wp, 'running', False):
                 msg = f"✓ [日程] 看播任务「{task['name']}」已启动"
                 self.log(msg)
                 self.sync_log_to_modules(msg)
-                # 同时写看播页面日志
-                if hasattr(self.app.watch_page, 'log'):
-                    self.app.watch_page.log(msg)
+                if hasattr(wp, 'log'):
+                    wp.log(msg)
+            else:
+                # 没启动成功（通常是缺少直播间/账户配置，start_watch 弹框后 return）
+                msg = (f"✗ [日程] 看播任务「{task['name']}」启动失败："
+                       "请检查看播页是否已选好直播间和账户")
+                self.log(msg)
+                self.sync_log_to_modules(msg)
+                if hasattr(wp, 'log'):
+                    wp.log(msg)
+                task["status"] = "启动失败"
+                self.refresh_task_list()
         except Exception as e:
             msg = f"✗ [日程] 启动看播失败: {e}"
             self.log(msg)
             self.sync_log_to_modules(msg)
-            if hasattr(self.app, 'watch_page') and hasattr(self.app.watch_page, 'log'):
-                self.app.watch_page.log(msg)
+            task["status"] = "启动失败"
+            try:
+                self.refresh_task_list()
+            except Exception:
+                pass
 
     def _start_danmaku_safe(self, task):
         try:
@@ -851,38 +888,102 @@ class ScheduleFrame(tk.Frame):
         self.save_schedule()
 
     def _monitor_long_task(self, task):
-        """监控弹幕/看播等长时间运行任务，等任务实际停止后标记完成"""
+        """监控弹幕/看播任务，等真正停止后才标记完成（v6.6.0 修复）。
+
+        【原 bug】原实现在任务没启动成功时也会立刻标记"已完成"：
+          1. watch_page 懒加载，用户没点过就是 None
+             -> hasattr(None, "running") 为 False -> is_running=False
+             -> 3秒后误报"已完成"
+          2. start_watch 因缺配置弹框 return，running 仍是 False
+             -> 同样误报"已完成"
+
+        【修复】
+          · 先校验页面是否存在
+          · 加"启动宽限期"：前 15 秒内不判定完成（给启动留时间）
+          · 若宽限期内仍未 running，标记为"启动失败"而不是"已完成"
+          · 真正跑起来后，等 running=False 才标记完成
+        """
         def monitor_loop():
-            max_wait = 86400  # 最多等24小时
+            max_wait = 86400
             waited = 0
-            check_interval = 10  # 每10秒检查一次
+            check_interval = 5
             task_type = task["type"]
+            # v6.6.0: 启动宽限期，避免刚启动就被判定完成
+            grace_period = 15
+            seen_running = False
+
             while waited < max_wait:
                 try:
                     is_running = False
+                    page_missing = False
+
                     if task_type == "danmaku":
-                        # 检查弹幕发送状态
                         if hasattr(self.app, 'running'):
-                            is_running = self.app.running
+                            is_running = bool(self.app.running)
                     elif task_type == "watch":
-                        # 检查看播状态
-                        if hasattr(self.app, 'watch_page') and hasattr(self.app.watch_page, 'running'):
-                            is_running = self.app.watch_page.running
-                    
-                    if not is_running:
-                        # 任务已停止，标记完成
-                        msg = f"✓ [日程] {task['type_name']}任务「{task['name']}」已完成"
-                        self.app.root.after(0, lambda: self._mark_task_done_with_log(task, msg))
+                        wp = getattr(self.app, 'watch_page', None)
+                        if wp is None:
+                            page_missing = True
+                        else:
+                            is_running = bool(getattr(wp, 'running', False))
+
+                    # 页面不存在 -> 明确报启动失败，不谎报完成
+                    if page_missing:
+                        msg = (f"✗ [日程] {task['type_name']}任务「{task['name']}」"
+                               "未能启动：看播页未构建")
+                        self.app.root.after(0, lambda m=msg, t=task:
+                                            self._mark_task_failed(t, m))
                         return
-                except Exception as e:
+
+                    if is_running:
+                        seen_running = True
+
+                    # 宽限期内：只观察，不判定
+                    if waited < grace_period:
+                        pass
+                    elif seen_running and not is_running:
+                        # 真正跑过然后停了 -> 正常完成
+                        msg = (f"✓ [日程] {task['type_name']}任务"
+                               f"「{task['name']}」已完成")
+                        self.app.root.after(0, lambda m=msg, t=task:
+                                            self._mark_task_done_with_log(t, m))
+                        return
+                    elif not seen_running and not is_running:
+                        # 宽限期内一直没启动 -> 启动失败
+                        msg = (f"✗ [日程] {task['type_name']}任务「{task['name']}」"
+                               "启动失败：未检测到运行状态\n"
+                               "  请检查对应页面是否已选好账户/房间")
+                        self.app.root.after(0, lambda m=msg, t=task:
+                                            self._mark_task_failed(t, m))
+                        try:
+                            self.sync_log_to_modules(msg)
+                        except Exception:
+                            pass
+                        return
+
+                except Exception:
                     pass  # 监控异常不影响任务
+
                 time.sleep(check_interval)
                 waited += check_interval
-            # 超时，标记完成
+
+            # 超时
             self.app.root.after(0, lambda: self._mark_task_done(task))
 
         monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
         monitor_thread.start()
+
+    def _mark_task_failed(self, task, msg):
+        """标记任务启动失败（v6.6.0 新增，区别于误报"已完成"）。"""
+        task["status"] = "启动失败"
+        self.log(msg)
+        try:
+            self.sync_log_to_modules(msg)
+        except Exception:
+            pass
+        self.refresh_task_list()
+        self.save_schedule()
+
 
     def _mark_task_done_with_log(self, task, msg):
         """标记任务完成并写日志，状态重置为等待中（次日继续执行）"""

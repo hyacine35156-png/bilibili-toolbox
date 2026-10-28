@@ -2822,6 +2822,167 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             if hasattr(self, 'nm_update_scheduler'):
                 self.nm_update_scheduler()
 
+    def nm_manual_rush_once(self, task):
+        """手动抢领一次（v6.6.0 新增，点击组内任务的状态圆点触发）。
+
+        与定时抢码的区别：
+          - 不做预热等待、不计算提前量，立即发一次领取请求
+          - 用任务自带的 account_name 找账户，不强依赖预选
+          - 全程后台线程，界面不卡
+        适合：补抢、验证任务能否领取、临时手动尝试。
+        """
+        import threading
+
+        def _log(msg):
+            try:
+                self.nm_log(msg)
+            except Exception:
+                pass
+
+        try:
+            tid = task.get("task_id", "")
+            tname = task.get("name", "")
+        except Exception:
+            return
+
+        _log("=" * 52)
+        _log("[手动抢领] 任务: %s" % tname)
+        _log("[手动抢领] task_id: %s" % tid)
+        _log("=" * 52)
+
+        def _worker():
+            try:
+                self._manual_rush_once_worker(task, _log)
+            except Exception as e:
+                import traceback
+                _log("  [X] 手动抢领异常: %s" % e)
+                try:
+                    _log(traceback.format_exc()[:500])
+                except Exception:
+                    pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _manual_rush_once_worker(self, task, _log):
+        """手动抢领的实际工作（后台线程）。"""
+        tid = task.get("task_id", "")
+        tname = task.get("name", "")
+        acc_name = task.get("account_name", "")
+
+        # ---- 1) 找账户 ----
+        _log("[1/4] 查找账户...")
+        account = None
+        try:
+            if acc_name:
+                account = self.account_mgr.get_account(acc_name)
+            if not account:
+                accs = getattr(self.account_mgr, "accounts", []) or []
+                if accs:
+                    account = accs[0]
+                    _log("  任务未指定账户，改用第一个: %s"
+                         % account.get("name", ""))
+        except Exception as e:
+            _log("  查找账户异常: %s" % e)
+
+        if not account:
+            _log("  [X] 没有可用账户，无法抢领")
+            _log("=" * 52)
+            self.winfo_toplevel().after(0, lambda: messagebox.showwarning(
+                "无法抢领", "没有可用账户。\n\n请先到「账户管理」添加账户。",
+                parent=self.winfo_toplevel()))
+            return
+        _log("  账户: %s" % account.get("name", ""))
+
+        # ---- 2) 查任务信息拿 act_id ----
+        _log("[2/4] 查询任务信息（act_id）...")
+        cookies = cookies_from_account(account)
+        csrf = account.get("bili_jct", "")
+        info = None
+        try:
+            info, msg = get_mission_info(tid, cookies)
+            if info:
+                _log("  act_id: %s" % info.get("act_id", ""))
+            else:
+                _log("  查询失败: %s，用备用 act_id" % msg)
+        except Exception as e:
+            _log("  查询异常: %s" % e)
+
+        if not info:
+            version = task.get("version", "")
+            backup = VERSION_DEFAULT_ACT_ID.get(version, "")
+            info = {
+                "act_id": backup,
+                "act_name": tname,
+                "task_name": tname,
+                "reward_info": {"award_name": task.get("award", "")},
+            }
+            _log("  使用备用 act_id: %s" % backup)
+
+        # ---- 3) 发领取请求 ----
+        _log("[3/4] 发送领取请求...")
+        t0 = time.time()
+        try:
+            status, result, data = receive_reward(tid, info, cookies, csrf)
+        except Exception as e:
+            _log("  [X] 请求异常: %s" % e)
+            _log("=" * 52)
+            return
+        latency = (time.time() - t0) * 1000
+
+        _log("  结果: %s   耗时: %.0fms" % (status, latency))
+        _log("  响应: %s" % str(result)[:120])
+
+        # ---- 4) 记录统计 ----
+        try:
+            _code = ""
+            _msg = str(result or "")
+            if _msg.startswith("[") and "]" in _msg:
+                _code = _msg[1:_msg.index("]")]
+            rush_stats.record(
+                task_id=tid,
+                task_name=tname,
+                account=account.get("name", ""),
+                act_id=(info or {}).get("act_id", ""),
+                result=status,
+                code=_code,
+                message=_msg,
+                latency_ms=latency,
+                award=task.get("award", ""),
+                version=task.get("version", ""),
+                window_seconds=int(task.get("window_seconds", 0) or 0),
+                priority=int(task.get("priority", 0) or 0),
+            )
+        except Exception:
+            pass
+
+        # ---- 5) 结果反馈 ----
+        _log("[4/4] 完成")
+        ok = status in ("success", "already")
+        if ok:
+            _log("  [OK] 抢领成功！")
+        else:
+            _log("  [X] 抢领未成功（%s）" % status)
+        _log("=" * 52)
+
+        def _popup():
+            try:
+                if ok:
+                    messagebox.showinfo(
+                        "抢领成功",
+                        "任务「%s」抢领成功！\n\n%s\n耗时 %.0fms"
+                        % (tname, str(result)[:80], latency),
+                        parent=self.winfo_toplevel())
+                else:
+                    messagebox.showwarning(
+                        "抢领未成功",
+                        "任务「%s」抢领未成功。\n\n%s\n耗时 %.0fms"
+                        % (tname, str(result)[:80], latency),
+                        parent=self.winfo_toplevel())
+            except Exception:
+                pass
+        self.winfo_toplevel().after(0, _popup)
+
+
     def refresh_new_mode_task_list(self):
         """刷新组内任务列表"""
         # 清空现有列表
@@ -2848,9 +3009,16 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             status_lbl = tk.Label(row, text="●", bg=COLORS["bg_card"], fg=dot_color,
                                   font=("微软雅黑", 12, "bold"), anchor=tk.W)
             status_lbl.grid(row=0, column=0, sticky="w")
+            # v6.6.0: 点击圆点 = 立即手动抢领一次
+            try:
+                status_lbl.configure(cursor="hand2")
+                status_lbl.bind("<Button-1>",
+                                lambda e, t=task: self.nm_manual_rush_once(t))
+            except Exception:
+                pass
             # 给状态圆点添加tooltip
             try:
-                ToolTip(status_lbl, status_text)
+                ToolTip(status_lbl, status_text + "（点击可立即抢领一次）")
             except Exception:
                 pass
             tk.Label(row, text=str(task.get("priority", i+1)), bg=COLORS["bg_card"],
