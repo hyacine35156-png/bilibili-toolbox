@@ -999,6 +999,13 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             "rare_only": tk.BooleanVar(value=_saved_filters.get("rare_only", True)),
             "show_excluded": tk.BooleanVar(
                 value=_saved_filters.get("show_excluded", False)),
+            # v6.5.1: 时间范围（用户需求4种：全部/昨天/近3天/自定义）
+            "date_range": tk.StringVar(
+                value=_saved_filters.get("date_range", rush_stats.RANGE_ALL)),
+            "custom_from": tk.StringVar(
+                value=_saved_filters.get("custom_from", "")),
+            "custom_to": tk.StringVar(
+                value=_saved_filters.get("custom_to", "")),
         }
         render_holder = {"fn": None}
 
@@ -1008,6 +1015,10 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 rush_stats.save_dash_filters({
                     "rare_only": bool(state["rare_only"].get()),
                     "show_excluded": bool(state["show_excluded"].get()),
+                    # v6.5.1: 时间范围也要记住
+                    "date_range": str(state["date_range"].get() or "all"),
+                    "custom_from": str(state["custom_from"].get() or ""),
+                    "custom_to": str(state["custom_to"].get() or ""),
                 })
             except Exception:
                 pass
@@ -1049,6 +1060,97 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             exc_cb.pack(side=tk.LEFT, padx=(0, 20))
         except Exception:
             pass
+
+        # ===== v6.5.1: 时间范围选择（用户需求）=====
+        range_row = tk.Frame(head, bg=COLORS["bg_card"])
+        range_row.pack(fill=tk.X, padx=18, pady=(0, 8))
+        tk.Label(range_row, text="时间范围：", bg=COLORS["bg_card"],
+                 fg=COLORS["text_secondary"], font=("微软雅黑", 10)
+                 ).pack(side=tk.LEFT)
+
+        _RANGE_CHOICES = [
+            ("全部数据", rush_stats.RANGE_ALL),
+            ("昨天", rush_stats.RANGE_YESTERDAY),
+            ("近3天", rush_stats.RANGE_3DAYS),
+            ("自定义", rush_stats.RANGE_CUSTOM),
+        ]
+        _label_to_key = {lab: key for lab, key in _RANGE_CHOICES}
+        _key_to_label = {key: lab for lab, key in _RANGE_CHOICES}
+
+        _cur_range = str(state["date_range"].get() or rush_stats.RANGE_ALL)
+        if _cur_range not in _key_to_label:
+            _cur_range = rush_stats.RANGE_ALL
+        range_var = tk.StringVar(value=_key_to_label[_cur_range])
+
+        from_lbl = tk.Label(range_row, text="从", bg=COLORS["bg_card"],
+                            fg=COLORS["text_muted"], font=("微软雅黑", 9))
+        from_ent = RoundEntry(range_row, width=12, font=("Consolas", 10))
+        to_lbl = tk.Label(range_row, text="到", bg=COLORS["bg_card"],
+                          fg=COLORS["text_muted"], font=("微软雅黑", 9))
+        to_ent = RoundEntry(range_row, width=12, font=("Consolas", 10))
+
+        def _sync_custom_visibility(*_a):
+            key = _label_to_key.get(range_var.get(), rush_stats.RANGE_ALL)
+            state["date_range"].set(key)
+            _persist_filters()
+            if key == rush_stats.RANGE_CUSTOM:
+                from_lbl.pack(side=tk.LEFT, padx=(12, 2))
+                from_ent.pack(side=tk.LEFT)
+                to_lbl.pack(side=tk.LEFT, padx=(8, 2))
+                to_ent.pack(side=tk.LEFT)
+            else:
+                for w in (from_lbl, from_ent, to_lbl, to_ent):
+                    try:
+                        w.pack_forget()
+                    except Exception:
+                        pass
+            try:
+                if render_holder.get("fn"):
+                    render_holder["fn"]()
+            except Exception:
+                pass
+
+        range_combo = RoundCombobox(
+            range_row, textvariable=range_var,
+            values=[lab for lab, _ in _RANGE_CHOICES],
+            width=12, font=("微软雅黑", 10), state="readonly")
+        range_combo.pack(side=tk.LEFT, padx=(4, 0))
+        range_combo.bind("<<ComboboxSelected>>",
+                         lambda e: _sync_custom_visibility())
+
+        # 预填自定义日期（默认今天、昨天）
+        try:
+            import datetime as _dtm
+            _today = _dtm.date.today()
+            _cf = str(state["custom_from"].get() or "")
+            _ct = str(state["custom_to"].get() or "")
+            from_ent.insert(0, _cf or (_today - _dtm.timedelta(days=1)).strftime("%Y-%m-%d"))
+            to_ent.insert(0, _ct or _today.strftime("%Y-%m-%d"))
+        except Exception:
+            pass
+
+        def _on_custom_date_change(*_a):
+            try:
+                state["custom_from"].set(from_ent.get().strip())
+                state["custom_to"].set(to_ent.get().strip())
+            except Exception:
+                pass
+            _persist_filters()
+            try:
+                if render_holder.get("fn"):
+                    render_holder["fn"]()
+            except Exception:
+                pass
+
+        from_ent.bind("<FocusOut>", _on_custom_date_change)
+        from_ent.bind("<Return>", _on_custom_date_change)
+        to_ent.bind("<FocusOut>", _on_custom_date_change)
+        to_ent.bind("<Return>", _on_custom_date_change)
+
+        tk.Label(range_row,
+                 text="（近3天含今天；自定义格式 YYYY-MM-DD）",
+                 bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                 font=("微软雅黑", 8)).pack(side=tk.LEFT, padx=(10, 0))
 
         # 统计摘要行
         summary_lbl = tk.Label(head, text="", bg=COLORS["bg_card"],
@@ -1917,8 +2019,15 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             except Exception:
                 rare_only, show_excl = False, False
 
+            # v6.5.1: 传入时间范围（全部/昨天/近3天/自定义）
+            _rt = str(state["date_range"].get() or rush_stats.RANGE_ALL)
+            _cf = str(state["custom_from"].get() or "").strip()
+            _ct = str(state["custom_to"].get() or "").strip()
             data = rush_stats.dashboard(rare_only=rare_only,
-                                        include_excluded=show_excl)
+                                       include_excluded=show_excl,
+                                       date_range=_rt,
+                                       custom_from=_cf,
+                                       custom_to=_ct)
 
             f = data.get("filters") or {}
             ov = data.get("overview") or {}
@@ -1999,6 +2108,10 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                                         "已剔除" if r.get("excluded") else "正常"))
 
         # ---- v6.3.3: 选中 + 确认后才剔除（不再双击直接生效）----
+
+        # v6.5.1: 关键修复 —— render_holder["fn"] 之前从未赋值（一直是 None），
+        # 导致切换时间范围/勾选过滤时 render_holder["fn"]() 永远不会执行。
+        render_holder["fn"] = render
         def _selected_indices():
             """取当前明细列表选中的行号列表（支持多选）。"""
             if tree is None:
@@ -2014,7 +2127,11 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         def _current_records():
             """按当前过滤条件取明细记录列表。"""
             d = rush_stats.dashboard(rare_only=bool(state["rare_only"].get()),
-                                     include_excluded=bool(state["show_excluded"].get()))
+                                    include_excluded=bool(state["show_excluded"].get()),
+                                    date_range=str(state["date_range"].get()
+                                                   or rush_stats.RANGE_ALL),
+                                    custom_from=str(state["custom_from"].get() or ""),
+                                    custom_to=str(state["custom_to"].get() or ""))
             return d.get("records", [])
 
         def exclude_selected():

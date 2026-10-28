@@ -873,14 +873,109 @@ def _group_by_session(records, is_ok, is_risk):
     return sorted(out, key=_sort_key)
 
 
+# ============================================================
+# v6.5.1：仪表盘时间范围筛选（用户需求）
+#
+# 用户要求 4 种范围：
+#   1. 统计全部数据
+#   2. 统计昨天数据
+#   3. 统计3天内所有数据
+#   4. 自定义（起止日期）
+#
+# 实现方式：在 dashboard() 里加 date_range 参数，
+# 过滤掉 ts 不在范围内的记录，再走原有的统计流程。
+# ============================================================
+
+# 时间范围类型
+RANGE_ALL = "all"          # 全部
+RANGE_YESTERDAY = "yesterday"   # 昨天
+RANGE_3DAYS = "3days"      # 3天内
+RANGE_CUSTOM = "custom"    # 自定义
+
+RANGE_LABELS = {
+    RANGE_ALL: "全部数据",
+    RANGE_YESTERDAY: "昨天",
+    RANGE_3DAYS: "近3天",
+    RANGE_CUSTOM: "自定义",
+}
+
+
+def resolve_date_range(range_type=RANGE_ALL, custom_from="", custom_to=""):
+    """把范围类型解析成 (起始日期字符串, 结束日期字符串)。
+
+    返回 ("YYYY-MM-DD", "YYYY-MM-DD") 或 (None, None) 表示不限。
+    """
+    import datetime as _dt
+
+    today = _dt.date.today()
+
+    if range_type == RANGE_ALL:
+        return None, None
+
+    if range_type == RANGE_YESTERDAY:
+        y = today - _dt.timedelta(days=1)
+        s = y.strftime("%Y-%m-%d")
+        return s, s
+
+    if range_type == RANGE_3DAYS:
+        # 近3天 = 今天+昨天+前天（包含今天）
+        start = today - _dt.timedelta(days=2)
+        return start.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")
+
+    if range_type == RANGE_CUSTOM:
+        def _norm(x):
+            x = str(x or "").strip()
+            if not x:
+                return ""
+            try:
+                d = _dt.datetime.strptime(x, "%Y-%m-%d")
+                return d.strftime("%Y-%m-%d")
+            except Exception:
+                return ""
+        return _norm(custom_from), _norm(custom_to)
+
+    return None, None
+
+
+def filter_records_by_date(records, date_from=None, date_to=None):
+    """按日期范围过滤记录（含边界）。
+
+    参数：
+      date_from / date_to  "YYYY-MM-DD" 或 None（不限）
+
+    记录日期取自 ts 字段前 10 位。
+    """
+    if not date_from and not date_to:
+        return list(records or [])
+    out = []
+    for r in (records or []):
+        ts = str(r.get("ts", "") or "")
+        if len(ts) < 10:
+            continue
+        d = ts[:10]
+        if date_from and d < date_from:
+            continue
+        if date_to and d > date_to:
+            continue
+        out.append(r)
+    return out
+
+
 def dashboard(limit=20000, rare_only=False, include_excluded=False,
-              excluded_set=None):
+              excluded_set=None, date_range=RANGE_ALL,
+              custom_from="", custom_to="", all_records=None):
     """抢码成功率仪表盘数据（v6.2.0 新增，v6.3.0 支持过滤）。
 
     参数：
       rare_only         True = 只统计产出稀有货币的任务
       include_excluded  True = 连手动剔除的记录也纳入统计
       excluded_set      手动剔除键集合（None 则自动读取 rush_excluded.json）
+      date_range        时间范围（v6.5.1）：
+                          RANGE_ALL 全部 / RANGE_YESTERDAY 昨天 /
+                          RANGE_3DAYS 近3天 / RANGE_CUSTOM 自定义
+      custom_from       自定义起始日期 YYYY-MM-DD（date_range=RANGE_CUSTOM 时用）
+      custom_to         自定义结束日期 YYYY-MM-DD
+      all_records       外部传入的记录（用于缓存，避免重复读盘）
 
     返回：
       overview     总览（总数/成功率/平均延迟/稀有统计）
@@ -891,7 +986,13 @@ def dashboard(limit=20000, rare_only=False, include_excluded=False,
       records      明细记录列表（供界面逐条剔除用）
       filters      过滤统计（总共/剔除数/稀有过/非稀有过）
     """
-    all_records = load_results(limit=limit)
+    if all_records is None:
+        all_records = load_results(limit=limit)
+
+    # v6.5.1: 时间范围过滤
+    _df, _dt_ = resolve_date_range(date_range, custom_from, custom_to)
+    if _df or _dt_:
+        all_records = filter_records_by_date(all_records, _df, _dt_)
 
     if excluded_set is None:
         excluded_set = load_excluded()
@@ -949,7 +1050,13 @@ def dashboard(limit=20000, rare_only=False, include_excluded=False,
         return {"total": 0, "overview": {}, "by_task": [],
                 "by_advance": [], "by_hour": [], "top_codes": [],
                 "records": [], "filters": stat,
-                "excluded_set": sorted(excluded_set)}
+                "excluded_set": sorted(excluded_set),
+                "date_range": {
+                    "type": date_range,
+                    "from": _df or "",
+                    "to": _dt_ or "",
+                    "label": RANGE_LABELS.get(date_range, "全部数据"),
+                }}
 
     ok_cnt = sum(1 for r in records if _is_ok(r))
     lat = [float(r.get("latency_ms") or 0) for r in records if r.get("latency_ms")]
@@ -1075,6 +1182,13 @@ def dashboard(limit=20000, rare_only=False, include_excluded=False,
         "records": detail,
         "filters": stat,
         "excluded_set": sorted(excluded_set),
+        # v6.5.1: 时间范围信息（供界面显示与重渲染）
+        "date_range": {
+            "type": date_range,
+            "from": _df or "",
+            "to": _dt_ or "",
+            "label": RANGE_LABELS.get(date_range, "全部数据"),
+        },
     }
 
 
