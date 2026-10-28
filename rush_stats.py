@@ -1156,6 +1156,8 @@ def dashboard(limit=20000, rare_only=False, include_excluded=False,
             "target_ts": float(r.get("target_ts", 0) or 0),
             "fire_ts": float(r.get("fire_ts", 0) or 0),
             "one_way_ms": float(r.get("one_way_ms", 0) or 0),
+            # v6.5.6: 补 advance_ms —— 之前漏了，导致"提前量设计vs实际"一直空
+            "advance_ms": float(r.get("advance_ms", 0) or 0),
             "probe_rtt_med": float(r.get("probe_rtt_med", 0) or 0),
             "probe_valid": int(r.get("probe_valid", 0) or 0),
             "probe_total": int(r.get("probe_total", 0) or 0),
@@ -1619,7 +1621,7 @@ def metrics_all(d):
 
     # A3 时钟偏差（仅展示，不参与评分 —— 已自动补偿，不影响精度）
     ntp = [float(r.get("ntp_offset_ms") or 0) for r in recs
-           if r.get("ntp_offset_ms")]
+           if "ntp_offset_ms" in r]
     if ntp:
         m = _median(ntp)
         a = abs(m)
@@ -1806,24 +1808,36 @@ def metrics_all(d):
         add("C.请求效率", "重试命中分布", "无成功记录", None, "未采集", "muted",
             "还没有成功过")
 
-    # C3 风控恢复时长（从风控到下次成功的间隔）
+    # C3 风控恢复时长（v6.5.6 重写：按场次分组，避免跨场次误算）
     import datetime as _dt
     recoveries = []
-    prev_risk_ts = None
-    for r in recs:
-        c = str(r.get("code", ""))
-        ts = str(r.get("ts", ""))
-        try:
-            t = _dt.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
-        except Exception:
-            continue
-        if c in ("-702", "-509", "-705"):
-            prev_risk_ts = t
-        elif r.get("result") in ("success", "already") and prev_risk_ts is not None:
-            recoveries.append((t - prev_risk_ts).total_seconds())
-            prev_risk_ts = None
-    # v6.4.2: 过滤异常值（负值或过大的间隔是时间戳解析错误导致）
-    recoveries = [r for r in recoveries if 0 < r < 3600]
+    # 先按时间排序（记录顺序不保证是时间序）
+    _sorted_recs = sorted(recs, key=lambda r: str(r.get("ts", "")))
+    # 按场次分组（session_id 优先，退化用 ts 日期+小时）
+    _grp = {}
+    for r in _sorted_recs:
+        sid = str(r.get("session_id", "") or "")
+        if not sid:
+            ts0 = str(r.get("ts", ""))[:13]
+            sid = "anon_" + ts0
+        _grp.setdefault(sid, []).append(r)
+    for sid, grs in _grp.items():
+        prev_risk_ts = None
+        for r in grs:
+            c = str(r.get("code", ""))
+            ts = str(r.get("ts", ""))
+            try:
+                t = _dt.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                continue
+            if c in ("-702", "-509", "-705"):
+                prev_risk_ts = t
+            elif r.get("result") in ("success", "already") and prev_risk_ts is not None:
+                # 同场次内：有效恢复时长应 < 窗口期（最多几百秒）
+                d = (t - prev_risk_ts).total_seconds()
+                if 0 < d < 300:
+                    recoveries.append(d)
+                prev_risk_ts = None
     if recoveries:
         m = _median(recoveries)
         if m <= 3:
@@ -1833,10 +1847,10 @@ def metrics_all(d):
         else:
             sc, cl, nm = 30, "bad", "恢复慢"
         add("C.请求效率", "风控恢复时长", f"{m:.1f}s", sc, nm, cl,
-            "风控后被拒到下次成功的间隔，越短说明退避有效")
+            "风控后被拒到下次成功的间隔（同场次内），越短说明退避有效")
     else:
         add("C.请求效率", "风控恢复时长", "无数据", None, "未采集", "muted",
-            "需要风控后成功过的场景")
+            "需要风控后同场次内成功过的场景")
 
     # C4 间隔合规率（参与评分 12）
     gaps = []

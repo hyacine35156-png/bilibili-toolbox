@@ -4883,6 +4883,10 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 spin_error_ms=(_sf.get("_spin_error_ms", 0) if _sf else 0),
                 is_first_shot=_is_first,
                 arrive_dev_ms=(_sf.get("_arrive_dev_ms") if (_sf and _is_first) else None),
+                # v6.5.6: 补齐此前从未写入的字段（导致 RTT抖动/窗口期利用率 一直空）
+                probe_samples=(_sf.get("_probe_samples", "") if _sf else ""),
+                window_seconds=int(task.get("window_seconds", 0) or 0),
+                priority=int(task.get("priority", 0) or 0),
             )
             # 标记首发已消费
             if _is_first and _sf is not None:

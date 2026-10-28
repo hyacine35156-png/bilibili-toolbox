@@ -2581,7 +2581,7 @@ class NewModeMixin:
 
         这样绝大多数场次【完全不打扰服务端】，从根上回避探针风控。
 
-        返回：(median_rtt, valid, total)
+        返回：(median_rtt, valid, total, samples_list)
         """
         now = time.time()
 
@@ -2591,7 +2591,7 @@ class NewModeMixin:
             age = now - self._RTT_CACHE["ts"]
             self.nm_log(f"[RTT探针] 用内存缓存 {self._RTT_CACHE['rtt']:.0f}ms"
                         f"（{age/60:.0f}分钟前，0次请求）")
-            return self._RTT_CACHE["rtt"], 2, 2
+            return self._RTT_CACHE["rtt"], 2, 2, []
 
         # --- 2) 历史记录缓存 ---
         hist, age = self._nm_load_hist_rtt()
@@ -2600,23 +2600,98 @@ class NewModeMixin:
                         f"（{age/60:.0f}分钟前，0次请求）")
             self._RTT_CACHE["rtt"] = hist
             self._RTT_CACHE["ts"] = now
-            return hist, 2, 2
+            return hist, 2, 2, []
 
         # --- 3) 时间预算检查 ---
         remain_ms = (target_timestamp - now) * 1000.0
         # 2次探针 + 1个0.8s间隔 ≈ 0.8 + 2*RTT。保守按 RTT=400ms 估需 1.6s
         if remain_ms < 1800.0:
             self.nm_log(f"[RTT探针] 剩余{remain_ms:.0f}ms 不足1.8s，跳过探针用兜底值")
-            return None, 0, 0
+            return None, 0, 0, []
 
         # --- 4) 真做探针（2次，间隔0.8s）---
-        rtt, valid, total = self.nm_probe_rtt_full(
+        _psamples = []
+        # v6.5.6: 改用带样本的方法，拿到原始 RTT 列表供 RTT抖动 指标
+        rtt, valid, total, _psamples = self.nm_probe_rtt_with_samples(
             task, session, samples=2,
             deadline_ts=target_timestamp - 0.5)
+        # v6.5.6: 记录原始样本供 RTT抖动 指标使用
+        _psamples = []  # 缓存/历史路径没有原始样本
         if rtt and rtt > 20:
             self._RTT_CACHE["rtt"] = rtt
             self._RTT_CACHE["ts"] = now
-        return rtt, valid, total
+        return rtt, valid, total, _psamples
+
+    def nm_probe_rtt_with_samples(self, task, session=None, samples=3,
+                                  deadline_ts=0):
+        """测 RTT 并返回原始样本列表（v6.5.6 新增，供 RTT抖动指标用）。
+
+        原 nm_probe_rtt_full 只返回 (median, valid, total)，
+        拿不到原始样本，导致 rec 里的 probe_samples 一直是空字符串，
+        RTT抖动 指标永远"未采集"。
+
+        本方法在原逻辑基础上额外返回 samples 列表，
+        供 stop_flag["_probe_samples"] 使用（逗号分隔字符串）。
+        """
+        import socket
+        import statistics
+
+        acc = self.account_mgr.get_account(task.get("account_name", ""))
+        if not acc:
+            return None, 0, 0, []
+        cookies = cookies_from_account(acc)
+        from config import MISSION_INFO_API
+        from bili_api import get_wbi_keys, wbi_sign
+
+        img_key, sub_key = get_wbi_keys(cookies)
+        if not img_key:
+            return None, 0, 0, []
+
+        sess = session or requests.Session()
+        sess.headers.update(HEADERS)
+        params = wbi_sign({"task_id": task["task_id"],
+                           "web_location": "888.126558"}, img_key, sub_key)
+        headers = dict(HEADERS)
+        headers["Referer"] = (
+            "https://www.bilibili.com/blackboard/era/award-exchange.html"
+            "?task_id=" + str(task["task_id"]))
+        headers["Origin"] = "https://www.bilibili.com"
+
+        valid_rtts = []
+        all_rtts = []
+        risk_count = 0
+        est_next_ms = 200.0
+
+        for i in range(max(1, samples)):
+            if deadline_ts > 0:
+                remain_ms = (deadline_ts - time.time()) * 1000.0
+                if remain_ms < est_next_ms + 60.0:
+                    break
+            t0 = time.perf_counter()
+            code = None
+            try:
+                resp = sess.get(MISSION_INFO_API, headers=headers,
+                                cookies=cookies, params=params, timeout=5)
+                code = resp.json().get("code")
+            except Exception:
+                pass
+            dt = (time.perf_counter() - t0) * 1000
+            all_rtts.append(dt)
+            est_next_ms = dt
+            if code == 0:
+                valid_rtts.append(dt)
+            elif code in (-702, -509, -705, -412):
+                risk_count += 1
+            if i < samples - 1:
+                time.sleep(0.80)
+
+        total = len(all_rtts)
+        n_valid = len(valid_rtts)
+        if n_valid < 2:
+            return None, n_valid, total, all_rtts
+        med = statistics.median(valid_rtts)
+        return med, n_valid, total, all_rtts
+
 
     def nm_probe_rtt_full(self, task, session=None, samples=3, deadline_ts=0):
         """测 RTT 并区分「有效样本」与「风控样本」，且【自适应时间预算】（v6.4.2）。
