@@ -71,7 +71,7 @@ class ScheduleFrame(tk.Frame):
                  fg=COLORS["accent"], font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
         self.scheduler_status_label = tk.Label(
             head, text="● 调度器运行中", bg=COLORS["bg_card"],
-            fg=COLORS["success"], font=("微软雅黑", 10, "bold"))
+            fg=COLORS["success"], font=("微软雅黑", 8, "bold"))
         self.scheduler_status_label.pack(side=tk.RIGHT)
 
         row1 = tk.Frame(create_card, bg=COLORS["bg_card"])
@@ -79,13 +79,13 @@ class ScheduleFrame(tk.Frame):
 
         tk.Label(row1, text="名称", bg=COLORS["bg_card"],
                  fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 8)).pack(side=tk.LEFT)
         self.task_name_entry = DarkEntry(row1, width=16)
         self.task_name_entry.pack(side=tk.LEFT, padx=(6, 14))
 
         tk.Label(row1, text="类型", bg=COLORS["bg_card"],
                  fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 8)).pack(side=tk.LEFT)
 
         # 类型：卡片式单选（选中高亮）
         self.task_type_var = tk.StringVar(value="watch")
@@ -94,7 +94,7 @@ class ScheduleFrame(tk.Frame):
                          ("danmaku", "💬 弹幕"), ("shutdown", "⏻ 关机")]:
             lbl = tk.Label(row1, text=txt, bg=COLORS["bg_input"],
                            fg=COLORS["text_secondary"],
-                           font=("微软雅黑", 9), padx=10, pady=4,
+                           font=("微软雅黑", 8), padx=10, pady=4,
                            cursor="hand2")
             lbl.pack(side=tk.LEFT, padx=2)
             lbl.bind("<Button-1>",
@@ -103,22 +103,27 @@ class ScheduleFrame(tk.Frame):
 
         tk.Label(row1, text="  时间", bg=COLORS["bg_card"],
                  fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(12, 0))
-        self.schedule_hour = DarkEntry(row1, width=3)
-        self.schedule_hour.insert(0, "02")
+                 font=("微软雅黑", 8)).pack(side=tk.LEFT, padx=(12, 0))
+        # v6.6.5: 时间改为下拉选择（用户要求，不要手动输入）
+        self.schedule_hour_var = tk.StringVar(value="02")
+        self.schedule_hour = RoundCombobox(
+            row1, textvariable=self.schedule_hour_var,
+            values=["%02d" % h for h in range(24)], width=4, height=28)
         self.schedule_hour.pack(side=tk.LEFT, padx=(6, 1))
         tk.Label(row1, text=":", bg=COLORS["bg_card"],
                  fg=COLORS["text_primary"],
-                 font=("微软雅黑", 11, "bold")).pack(side=tk.LEFT)
-        self.schedule_minute = DarkEntry(row1, width=3)
-        self.schedule_minute.insert(0, "00")
+                 font=("微软雅黑", 8, "bold")).pack(side=tk.LEFT)
+        self.schedule_minute_var = tk.StringVar(value="00")
+        self.schedule_minute = RoundCombobox(
+            row1, textvariable=self.schedule_minute_var,
+            values=["%02d" % m for m in range(60)], width=4, height=28)
         self.schedule_minute.pack(side=tk.LEFT, padx=(1, 10))
 
         # 常用时间快捷
         for hhmm in ["00:10", "01:00", "02:00", "18:00"]:
             b = tk.Label(row1, text=hhmm, bg=COLORS["bg_input"],
                          fg=COLORS["text_secondary"],
-                         font=("Consolas", 9), padx=6, pady=3,
+                         font=("Consolas", 8), padx=6, pady=3,
                          cursor="hand2")
             b.pack(side=tk.LEFT, padx=1)
             b.bind("<Button-1>",
@@ -146,7 +151,7 @@ class ScheduleFrame(tk.Frame):
         row3.pack(fill=tk.X, padx=12, pady=(0, 8))
         tk.Label(row3, text="💾 存为模板", bg=COLORS["bg_card"],
                  fg=COLORS["text_muted"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 8)).pack(side=tk.LEFT)
         self.tpl_save_name = DarkEntry(row3, width=14)
         self.tpl_save_name.pack(side=tk.LEFT, padx=(6, 4))
         DarkButton(row3, "保存", command=self.save_current_as_template,
@@ -154,7 +159,7 @@ class ScheduleFrame(tk.Frame):
                    text_color="#ffffff", compact=True).pack(side=tk.LEFT)
         tk.Label(row3, text="   或载入模板：", bg=COLORS["bg_card"],
                  fg=COLORS["text_muted"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 8)).pack(side=tk.LEFT)
         self.tpl_load_var = tk.StringVar()
         # v6.6.2: width 是"字符数"，RoundCombobox 会算成 char*9+40 像素，
         # 之前误写 150 -> 1390px 撑满整行。16 字符 ≈ 184px 合适。
@@ -177,7 +182,7 @@ class ScheduleFrame(tk.Frame):
         list_card = tk.Frame(mid, bg=COLORS["bg_card"],
                              highlightthickness=1,
                              highlightbackground=COLORS["border"])
-        list_card.place(x=0, y=0, relwidth=0.648, relheight=1.0)
+        list_card.place(x=0, y=0, relwidth=0.578, relheight=1.0)  # v6.6.5: 日志加宽到42%
 
         lh = tk.Frame(list_card, bg=COLORS["bg_card"])
         lh.pack(fill=tk.X, padx=12, pady=(8, 4))
@@ -186,14 +191,14 @@ class ScheduleFrame(tk.Frame):
                  font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
         self.task_count_label = tk.Label(lh, text="", bg=COLORS["bg_card"],
                                          fg=COLORS["text_muted"],
-                                         font=("微软雅黑", 9))
+                                         font=("微软雅黑", 8))
         self.task_count_label.pack(side=tk.LEFT, padx=(8, 0))
 
         # 批量操作条
         bar = tk.Frame(list_card, bg=COLORS["bg_card"])
         bar.pack(fill=tk.X, padx=12, pady=(0, 4))
         # v6.6.2: 加宽按钮避免中文字被截断（compact 模式文字宽度=设定值）
-        DarkButton(bar, "☑ 全选", command=self.toggle_select_all,
+        DarkButton(bar, "☑ 全选/取消", command=self.toggle_select_all,
                    width=110, height=28, bg_color="#9b59b6",
                    text_color="#ffffff", compact=True).pack(side=tk.LEFT)
         DarkButton(bar, "🗑 删除选中", command=self.delete_selected_tasks,
@@ -214,7 +219,7 @@ class ScheduleFrame(tk.Frame):
         log_card = tk.Frame(mid, bg=COLORS["bg_card"],
                             highlightthickness=1,
                             highlightbackground=COLORS["border"])
-        log_card.place(relx=0.652, y=0, relwidth=0.348, relheight=1.0)
+        log_card.place(relx=0.582, y=0, relwidth=0.418, relheight=1.0)  # v6.6.5: 35%->42%
 
         tk.Label(log_card, text="📝 执行日志", bg=COLORS["bg_card"],
                  fg=COLORS["accent"],
@@ -224,7 +229,7 @@ class ScheduleFrame(tk.Frame):
         log_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 10))
         self.schedule_log_text = tk.Text(
             log_frame, bg="#0d1117", fg=COLORS["text_secondary"],
-            insertbackground=COLORS["accent"], font=("Consolas", 9),
+            insertbackground=COLORS["accent"], font=("Consolas", 8),
             bd=0, highlightthickness=0, wrap=tk.WORD, state=tk.DISABLED)
         self.schedule_log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb = tk.Scrollbar(log_frame, orient=tk.VERTICAL,
@@ -290,6 +295,21 @@ class ScheduleFrame(tk.Frame):
 
     # ==================== v6.6.1 新增：参数内嵌 + 模板 ====================
 
+    # ---------- v6.6.5: RoundCombobox 兼容 DarkEntry 接口 ----------
+    def _tm_get(self, combo):
+        """下拉框取值（兼容原 DarkEntry.get）。"""
+        try:
+            return combo.get()
+        except Exception:
+            return "0"
+
+    def _tm_set(self, combo, val):
+        """下拉框赋值。"""
+        try:
+            combo.set(str(val))
+        except Exception:
+            pass
+
     def _select_type_card(self, task_type):
         """选中任务类型卡片（高亮）+ 重建参数区。"""
         try:
@@ -301,11 +321,11 @@ class ScheduleFrame(tk.Frame):
             try:
                 if val == task_type:
                     lbl.config(bg=COLORS["accent"], fg="#000000",
-                               font=("微软雅黑", 9, "bold"))
+                               font=("微软雅黑", 8, "bold"))
                 else:
                     lbl.config(bg=COLORS["bg_input"],
                                fg=COLORS["text_secondary"],
-                               font=("微软雅黑", 9))
+                               font=("微软雅黑", 8))
             except Exception:
                 pass
         self._auto_fill_name(task_type)
@@ -313,11 +333,11 @@ class ScheduleFrame(tk.Frame):
         # 时间输入可用性
         try:
             if task_type in ("rush", "shutdown"):
-                self.schedule_hour.config(state=tk.DISABLED)
-                self.schedule_minute.config(state=tk.DISABLED)
+                self.schedule_hour.combo.config(state="disabled")
+                self.schedule_minute.combo.config(state="disabled")
             else:
-                self.schedule_hour.config(state=tk.NORMAL)
-                self.schedule_minute.config(state=tk.NORMAL)
+                self.schedule_hour.combo.config(state="readonly")
+                self.schedule_minute.combo.config(state="readonly")
         except Exception:
             pass
         self._refresh_template_combo(task_type)
@@ -337,13 +357,13 @@ class ScheduleFrame(tk.Frame):
             tk.Label(self.param_frame,
                      text="（该类型无需额外参数）",
                      bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                     font=("微软雅黑", 9)).pack(side=tk.LEFT)
+                     font=("微软雅黑", 8)).pack(side=tk.LEFT)
             return
 
         # 图标 + 标题
         tk.Label(self.param_frame, text=spec.get("icon", "⚙") + " ",
                  bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 10, "bold")).pack(side=tk.LEFT)
+                 font=("微软雅黑", 8, "bold")).pack(side=tk.LEFT)
 
         for f in spec.get("fields", []):
             key = f["key"]
@@ -356,7 +376,7 @@ class ScheduleFrame(tk.Frame):
                 txt = tk.Label(self.param_frame, text="账户: 未选",
                                bg=COLORS["bg_input"],
                                fg=COLORS["warning"],
-                               font=("微软雅黑", 9),
+                               font=("微软雅黑", 8),
                                padx=8, pady=3, cursor="hand2")
                 txt.pack(side=tk.LEFT, padx=(2, 8))
                 txt.bind("<Button-1>",
@@ -370,7 +390,7 @@ class ScheduleFrame(tk.Frame):
                 txt = tk.Label(self.param_frame, text="直播间: 未选",
                                bg=COLORS["bg_input"],
                                fg=COLORS["warning"],
-                               font=("微软雅黑", 9),
+                               font=("微软雅黑", 8),
                                padx=8, pady=3, cursor="hand2")
                 txt.pack(side=tk.LEFT, padx=(2, 8))
                 txt.bind("<Button-1>",
@@ -384,7 +404,7 @@ class ScheduleFrame(tk.Frame):
                 txt = tk.Label(self.param_frame, text="直播间: 未选",
                                bg=COLORS["bg_input"],
                                fg=COLORS["warning"],
-                               font=("微软雅黑", 9),
+                               font=("微软雅黑", 8),
                                padx=8, pady=3, cursor="hand2")
                 txt.pack(side=tk.LEFT, padx=(2, 8))
                 txt.bind("<Button-1>",
@@ -398,7 +418,7 @@ class ScheduleFrame(tk.Frame):
                 tk.Label(self.param_frame, text=label + ":",
                          bg=COLORS["bg_card"],
                          fg=COLORS["text_secondary"],
-                         font=("微软雅黑", 9)).pack(side=tk.LEFT,
+                         font=("微软雅黑", 8)).pack(side=tk.LEFT,
                                                     padx=(0, 2))
                 ent = DarkEntry(self.param_frame, width=6)
                 try:
@@ -414,7 +434,7 @@ class ScheduleFrame(tk.Frame):
                 tk.Label(self.param_frame, text=label + ":",
                          bg=COLORS["bg_card"],
                          fg=COLORS["text_secondary"],
-                         font=("微软雅黑", 9)).pack(side=tk.LEFT,
+                         font=("微软雅黑", 8)).pack(side=tk.LEFT,
                                                     padx=(0, 2))
                 # v6.6.3: 下拉框显示【中文标签】，内部存英文键值
                 choices = f.get("choices", [])
@@ -446,7 +466,7 @@ class ScheduleFrame(tk.Frame):
                                      fg=COLORS["text_secondary"],
                                      selectcolor=COLORS["bg_input"],
                                      activebackground=COLORS["bg_card"],
-                                     font=("微软雅黑", 9))
+                                     font=("微软雅黑", 8))
                 chk.pack(side=tk.LEFT, padx=(0, 8))
                 self._param_vars[key] = {"type": "bool",
                                          "widget": chk,
@@ -458,7 +478,7 @@ class ScheduleFrame(tk.Frame):
                 txt = tk.Label(self.param_frame, text="任务组: 全部",
                                bg=COLORS["bg_input"],
                                fg=COLORS["text_secondary"],
-                               font=("微软雅黑", 9),
+                               font=("微软雅黑", 8),
                                padx=8, pady=3, cursor="hand2")
                 txt.pack(side=tk.LEFT, padx=(2, 8))
                 txt.bind("<Button-1>",
@@ -563,12 +583,10 @@ class ScheduleFrame(tk.Frame):
         """常用时间快捷按钮。"""
         try:
             h, m = hhmm.split(":")
-            self.schedule_hour.config(state=tk.NORMAL)
-            self.schedule_minute.config(state=tk.NORMAL)
-            self.schedule_hour.delete(0, tk.END)
-            self.schedule_hour.insert(0, h)
-            self.schedule_minute.delete(0, tk.END)
-            self.schedule_minute.insert(0, m)
+            self.schedule_hour.combo.config(state="readonly")
+            self.schedule_minute.combo.config(state="readonly")
+            self._tm_set(self.schedule_hour, h)
+            self._tm_set(self.schedule_minute, m)
         except Exception:
             pass
 
@@ -649,7 +667,7 @@ class ScheduleFrame(tk.Frame):
         win.grab_set()
 
         tk.Label(win, text=title, bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 11, "bold")).pack(pady=(10, 6))
+                 font=("微软雅黑", 8, "bold")).pack(pady=(10, 6))
 
         body = tk.Frame(win, bg=COLORS["bg_card"])
         body.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 8))
@@ -662,7 +680,7 @@ class ScheduleFrame(tk.Frame):
                                 fg=COLORS["text_primary"],
                                 selectcolor=COLORS["bg_input"],
                                 activebackground=COLORS["bg_card"],
-                                font=("微软雅黑", 9), anchor="w")
+                                font=("微软雅黑", 8), anchor="w")
             cb.pack(fill=tk.X, pady=1)
             vars_map[it] = var
 
@@ -795,18 +813,18 @@ class ScheduleFrame(tk.Frame):
         self._auto_fill_name(task_type)
 
         if task_type == "rush":
-            self.schedule_hour.config(state=tk.DISABLED)
-            self.schedule_minute.config(state=tk.DISABLED)
+            self.schedule_hour.combo.config(state="disabled")
+            self.schedule_minute.combo.config(state="disabled")
             self.time_hint_label.config(text="（添加后立即启动抢码任务列表，各任务按自身领取时间运行）",
                                          fg=COLORS["warning"])
         elif task_type == "shutdown":
-            self.schedule_hour.config(state=tk.DISABLED)
-            self.schedule_minute.config(state=tk.DISABLED)
+            self.schedule_hour.combo.config(state="disabled")
+            self.schedule_minute.combo.config(state="disabled")
             self.time_hint_label.config(text="（关机时间在「定时关机」页面设置，此处无需填写）",
                                          fg=COLORS["warning"])
         else:
-            self.schedule_hour.config(state=tk.NORMAL)
-            self.schedule_minute.config(state=tk.NORMAL)
+            self.schedule_hour.combo.config(state="readonly")
+            self.schedule_minute.combo.config(state="readonly")
             self.time_hint_label.config(text="（每天自动执行，使用各页面当前已设置的参数）",
                                          fg=COLORS["text_muted"])
 
@@ -849,8 +867,8 @@ class ScheduleFrame(tk.Frame):
 
         # 时间
         try:
-            h = int(self.schedule_hour.get().strip() or "0")
-            m = int(self.schedule_minute.get().strip() or "0")
+            h = int(str(self._tm_get(self.schedule_hour)).strip() or "0")
+            m = int(str(self._tm_get(self.schedule_minute)).strip() or "0")
             if h < 0 or h > 23 or m < 0 or m > 59:
                 raise ValueError
         except ValueError:
@@ -969,13 +987,16 @@ class ScheduleFrame(tk.Frame):
             tk.Label(self.task_list_frame,
                      text="还没有日程任务\n\n选好类型、配好参数、设好时间，点「＋ 添加」即可",
                      bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                     font=("微软雅黑", 10), justify=tk.CENTER).pack(pady=40)
+                     font=("微软雅黑", 8), justify=tk.CENTER).pack(pady=40)
             return
 
         # ---- 表头 ----
+        # v6.6.5: 行距加大（用户要求"字间距稍微大一点"）
+        ROW_PADY = 7
+        # v6.6.5: 列表区变窄(57.8%)后，按实际宽度重新分配列宽
         COLS = [
-            ("", 30), ("状态", 76), ("类型", 76), ("任务名称", 200),
-            ("执行时间", 78), ("参数", 150), ("上次执行", 132), ("操作", 230),
+            ("", 8), ("状态", 74), ("类型", 72), ("任务名称", 150),
+            ("执行时间", 74), ("参数", 128), ("上次执行", 118), ("操作", 176),
         ]
         head = tk.Frame(self.task_list_frame, bg=COLORS["bg_input"])
         head.pack(fill=tk.X, pady=(0, 2))
@@ -983,31 +1004,43 @@ class ScheduleFrame(tk.Frame):
             head.grid_columnconfigure(c, minsize=px, weight=0)
             tk.Label(head, text=txt, bg=COLORS["bg_input"],
                      fg=COLORS["text_secondary"],
-                     font=("微软雅黑", 9, "bold"),
+                     font=("微软雅黑", 8, "bold"),
                      anchor=tk.W).grid(row=0, column=c, sticky="w",
-                                       padx=(4, 0), pady=4)
+                                       padx=(4, 0), pady=6)
 
         # ---- 数据行 ----
         for idx, task in enumerate(self.schedule_tasks):
             try:
-                bg = COLORS["bg_card"] if idx % 2 == 0 else COLORS["bg_input"]
+                # v6.6.5: 选中行整行高亮（替代复选框视觉）
+                is_sel = task["id"] in self.selected_ids
+                if is_sel:
+                    bg = "#2d4a63"
+                else:
+                    bg = COLORS["bg_card"] if idx % 2 == 0 else COLORS["bg_input"]
                 row = tk.Frame(self.task_list_frame, bg=bg)
                 row.pack(fill=tk.X, pady=1)
 
                 for c, (_, px) in enumerate(COLS):
                     row.grid_columnconfigure(c, minsize=px, weight=0)
 
-                # 选择框
-                var = tk.BooleanVar(value=(task["id"] in self.selected_ids))
-                def _tog(v=var, tid=task["id"]):
-                    if v.get():
-                        self.selected_ids.add(tid)
-                    else:
-                        self.selected_ids.discard(tid)
-                tk.Checkbutton(row, variable=var, command=_tog, bg=bg,
-                               activebackground=bg,
-                               selectcolor=COLORS["bg_input"]
-                               ).grid(row=0, column=0, sticky="w", padx=(4, 0))
+                # v6.6.5: 移除复选框，改为「点击整行选中」（Ctrl+点击可多选）
+                tid_row = task["id"]
+                # 整行点击 = 切换选中
+                def _row_click(e, tid=tid_row, frame=row):
+                    self._toggle_row_select(tid)
+                # 橙色高亮条表示选中
+                mark = tk.Label(row, text="", bg=bg, width=1)
+                mark.grid(row=0, column=0, sticky="ns", padx=(0, 0))
+                if is_sel:
+                    mark.config(bg=COLORS["accent"])
+                # 整行（含标记条）点击切换选中
+                for _w in (row, mark):
+                    try:
+                        _w.bind("<Button-1>",
+                                lambda e, t=tid_row: self._toggle_row_select(t))
+                        _w.configure(cursor="hand2")
+                    except Exception:
+                        pass
 
                 # 状态
                 if not task.get("enabled"):
@@ -1025,36 +1058,36 @@ class ScheduleFrame(tk.Frame):
                     else:
                         sfg = COLORS["text_secondary"]
                 tk.Label(row, text="● " + stxt, bg=bg, fg=sfg,
-                         font=("微软雅黑", 9), anchor=tk.W
-                         ).grid(row=0, column=1, sticky="w", padx=(4, 0), pady=4)
+                         font=("微软雅黑", 8), anchor=tk.W
+                         ).grid(row=0, column=1, sticky="w", padx=(4, 0), pady=ROW_PADY)
 
                 # 类型
                 tk.Label(row, text=task.get("type_name", ""), bg=bg,
-                         fg=COLORS["text_primary"], font=("微软雅黑", 9),
+                         fg=COLORS["text_primary"], font=("微软雅黑", 8),
                          anchor=tk.W
-                         ).grid(row=0, column=2, sticky="w", padx=(4, 0))
+                         ).grid(row=0, column=2, sticky="w", padx=(4, 0), pady=ROW_PADY)
 
                 # 名称
-                tk.Label(row, text=task.get("name", "")[:18], bg=bg,
+                tk.Label(row, text=task.get("name", "")[:13], bg=bg,
                          fg=COLORS["text_primary"],
-                         font=("微软雅黑", 9, "bold"), anchor=tk.W
-                         ).grid(row=0, column=3, sticky="w", padx=(4, 0))
+                         font=("微软雅黑", 8, "bold"), anchor=tk.W
+                         ).grid(row=0, column=3, sticky="w", padx=(4, 0), pady=ROW_PADY)
 
                 # 时间
                 tk.Label(row, text=task.get("time_str", "--:--"), bg=bg,
                          fg=COLORS["accent"],
-                         font=("Consolas", 10, "bold"), anchor=tk.W
-                         ).grid(row=0, column=4, sticky="w", padx=(4, 0))
+                         font=("Consolas", 8, "bold"), anchor=tk.W
+                         ).grid(row=0, column=4, sticky="w", padx=(4, 0), pady=ROW_PADY)
 
                 # 参数摘要
                 desc = sp.describe_params(task.get("type", ""),
                                           task.get("params") or {})
                 if not task.get("params"):
                     desc = "（旧任务·用页面参数）"
-                tk.Label(row, text=desc[:20], bg=bg,
+                tk.Label(row, text=desc[:16], bg=bg,
                          fg=COLORS["text_secondary"], font=("微软雅黑", 8),
                          anchor=tk.W
-                         ).grid(row=0, column=5, sticky="w", padx=(4, 0))
+                         ).grid(row=0, column=5, sticky="w", padx=(4, 0), pady=ROW_PADY)
 
                 # 上次执行
                 lr = task.get("last_run", "") or "-"
@@ -1062,22 +1095,22 @@ class ScheduleFrame(tk.Frame):
                     lr = lr[5:16] if len(lr) > 16 else lr
                 tk.Label(row, text=lr, bg=bg, fg=COLORS["text_muted"],
                          font=("Consolas", 8), anchor=tk.W
-                         ).grid(row=0, column=6, sticky="w", padx=(4, 0))
+                         ).grid(row=0, column=6, sticky="w", padx=(4, 0), pady=ROW_PADY)
 
                 # 操作按钮
                 ops = tk.Frame(row, bg=bg)
-                ops.grid(row=0, column=7, sticky="w", padx=(4, 0))
+                ops.grid(row=0, column=7, sticky="w", padx=(4, 0), pady=3)
                 tid = task["id"]
                 DarkButton(ops, "✏", command=lambda i=tid: self._edit_task_by_id(i),
-                           width=28, height=22, bg_color="#3498db",
+                           width=26, height=20, bg_color="#3498db",
                            text_color="#ffffff", compact=True
                            ).pack(side=tk.LEFT, padx=1)
                 DarkButton(ops, "⧉", command=lambda i=tid: self.copy_schedule_task(i),
-                           width=28, height=22, bg_color="#8e44ad",
+                           width=26, height=20, bg_color="#8e44ad",
                            text_color="#ffffff", compact=True
                            ).pack(side=tk.LEFT, padx=1)
                 DarkButton(ops, "▶", command=lambda i=tid: self.run_task_now(i),
-                           width=28, height=22, bg_color=COLORS["success"],
+                           width=26, height=20, bg_color=COLORS["success"],
                            text_color="#ffffff", compact=True
                            ).pack(side=tk.LEFT, padx=1)
                 en_txt = "⏸" if task.get("enabled") else "▶"
@@ -1098,6 +1131,14 @@ class ScheduleFrame(tk.Frame):
         self.selected_task_id = task_id
         self.refresh_task_list()
 
+    def _toggle_row_select(self, task_id):
+        """点击行切换选中状态（v6.6.5，替代已移除的复选框）。"""
+        if task_id in self.selected_ids:
+            self.selected_ids.discard(task_id)
+        else:
+            self.selected_ids.add(task_id)
+        self.refresh_task_list()
+
     def toggle_select_all(self):
         """全选/取消全选"""
         if len(self.selected_ids) == len(self.schedule_tasks):
@@ -1113,7 +1154,7 @@ class ScheduleFrame(tk.Frame):
     def delete_selected_tasks(self):
         """批量删除勾选的任务"""
         if not self.selected_ids:
-            messagebox.showwarning("提示", "请先勾选要删除的任务（每行左侧复选框）", parent=self.winfo_toplevel())
+            messagebox.showwarning("提示", "请先点击要删除的任务行（整行变蓝表示已选中）", parent=self.winfo_toplevel())
             return
         count = len(self.selected_ids)
         if custom_askyesno(self.app.root, "确认", f"确定删除选中的 {count} 个任务吗？"):
@@ -1167,7 +1208,7 @@ class ScheduleFrame(tk.Frame):
         name_frame = tk.Frame(edit_win, bg=COLORS["bg_card"])
         name_frame.pack(fill=tk.X, padx=20, pady=5)
         tk.Label(name_frame, text="任务名称:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 8)).pack(side=tk.LEFT)
         name_entry = DarkEntry(name_frame, width=22)
         name_entry.insert(0, task["name"])
         name_entry.pack(side=tk.LEFT, padx=(10, 0))
@@ -1176,7 +1217,7 @@ class ScheduleFrame(tk.Frame):
         type_frame = tk.Frame(edit_win, bg=COLORS["bg_card"])
         type_frame.pack(fill=tk.X, padx=20, pady=5)
         tk.Label(type_frame, text="任务类型:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 8)).pack(side=tk.LEFT)
         edit_type_var = tk.StringVar(value=task["type"])
         type_names = {"watch": "📺 看播", "danmaku": "💬 弹幕", "rush": "⚡ 抢码", "shutdown": "⏻ 关机"}
         for val, label in type_names.items():
@@ -1187,7 +1228,7 @@ class ScheduleFrame(tk.Frame):
         time_frame = tk.Frame(edit_win, bg=COLORS["bg_card"])
         time_frame.pack(fill=tk.X, padx=20, pady=5)
         tk.Label(time_frame, text="执行时间:", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT)
+                 font=("微软雅黑", 8)).pack(side=tk.LEFT)
         hour_entry = DarkEntry(time_frame, width=5)
         hour_entry.insert(0, f"{task.get('hour', 20):02d}" if task.get("hour", -1) >= 0 else "20")
         hour_entry.pack(side=tk.LEFT, padx=(10, 2))
@@ -1700,7 +1741,7 @@ class ScheduleFrame(tk.Frame):
             tk.Label(confirm_win, text="⏻ 定时关机", bg=COLORS["bg_card"], fg=COLORS["accent"],
                      font=("微软雅黑", 16, "bold")).pack(pady=(20, 10))
             tk.Label(confirm_win, text=f"任务「{task['name']}」时间到", bg=COLORS["bg_card"],
-                     fg=COLORS["text_primary"], font=("微软雅黑", 11)).pack()
+                     fg=COLORS["text_primary"], font=("微软雅黑", 8)).pack()
             countdown_label = tk.Label(confirm_win, text="60秒后自动关机...", bg=COLORS["bg_card"],
                                        fg=COLORS["warning"], font=("微软雅黑", 12, "bold"))
             countdown_label.pack(pady=(8, 15))
@@ -2124,8 +2165,8 @@ class ScheduleFrame(tk.Frame):
             config_file = BASE_DIR / "schedule_form_settings.json"
             settings = {
                 "task_type": self.task_type_var.get(),
-                "hour": self.schedule_hour.get(),
-                "minute": self.schedule_minute.get(),
+                "hour": str(self._tm_get(self.schedule_hour)),
+                "minute": str(self._tm_get(self.schedule_minute)),
             }
             atomic_write_json(config_file, settings)
         except Exception:
@@ -2141,10 +2182,8 @@ class ScheduleFrame(tk.Frame):
                 self.task_type_var.set(settings.get("task_type", "watch"))
                 h = settings.get("hour", "20")
                 m = settings.get("minute", "00")
-                self.schedule_hour.delete(0, tk.END)
-                self.schedule_hour.insert(0, h)
-                self.schedule_minute.delete(0, tk.END)
-                self.schedule_minute.insert(0, m)
+                self._tm_set(self.schedule_hour, h)
+                self._tm_set(self.schedule_minute, m)
                 # 触发类型切换回调
                 self._on_type_changed()
         except Exception:

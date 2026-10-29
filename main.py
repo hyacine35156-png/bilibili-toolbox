@@ -893,7 +893,8 @@ class DanmakuApp:
                             highlightthickness=1, highlightbackground=COLORS["border"])
         toc_card.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
         toc_card.pack_propagate(False)
-        toc_card.configure(width=250)
+        # v6.6.5: 目录加宽 250->360，并加横向滚动条防条目截断
+        toc_card.configure(width=360)
 
         tk.Label(toc_card, text="目录", bg=COLORS["bg_card"], fg=COLORS["accent"],
                  font=theme.font(12, bold=True)).pack(anchor=tk.W, padx=14, pady=(12, 6))
@@ -901,17 +902,22 @@ class DanmakuApp:
         toc_frame = tk.Frame(toc_card, bg=COLORS["bg_card"])
         toc_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
 
+        # v6.6.5: 横向滚动条（目录条目长，防截断）
+        toc_hsb = tk.Scrollbar(toc_card, orient=tk.HORIZONTAL)
         toc_scroll = tk.Scrollbar(toc_frame, orient=tk.VERTICAL)
         toc_list = tk.Listbox(
             toc_frame, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
             selectbackground=COLORS["accent"], selectforeground="#000000",
-            font=theme.font(10), bd=0, highlightthickness=0,
+            # v6.6.5: 目录字号 10->9（用户要求"整体字号稍微缩小一点"）
+            font=theme.font(9), bd=0, highlightthickness=0,
             activestyle="none", exportselection=False,
-            yscrollcommand=toc_scroll.set,
+            yscrollcommand=toc_scroll.set, xscrollcommand=toc_hsb.set,
         )
         toc_scroll.config(command=toc_list.yview)
         toc_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         toc_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        toc_hsb.config(command=toc_list.xview)
+        toc_hsb.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 6))
 
         # ---------- 右侧：内容 ----------
         card = tk.Frame(body, bg=COLORS["bg_card"], bd=0,
@@ -922,14 +928,21 @@ class DanmakuApp:
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
         text = tk.Text(card, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-                       font=theme.font(10), bd=0, highlightthickness=0, wrap=tk.WORD,
-                       padx=20, pady=20, yscrollcommand=scroll.set)
+                       # v6.6.5: 内容字号 10->9
+                       font=theme.font(9), bd=0, highlightthickness=0, wrap=tk.WORD,
+                       padx=22, pady=20, yscrollcommand=scroll.set)
+        # v6.6.5: 加大行间距（用户要求"字间距稍微大一点"）
+        try:
+            text.configure(spacing1=4, spacing2=2, spacing3=5)
+        except Exception:
+            pass
         text.pack(fill=tk.BOTH, expand=True)
         scroll.config(command=text.yview)
 
         # 插入任务说明内容（富文本渲染）
         try:
-            theme.render_richtext(text, TASK_GUIDE_TEXT, base_size=10)
+            # v6.6.5: 富文本基础字号 10->9
+            theme.render_richtext(text, TASK_GUIDE_TEXT, base_size=9)
         except Exception as e:
             print(f"富文本渲染失败，回退纯文本: {e}")
             text.insert(tk.END, TASK_GUIDE_TEXT)
