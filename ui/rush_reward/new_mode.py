@@ -2355,22 +2355,71 @@ class NewModeMixin:
             else:
                 peak_note = ""
 
-            # --- 4) 合成提前量 ---
+            # --- 4) 合成提前量（v6.7.3: 双重保护，保证一定晚到）---
             DELTA_MS = 60.0   # 期望晚到 60ms（不早到，且不错过开库存瞬间）
+
+            # ============================================================
+            # 保护1: 半RTT 上限（用户要求 150ms）
+            # ------------------------------------------------------------
+            # half_recv 由 探针RTT/2 × K_RECV(1.60) 推算，可能大幅高估。
+            # 实测案例（2026-10-29 22:40）：
+            #   探针RTT=204ms -> half_recv=163ms
+            #   但领取接口实际RTT仅151ms -> 实际半RTT=75ms
+            #   高估 116%，导致提前量偏大、到达时间比预期早 88ms
+            # ============================================================
+            HALF_RECV_CAP = 150.0
+            _half_raw = half_recv
+            if half_recv > HALF_RECV_CAP:
+                half_recv = HALF_RECV_CAP
+                self.nm_log(
+                    f"[提前量] ⚠ 半RTT {_half_raw:.0f}ms 超过上限 "
+                    f"{HALF_RECV_CAP:.0f}ms，已下调（防提早）")
+                cap_note = "  [⚠超上限已下调]"
+            else:
+                cap_note = ""
+
             dynamic_advance = ntp_correction + half_recv - DELTA_MS
-            # 安全范围：10ms ~ 2000ms。下限防止退化成"立刻发"，
-            # 上限防止系统时间异常导致等到目标之后才发。
-            dynamic_advance = max(10.0, min(2000.0, dynamic_advance))
+
+            # ============================================================
+            # 保护2: 「一定晚到」硬上限
+            # ------------------------------------------------------------
+            # 推导（全部用真实时间口径）：
+            #   真实发送 = 目标 - advance + ntp
+            #   到达     = 真实发送 + 构造开销 + 实际半RTT
+            #   到达偏差 = -advance + ntp + 构造开销 + half_actual
+            #
+            # 要保证 到达偏差 >= 0（绝不早于目标），而 half_actual
+            # 未知、最坏情况可能接近 0，因此按最坏情况取：
+            #   advance <= ntp + 构造开销
+            #
+            # 取等号时：到达偏差 = half_actual  （恒 >= 0，绝不提早）
+            # ============================================================
+            _BUILD_OVERHEAD_MS = 43.0   # 实测请求构造开销（自旋结束->实际发出）
+            _advance_ceiling = ntp_correction + _BUILD_OVERHEAD_MS
+            _advance_raw = dynamic_advance
+            if dynamic_advance > _advance_ceiling:
+                dynamic_advance = _advance_ceiling
+                self.nm_log(
+                    f"[提前量] ⚠ 防提早保护: 提前量 {_advance_raw:.0f}ms 超过安全上限 "
+                    f"{_advance_ceiling:.0f}ms(={ntp_correction:+.0f}偏差+"
+                    f"{_BUILD_OVERHEAD_MS:.0f}构造)，已下调")
+
+            # 安全范围：允许负值（本地时钟偏快时需要延后发送），
+            # 限制在 -1000ms ~ 2000ms，防止异常跳变
+            dynamic_advance = max(-1000.0, min(2000.0, dynamic_advance))
 
             self.nm_log(
-                f"[提前量] {src}半RTT={half_recv:.0f}ms{peak_note} "
+                f"[提前量] {src}半RTT={half_recv:.0f}ms{peak_note}{cap_note} "
                 f"+ NTP偏差{ntp_correction:+.0f}ms - 晚到补偿{DELTA_MS:.0f}ms "
-                f"=> 提前 {dynamic_advance:.0f}ms 发送"
+                f"=> 最终提前 {dynamic_advance:.0f}ms 发送"
             )
+            # 预估到达偏差（按 half_recv 估算；实际若 half_recv 高估则会更早）
+            _est_arrive_ms = (-dynamic_advance + ntp_correction
+                              + _BUILD_OVERHEAD_MS + half_recv)
             self.nm_log(
-                f"[提前量] 预估到达: 目标{'后' if DELTA_MS >= 0 else '前'}"
-                f"{abs(half_recv - (dynamic_advance - ntp_correction)):.0f}ms "
-                f"（越接近0越理想）"
+                f"[提前量] 预估到达: 目标{'后' if _est_arrive_ms >= 0 else '前'}"
+                f"{abs(_est_arrive_ms):.0f}ms "
+                f"（已启用防提早保护，最坏情况也不会早于目标）"
             )
 
             # NTP偏差过大时提示（仅提示，不阻止抢码）
