@@ -20,6 +20,10 @@ DEFAULTS = {
     "auto_ntp_lead_seconds": 120,
     # 同步结果弹窗自动关闭秒数（0 = 不自动关闭）
     "auto_ntp_popup_autoclose": 15,
+    # 抢码页默认显示哪个模式（v6.7.4）
+    #   False = 旧模式显示在第一页（默认）
+    #   True  = 新模式·精准抢码显示在第一页
+    "rush_new_mode_first": False,
 }
 
 
@@ -83,3 +87,11 @@ def auto_ntp_autoclose():
     except Exception:
         v = 0
     return max(0, min(120, v))
+
+
+def rush_new_mode_first():
+    """抢码页是否默认显示「新模式·精准抢码」（v6.7.4）。"""
+    try:
+        return bool(get_setting("rush_new_mode_first"))
+    except Exception:
+        return False

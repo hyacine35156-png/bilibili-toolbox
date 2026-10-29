@@ -481,7 +481,7 @@ class DanmakuApp:
 
         # 设置卡片
         settings_card = tk.Frame(right, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
-        settings_card.pack(fill=tk.X, pady=(0, 3))
+        settings_card.pack(fill=tk.X, pady=(0, 2))
 
         tk.Label(settings_card, text="发送设置", bg=COLORS["bg_card"], fg=COLORS["accent"],
                  font=theme.font(11, bold=True)).pack(anchor=tk.W, padx=15, pady=(10, 8))
@@ -964,16 +964,24 @@ class DanmakuApp:
                    width=170, height=32, bg_color="#27ae60",
                    text_color="#ffffff").pack(side=tk.LEFT)
 
-        # ==================== ④ 数据备份与恢复 ====================
-        _c4, _h4, body4 = make_section(
-            "④ 🛡 数据备份与恢复",
-            "定期备份 data 目录，防止配置丢失")
-        btn4 = tk.Frame(body4, bg=COLORS["bg_card"])
-        btn4.pack(fill=tk.X)
-        DarkButton(btn4, "🛡 打开数据备份与恢复",
+        # ==================== ④ 数据备份与恢复（单行紧凑）====================
+        # v6.7.4: 原「标题行 + 按钮行」两行布局占 77px，
+        #         导致底部「⚙ 全局设置」第二个开关被截断（实测超出 39px）。
+        #         改为单行布局，省约 35px。
+        card4 = tk.Frame(outer, **CARD)
+        card4.pack(fill=tk.X, pady=(0, 2))
+        row4 = tk.Frame(card4, bg=COLORS["bg_card"])
+        row4.pack(fill=tk.X, padx=12, pady=5)
+        tk.Label(row4, text="④ 🛡 数据备份与恢复",
+                 bg=COLORS["bg_card"], fg=COLORS["accent"],
+                 font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
+        tk.Label(row4, text="定期备份 data 目录，防止配置丢失",
+                 bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(10, 0))
+        DarkButton(row4, "🛡 打开备份与恢复",
                    command=self._open_backup_manager,
-                   width=220, height=32, bg_color="#7d3c98",
-                   text_color="#ffffff").pack(side=tk.LEFT)
+                   width=185, height=30, bg_color="#7d3c98",
+                   text_color="#ffffff").pack(side=tk.RIGHT)
 
         # ==================== ⚙ 全局设置（底部，弹性填充）====================
         card4 = tk.Frame(outer, **CARD)
@@ -994,12 +1002,13 @@ class DanmakuApp:
         try:
             _auto_ntp_on = _appset.should_auto_ntp()
             _lead = _appset.auto_ntp_lead()
+            _rush_new_first = _appset.rush_new_mode_first()
         except Exception:
-            _auto_ntp_on, _lead = True, 120
+            _auto_ntp_on, _lead, _rush_new_first = True, 120, False
         self.auto_ntp_var = tk.BooleanVar(value=bool(_auto_ntp_on))
         chk = tk.Checkbutton(
             body4,
-            text="抢码前 %d 秒（%d 分钟）自动同步时间" % (_lead, max(1, _lead // 60)),
+            text="抢码前 %d 秒自动同步时间（只测量偏差，不改系统时间）" % _lead,
             variable=self.auto_ntp_var,
             command=self.on_toggle_global_auto_ntp,
             bg=COLORS["bg_card"], fg=COLORS["text_primary"],
@@ -1008,10 +1017,19 @@ class DanmakuApp:
             activeforeground=COLORS["text_primary"],
             font=("微软雅黑", 11), anchor="w")
         chk.pack(anchor=tk.W, pady=(1, 1))
-        tk.Label(body4,
-                 text="（只测量偏差用于补偿，不改系统时间）",
-                 bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 9)).pack(anchor=tk.W, padx=(26, 0))
+
+        # ---- 全局设置项2：抢码页默认模式（v6.7.4 新增）----
+        self.rush_new_mode_var = tk.BooleanVar(value=bool(_rush_new_first))
+        tk.Checkbutton(
+            body4,
+            text="抢码页默认显示「✨ 新模式·精准抢码」（关闭则旧模式在前）",
+            variable=self.rush_new_mode_var,
+            command=self.on_toggle_rush_default_mode,
+            bg=COLORS["bg_card"], fg=COLORS["text_primary"],
+            selectcolor=COLORS["bg_input"],
+            activebackground=COLORS["bg_card"],
+            activeforeground=COLORS["text_primary"],
+            font=("微软雅黑", 11), anchor="w").pack(anchor=tk.W, pady=(1, 1))
 
         # 预留空白区（未来放更多全局设置）
         # v6.7.1: 改为 6px 细线提示，节省纵向空间；后续设置项直接加在此行之后
@@ -1302,6 +1320,23 @@ class DanmakuApp:
                 pass
 
         threading.Thread(target=_wait_done, daemon=True).start()
+
+    def on_toggle_rush_default_mode(self):
+        """全局设置：抢码页默认显示哪个模式（v6.7.4 新增）。"""
+        try:
+            import app_settings as _appset
+            val = bool(self.rush_new_mode_var.get())
+            _appset.set_setting("rush_new_mode_first", val)
+            if val:
+                self.log("⚙ 已设置：抢码页默认显示「✨ 新模式·精准抢码」")
+            else:
+                self.log("⚙ 已设置：抢码页默认显示「旧模式」")
+            self.log("   下次启动程序或重新进入抢码页时生效")
+        except Exception as e:
+            try:
+                self.log("保存全局设置失败: %s" % e)
+            except Exception:
+                pass
 
     def on_toggle_global_auto_ntp(self):
         """全局设置：抢码前自动同步时间开关（v6.7.0 新增）。"""

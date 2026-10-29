@@ -90,6 +90,44 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         self.log("抢码工具已启动，选择任务和账户后点击「开始监控」")
         self.log("提示：领取需要先完成投稿任务并绑定游戏账号")
 
+        # v6.7.4: 按「⚙ 设置 -> 全局设置」里的开关决定默认显示哪个模式。
+        # 默认 old（旧模式在第一页）；开启后 new（新模式在第一页）。
+        # 注意：新模式 UI 是延迟构建的（实测耗时 1.2~1.8 秒），
+        #      所以用 after(250) 延后执行，先把主界面显示出来。
+        try:
+            import app_settings as _appset
+            if _appset.rush_new_mode_first():
+                try:
+                    self.after(250, self._apply_default_rush_mode)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _apply_default_rush_mode(self):
+        """按全局设置切换到默认抢码模式（v6.7.4 新增）。"""
+        try:
+            import app_settings as _appset
+            if not _appset.rush_new_mode_first():
+                return
+            # 只有当用户还没手动切换过时才应用
+            try:
+                cur = self.new_mode_mode_var.get() if self.new_mode_mode_var else "old"
+            except Exception:
+                cur = "old"
+            if cur == "new":
+                return
+            self.switch_rush_mode("new")
+            try:
+                self.log("⚙ 已按全局设置默认显示「✨ 新模式·精准抢码」")
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                self.log("应用默认抢码模式失败: %s" % e)
+            except Exception:
+                pass
+
     def on_close(self):
         """保存配置（标签页模式下不需要销毁）"""
         self.save_rush_config()

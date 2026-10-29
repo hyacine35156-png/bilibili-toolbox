@@ -182,7 +182,11 @@ class ScheduleFrame(tk.Frame):
         list_card = tk.Frame(mid, bg=COLORS["bg_card"],
                              highlightthickness=1,
                              highlightbackground=COLORS["border"])
-        list_card.place(x=0, y=0, relwidth=0.578, relheight=1.0)  # v6.6.5: 日志加宽到42%
+        # v6.7.4: 表格列宽合计 786px，但 0.578 只给出 487px 可用宽度，
+        #         导致 299px 被压缩（用户反馈"左边很挤"）；
+        #         而日志内容很少，42% 宽度浪费（"右边空间很大"）。
+        #         重新分配：任务列表 74.5% / 日志 24.8%
+        list_card.place(x=0, y=0, relwidth=0.745, relheight=1.0)
 
         lh = tk.Frame(list_card, bg=COLORS["bg_card"])
         lh.pack(fill=tk.X, padx=12, pady=(8, 4))
@@ -195,31 +199,52 @@ class ScheduleFrame(tk.Frame):
         self.task_count_label.pack(side=tk.LEFT, padx=(8, 0))
 
         # 批量操作条
+        # v6.7.4: 按用户要求改成「新模式抢码任务组工具栏」的风格：
+        #   · 去掉 compact 模式（compact 会按设定宽度硬裁文字，观感生硬）
+        #   · height 28 -> 32，与抢码页一致
+        #   · 按钮间距 6 -> 10，相互隔开（用户要求"需要相互隔开"）
+        #   · 配色改为抢码页同款：青(accent) / 蓝 / 红 / 灰
+        #   · 补上 ToolTip 提示
         bar = tk.Frame(list_card, bg=COLORS["bg_card"])
-        bar.pack(fill=tk.X, padx=12, pady=(0, 4))
-        # v6.6.2: 加宽按钮避免中文字被截断（compact 模式文字宽度=设定值）
-        DarkButton(bar, "☑ 全选/取消", command=self.toggle_select_all,
-                   width=110, height=28, bg_color="#9b59b6",
-                   text_color="#ffffff", compact=True).pack(side=tk.LEFT)
-        DarkButton(bar, "🗑 删除选中", command=self.delete_selected_tasks,
-                   width=150, height=28, bg_color=COLORS["danger"],
-                   text_color="#ffffff", compact=True).pack(side=tk.LEFT, padx=(6, 0))
-        DarkButton(bar, "⚡ 全部启用", command=self.enable_all_tasks,
-                   width=150, height=28, bg_color="#e67e22",
-                   text_color="#ffffff", compact=True).pack(side=tk.LEFT, padx=(6, 0))
-        DarkButton(bar, "⏸ 全部停用", command=self.disable_all_tasks,
-                   width=150, height=28, bg_color="#7f8c8d",
-                   text_color="#ffffff", compact=True).pack(side=tk.LEFT, padx=(6, 0))
+        bar.pack(fill=tk.X, padx=12, pady=(2, 6))
+
+        self.sched_selall_btn = DarkButton(
+            bar, "☑ 全选/取消", command=self.toggle_select_all,
+            width=125, height=32, bg_color=COLORS["accent"],
+            text_color="#000000",
+            tip="全选或取消全选所有日程任务")
+        self.sched_selall_btn.pack(side=tk.LEFT, padx=(0, 10))
+
+        self.sched_delsel_btn = DarkButton(
+            bar, "🗑 删除选中", command=self.delete_selected_tasks,
+            width=135, height=32, bg_color="#c0392b",
+            text_color="#ffffff",
+            tip="删除所有已勾选的任务（需二次确认）")
+        self.sched_delsel_btn.pack(side=tk.LEFT, padx=(0, 10))
+
+        self.sched_enableall_btn = DarkButton(
+            bar, "⚡ 全部启用", command=self.enable_all_tasks,
+            width=135, height=32, bg_color="#27ae60",
+            text_color="#ffffff",
+            tip="把所有任务恢复为启用状态，按设定时间执行")
+        self.sched_enableall_btn.pack(side=tk.LEFT, padx=(0, 10))
+
+        self.sched_disableall_btn = DarkButton(
+            bar, "⏸ 全部停用", command=self.disable_all_tasks,
+            width=135, height=32, bg_color="#7f8c8d",
+            text_color="#ffffff",
+            tip="暂停所有任务，不再自动执行")
+        self.sched_disableall_btn.pack(side=tk.LEFT)
 
         self.task_list_frame = tk.Frame(list_card, bg=COLORS["bg_card"])
         self.task_list_frame.pack(fill=tk.BOTH, expand=True,
-                                  padx=12, pady=(0, 8))
+                                  padx=12, pady=(4, 10))
 
         # ============ ④ 日志（35%） ============
         log_card = tk.Frame(mid, bg=COLORS["bg_card"],
                             highlightthickness=1,
                             highlightbackground=COLORS["border"])
-        log_card.place(relx=0.582, y=0, relwidth=0.418, relheight=1.0)  # v6.6.5: 35%->42%
+        log_card.place(relx=0.75, y=0, relwidth=0.248, relheight=1.0)   # v6.7.4: 让出空间给任务列表
 
         tk.Label(log_card, text="📝 执行日志", bg=COLORS["bg_card"],
                  fg=COLORS["accent"],
@@ -998,8 +1023,12 @@ class ScheduleFrame(tk.Frame):
         # 固定列宽（px）：总 943px 可用，各列合计约 930px
         # v6.6.7: 上次执行需容纳 "10-29 13:37"（约 120px），给 130px
         COLS = [
-            ("", 12), ("状态", 96), ("类型", 82), ("名称", 100),
-            ("时间", 70), ("参数", 96), ("上次执行", 130), ("操作", 200),
+            # v6.7.4: 列宽按 list_card=74.5% 重新分配。
+            #         实测 635px 仍会导致「00:10」被截成「00:1」、
+            #         「10-29 13:37」被截断、5 个操作按钮挤在一起，
+            #         故放宽到 950px（1722 窗口下可用约 1259px，留足余量）。
+            ("", 14), ("状态", 112), ("类型", 96), ("名称", 150),
+            ("时间", 84), ("参数", 110), ("上次执行", 134), ("操作", 250),
         ]
         ROW_PADY = 12   # v6.6.8: 行内上下间距加大（用户要求）
 
