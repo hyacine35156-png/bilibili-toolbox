@@ -110,12 +110,11 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             import app_settings as _appset
             if not _appset.rush_new_mode_first():
                 return
-            # 只有当用户还没手动切换过时才应用
-            try:
-                cur = self.new_mode_mode_var.get() if self.new_mode_mode_var else "old"
-            except Exception:
-                cur = "old"
-            if cur == "new":
+            # v6.7.5: 用「新模式 UI 是否已构建」判断用户是否已手动切换过。
+            #         不能用 new_mode_mode_var —— 标签顺序变更后 var 初值
+            #         已经可能是 "new"，用它判断会误跳过切换，导致
+            #         标签高亮新模式但内容还是旧模式。
+            if getattr(self, "_new_mode_ui_built", False):
                 return
             self.switch_rush_mode("new")
             try:
@@ -380,14 +379,49 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         mode_bar = tk.Frame(self, bg=COLORS["bg_card"], height=42)
         mode_bar.pack(fill=tk.X)
         mode_bar.pack_propagate(False)
-        self.new_mode_mode_var = tk.StringVar(value="old")
-        self.old_mode_btn = tk.Label(mode_bar, text="  旧模式  ", bg=COLORS["accent"], fg="#000000",
-                                     font=("微软雅黑", 11, "bold"), padx=20, pady=6, cursor="hand2")
-        self.old_mode_btn.pack(side=tk.LEFT, padx=(15, 5), pady=5)
+        # v6.7.5: 按「⚙ 设置 -> 全局设置 -> 抢码页默认显示新模式」决定
+        #         两个标签的【排列顺序】与【初始高亮】。
+        #   关闭(默认): 旧模式 | 新模式    旧模式在第一页
+        #   开启      : 新模式 | 旧模式    新模式在第一页
+        _new_first = False
+        try:
+            import app_settings as _appset_mb
+            _new_first = bool(_appset_mb.rush_new_mode_first())
+        except Exception:
+            _new_first = False
+        self._mode_new_first = _new_first
+
+        self.new_mode_mode_var = tk.StringVar(
+            value=("new" if _new_first else "old"))
+
+        _on_bg, _on_fg = COLORS["accent"], "#000000"
+        _on_font = ("微软雅黑", 11, "bold")
+        _off_bg, _off_fg = COLORS["bg_input"], COLORS["text_secondary"]
+        _off_font = ("微软雅黑", 11)
+
+        self.old_mode_btn = tk.Label(
+            mode_bar, text="  旧模式  ",
+            bg=(_off_bg if _new_first else _on_bg),
+            fg=(_off_fg if _new_first else _on_fg),
+            font=(_off_font if _new_first else _on_font),
+            padx=20, pady=6, cursor="hand2")
+
+        self.new_mode_btn = tk.Label(
+            mode_bar, text="  ✨ 新模式·精准抢码  ",
+            bg=(_on_bg if _new_first else _off_bg),
+            fg=(_on_fg if _new_first else _off_fg),
+            font=(_on_font if _new_first else _off_font),
+            padx=20, pady=6, cursor="hand2")
+
+        # 谁在第一页，谁就排在前面（左侧）
+        if _new_first:
+            self.new_mode_btn.pack(side=tk.LEFT, padx=(15, 5), pady=5)
+            self.old_mode_btn.pack(side=tk.LEFT, padx=(0, 15), pady=5)
+        else:
+            self.old_mode_btn.pack(side=tk.LEFT, padx=(15, 5), pady=5)
+            self.new_mode_btn.pack(side=tk.LEFT, padx=(0, 15), pady=5)
+
         self.old_mode_btn.bind("<Button-1>", lambda e: self.switch_rush_mode("old"))
-        self.new_mode_btn = tk.Label(mode_bar, text="  ✨ 新模式·精准抢码  ", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                     font=("微软雅黑", 11), padx=20, pady=6, cursor="hand2")
-        self.new_mode_btn.pack(side=tk.LEFT, padx=(0, 15), pady=5)
         self.new_mode_btn.bind("<Button-1>", lambda e: self.switch_rush_mode("new"))
 
         # 旧模式内容区
