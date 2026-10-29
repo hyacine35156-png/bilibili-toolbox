@@ -44,20 +44,20 @@ class AddAccountDialog(tk.Toplevel):
         DarkButton(btn_frame, "显示/隐藏", command=self.toggle_show,
                    width=150, height=42, bg_color="#444466", text_color="#ffffff").pack(side=tk.LEFT)
         DarkButton(btn_frame, "取消", command=self.destroy,
-                   width=160, height=42, bg_color="#555577", text_color="#ffffff").pack(side=tk.RIGHT, padx=(5, 0))
+                   width=150, height=42, bg_color="#555577", text_color="#ffffff").pack(side=tk.RIGHT, padx=(5, 0))
         DarkButton(btn_frame, "验证并添加", command=self.on_submit,
-                   width=160, height=42).pack(side=tk.RIGHT)
+                   width=180, height=42).pack(side=tk.RIGHT)
 
         # 确保窗口大小正确（在所有组件创建后设置）
         self.update_idletasks()
-        self.geometry("500x600")
-        self.minsize(500, 600)
+        self.geometry("600x600")
+        self.minsize(600, 600)
         self.resizable(False, False)
         # 居中显示
         self.update_idletasks()
-        x = (self.winfo_screenwidth() // 2) - 250
+        x = (self.winfo_screenwidth() // 2) - 300
         y = (self.winfo_screenheight() // 2) - 300
-        self.geometry(f"500x600+{x}+{y}")
+        self.geometry(f"600x600+{x}+{y}")
         self.grab_set()
 
     def toggle_show(self):
@@ -137,17 +137,17 @@ class EditAccountDialog(tk.Toplevel):
         DarkButton(btn_frame, "显示/隐藏", command=self.toggle_show,
                    width=150, height=42, bg_color="#444466", text_color="#ffffff").pack(side=tk.LEFT)
         DarkButton(btn_frame, "取消", command=self.destroy,
-                   width=160, height=42, bg_color="#555577", text_color="#ffffff").pack(side=tk.RIGHT, padx=(5, 0))
+                   width=150, height=42, bg_color="#555577", text_color="#ffffff").pack(side=tk.RIGHT, padx=(5, 0))
         DarkButton(btn_frame, "验证并保存", command=self.on_submit,
-                   width=160, height=42).pack(side=tk.RIGHT)
+                   width=180, height=42).pack(side=tk.RIGHT)
 
         self.update_idletasks()
-        self.geometry("500x620")
-        self.minsize(500, 620)
+        self.geometry("600x620")
+        self.minsize(600, 620)
         self.resizable(False, False)
-        x = (self.winfo_screenwidth() // 2) - 250
+        x = (self.winfo_screenwidth() // 2) - 300
         y = (self.winfo_screenheight() // 2) - 310
-        self.geometry(f"500x620+{x}+{y}")
+        self.geometry(f"600x620+{x}+{y}")
         self.grab_set()
 
     def toggle_show(self):

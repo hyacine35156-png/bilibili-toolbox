@@ -481,7 +481,7 @@ class DanmakuApp:
 
         # 设置卡片
         settings_card = tk.Frame(right, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
-        settings_card.pack(fill=tk.X, pady=(0, 6))
+        settings_card.pack(fill=tk.X, pady=(0, 3))
 
         tk.Label(settings_card, text="发送设置", bg=COLORS["bg_card"], fg=COLORS["accent"],
                  font=theme.font(11, bold=True)).pack(anchor=tk.W, padx=15, pady=(10, 8))
@@ -676,8 +676,59 @@ class DanmakuApp:
         """
         import app_settings as _appset
 
-        outer = tk.Frame(self.account_page, bg=COLORS["bg_dark"])
-        outer.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        # v6.7.1: 整页可滚动（板块较多，避免底部「全局设置」被挤出视野）
+        _sc_container = tk.Frame(self.account_page, bg=COLORS["bg_dark"])
+        _sc_container.pack(fill=tk.BOTH, expand=True)
+        _sc_canvas = tk.Canvas(_sc_container, bg=COLORS["bg_dark"],
+                               highlightthickness=0, bd=0)
+        _sc_vsb = tk.Scrollbar(_sc_container, orient=tk.VERTICAL,
+                               command=_sc_canvas.yview)
+        _sc_vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        _sc_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        _sc_canvas.configure(yscrollcommand=_sc_vsb.set)
+
+        outer = tk.Frame(_sc_canvas, bg=COLORS["bg_dark"])
+        _sc_win = _sc_canvas.create_window(0, 0, window=outer, anchor="nw")
+
+        def _sc_on_frame(_e=None):
+            try:
+                _sc_canvas.configure(scrollregion=_sc_canvas.bbox("all"))
+            except Exception:
+                pass
+
+        def _sc_on_canvas(e):
+            try:
+                _sc_canvas.itemconfigure(_sc_win, width=e.width)
+            except Exception:
+                pass
+
+        def _sc_wheel(e):
+            try:
+                _sc_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+            except Exception:
+                pass
+
+        def _sc_bind(_e=None):
+            try:
+                _sc_canvas.bind_all("<MouseWheel>", _sc_wheel)
+            except Exception:
+                pass
+
+        def _sc_unbind(_e=None):
+            try:
+                _sc_canvas.unbind_all("<MouseWheel>")
+            except Exception:
+                pass
+
+        outer.bind("<Configure>", _sc_on_frame)
+        _sc_canvas.bind("<Configure>", _sc_on_canvas)
+        _sc_canvas.bind("<Enter>", _sc_bind)
+        _sc_canvas.bind("<Leave>", _sc_unbind)
+        self._settings_canvas = _sc_canvas
+
+        _pad = tk.Frame(outer, bg=COLORS["bg_dark"])
+        _pad.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+        outer = _pad
 
         CARD = dict(bg=COLORS["bg_card"], bd=0, highlightthickness=1,
                     highlightbackground=COLORS["border"])
@@ -685,9 +736,9 @@ class DanmakuApp:
         def make_section(title, hint=""):
             """创建一个板块卡片，返回 (卡片, 内容容器)。"""
             card = tk.Frame(outer, **CARD)
-            card.pack(fill=tk.X, pady=(0, 8))
+            card.pack(fill=tk.X, pady=(0, 6))
             head = tk.Frame(card, bg=COLORS["bg_card"])
-            head.pack(fill=tk.X, padx=12, pady=(8, 4))
+            head.pack(fill=tk.X, padx=12, pady=(6, 3))
             tk.Label(head, text=title, bg=COLORS["bg_card"],
                      fg=COLORS["accent"], font=("微软雅黑", 12, "bold")
                      ).pack(side=tk.LEFT)
@@ -696,7 +747,7 @@ class DanmakuApp:
                          fg=COLORS["text_muted"], font=("微软雅黑", 9)
                          ).pack(side=tk.LEFT, padx=(10, 0))
             body = tk.Frame(card, bg=COLORS["bg_card"])
-            body.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 10))
+            body.pack(fill=tk.X, padx=12, pady=(0, 6))
             return card, head, body
 
         # ==================== ① 账户管理 ====================
@@ -709,7 +760,11 @@ class DanmakuApp:
         # --- 账户表格（Treeview）---
         tree_wrap = tk.Frame(body1, bg=COLORS["bg_card"])
         tree_wrap.pack(fill=tk.X)
-        tree_wrap.configure(height=170)
+        # v6.7.1: 高度按账户数量自适应，确保所有账户完整可见
+        # 每行约 28px + 表头 30px + 余量 6px；超过 10 个账户时固定 10 行并出现滚动条
+        _n_acc = len(getattr(self.account_mgr, "accounts", []) or [])
+        _acc_rows = max(4, min(10, _n_acc))
+        tree_wrap.configure(height=30 + _acc_rows * 28 + 2)
         tree_wrap.pack_propagate(False)
 
         style = ttk.Style()
@@ -774,7 +829,7 @@ class DanmakuApp:
 
         # --- 账户操作按钮行 ---
         btn1 = tk.Frame(body1, bg=COLORS["bg_card"])
-        btn1.pack(fill=tk.X, pady=(8, 0))
+        btn1.pack(fill=tk.X, pady=(6, 0))
         DarkButton(btn1, "＋ 添加账户", command=self.add_account,
                    width=140, height=30).pack(side=tk.LEFT, padx=(0, 6))
         DarkButton(btn1, "📄 详情", command=self.open_account_detail_dialog,
@@ -801,79 +856,128 @@ class DanmakuApp:
         self.manager_info_text.insert(tk.END, "请选择一个账户查看详细信息")
         self.manager_info_text.config(state=tk.DISABLED)
 
-        # ==================== ② 直播间管理 ====================
+        # ==================== ② 直播间管理（表格）====================
         _c2, _h2, body2 = make_section("② 📺 直播间管理")
         self.room_count_label = tk.Label(
             _h2, text="", bg=COLORS["bg_card"],
             fg=COLORS["text_muted"], font=("微软雅黑", 10))
         self.room_count_label.pack(side=tk.RIGHT)
 
-        # 横向：左侧列表 + 右侧表单
-        row2 = tk.Frame(body2, bg=COLORS["bg_card"])
-        row2.pack(fill=tk.X)
+        room_tree_wrap = tk.Frame(body2, bg=COLORS["bg_card"])
+        room_tree_wrap.pack(fill=tk.X)
+        # v6.7.1: 高度按直播间数量自适应
+        _n_room = len(getattr(self.room_mgr, "rooms", []) or [])
+        _room_rows = max(3, min(8, _n_room))
+        room_tree_wrap.configure(height=30 + _room_rows * 28 + 2)
+        room_tree_wrap.pack_propagate(False)
 
-        room_left = tk.Frame(row2, bg=COLORS["bg_card"])
-        room_left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-        room_left.configure(height=180)
-        room_left.pack_propagate(False)
-        room_sb = tk.Scrollbar(room_left, orient=tk.VERTICAL)
+        try:
+            style.configure("Room.Treeview",
+                            background=COLORS["bg_input"],
+                            foreground=COLORS["text_primary"],
+                            fieldbackground=COLORS["bg_input"],
+                            font=("微软雅黑", 10), rowheight=26)
+            style.configure("Room.Treeview.Heading",
+                            background=COLORS["bg_card"],
+                            foreground=COLORS["accent"],
+                            font=("微软雅黑", 10, "bold"))
+            style.map("Room.Treeview",
+                      background=[("selected", COLORS["accent"])],
+                      foreground=[("selected", "#000000")])
+        except Exception:
+            pass
+
+        room_cols = ("name", "rid", "remark")
+        self.manager_room_listbox = ttk.Treeview(
+            room_tree_wrap, columns=room_cols, show="headings",
+            style="Room.Treeview", selectmode="browse")
+        self.manager_room_listbox.heading("name", text="直播间名称")
+        self.manager_room_listbox.heading("rid", text="直播间号")
+        self.manager_room_listbox.heading("remark", text="备注")
+        self.manager_room_listbox.column("name", width=320, anchor=tk.W)
+        self.manager_room_listbox.column("rid", width=180, anchor=tk.CENTER)
+        self.manager_room_listbox.column("remark", width=200, anchor=tk.W)
+
+        room_sb = tk.Scrollbar(room_tree_wrap, orient=tk.VERTICAL,
+                               command=self.manager_room_listbox.yview)
         room_sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self.manager_room_listbox = tk.Listbox(
-            room_left, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
-            selectbackground=COLORS["accent"], selectforeground="#000000",
-            font=("微软雅黑", 10), bd=0, highlightthickness=0,
-            activestyle="none", exportselection=False,
-            yscrollcommand=room_sb.set)
-        room_sb.config(command=self.manager_room_listbox.yview)
         self.manager_room_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.manager_room_listbox.bind("<<ListboxSelect>>",
+        self.manager_room_listbox.configure(yscrollcommand=room_sb.set)
+
+        # 兼容层：让 Treeview 支持原来的 curselection() 语义
+        def _room_curselection(_t=None):
+            t = _t or self.manager_room_listbox
+            try:
+                sel = t.selection()
+                if not sel:
+                    return ()
+                kids = list(t.get_children())
+                return (kids.index(sel[0]),)
+            except Exception:
+                return ()
+        try:
+            self.manager_room_listbox.curselection = _room_curselection
+        except Exception:
+            pass
+
+        self.manager_room_listbox.bind("<<TreeviewSelect>>",
                                        self._on_manager_room_select)
 
-        room_form = tk.Frame(row2, bg=COLORS["bg_input"])
-        room_form.pack(side=tk.LEFT, fill=tk.Y)
-        room_form.configure(width=380)
-        room_form.pack_propagate(False)
-        tk.Label(room_form, text="添加 / 编辑直播间", bg=COLORS["bg_input"],
-                 fg=COLORS["accent"], font=("微软雅黑", 10, "bold")
-                 ).pack(anchor=tk.W, padx=10, pady=(6, 4))
-        for lbl_txt, attr_name in [("直播间号", "room_id_entry"),
-                                   ("显示名称", "room_name_entry"),
-                                   ("备注", "room_remark_entry")]:
-            rr = tk.Frame(room_form, bg=COLORS["bg_input"])
-            rr.pack(fill=tk.X, padx=10, pady=(0, 4))
-            tk.Label(rr, text=lbl_txt, bg=COLORS["bg_input"],
-                     fg=COLORS["text_secondary"], font=("微软雅黑", 10),
-                     width=7, anchor=tk.W).pack(side=tk.LEFT)
-            ent = DarkEntry(rr, width=12)
-            ent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
-            setattr(self, attr_name, ent)
-        tk.Frame(room_form, bg=COLORS["bg_input"], height=6).pack(fill=tk.X)
-
         btn2 = tk.Frame(body2, bg=COLORS["bg_card"])
-        btn2.pack(fill=tk.X, pady=(8, 0))
+        btn2.pack(fill=tk.X, pady=(6, 0))
         DarkButton(btn2, "＋ 添加直播间", command=self._manager_add_room,
                    width=155, height=30).pack(side=tk.LEFT, padx=(0, 6))
         DarkButton(btn2, "删除直播间", command=self._manager_delete_room,
                    width=140, height=30, bg_color=COLORS["danger"],
                    text_color="#ffffff").pack(side=tk.LEFT, padx=(0, 6))
-        DarkButton(btn2, "从账户导入", command=self._manager_import_rooms_from_accounts,
+        DarkButton(btn2, "从账户导入",
+                   command=self._manager_import_rooms_from_accounts,
                    width=140, height=30, bg_color="#2980b9",
                    text_color="#ffffff").pack(side=tk.LEFT)
 
-        # ==================== ③ 数据备份与恢复 ====================
+        # ==================== ③ 添加 / 编辑直播间（独立板块，横向一行）====
         _c3, _h3, body3 = make_section(
-            "③ 🛡 数据备份与恢复",
+            "③ 📝 添加 / 编辑直播间",
+            "填写下面三项后点「保存直播间」")
+        row3 = tk.Frame(body3, bg=COLORS["bg_card"])
+        row3.pack(fill=tk.X)
+
+        def _form_field(parent, label_text, attr_name, field_w):
+            """横向表单字段：标签与输入框同一行（v6.7.1 紧凑化）。"""
+            box = tk.Frame(parent, bg=COLORS["bg_card"])
+            box.pack(side=tk.LEFT, padx=(0, 14))
+            tk.Label(box, text=label_text, bg=COLORS["bg_card"],
+                     fg=COLORS["text_secondary"], font=("微软雅黑", 10),
+                     anchor=tk.W).pack(side=tk.LEFT)
+            ent = DarkEntry(box, width=field_w)
+            ent.pack(side=tk.LEFT, padx=(4, 0))
+            setattr(self, attr_name, ent)
+            return ent
+
+        _form_field(row3, "直播间号", "room_id_entry", 20)
+        _form_field(row3, "显示名称", "room_name_entry", 24)
+        _form_field(row3, "备注", "room_remark_entry", 20)
+
+        btn_box3 = tk.Frame(row3, bg=COLORS["bg_card"])
+        btn_box3.pack(side=tk.LEFT, padx=(4, 0))
+        DarkButton(btn_box3, "💾 保存直播间", command=self._manager_add_room,
+                   width=170, height=32, bg_color="#27ae60",
+                   text_color="#ffffff").pack(side=tk.LEFT)
+
+        # ==================== ④ 数据备份与恢复 ====================
+        _c4, _h4, body4 = make_section(
+            "④ 🛡 数据备份与恢复",
             "定期备份 data 目录，防止配置丢失")
-        btn3 = tk.Frame(body3, bg=COLORS["bg_card"])
-        btn3.pack(fill=tk.X)
-        DarkButton(btn3, "🛡 打开数据备份与恢复",
+        btn4 = tk.Frame(body4, bg=COLORS["bg_card"])
+        btn4.pack(fill=tk.X)
+        DarkButton(btn4, "🛡 打开数据备份与恢复",
                    command=self._open_backup_manager,
                    width=220, height=32, bg_color="#7d3c98",
                    text_color="#ffffff").pack(side=tk.LEFT)
 
         # ==================== ⚙ 全局设置（底部，弹性填充）====================
         card4 = tk.Frame(outer, **CARD)
-        card4.pack(fill=tk.BOTH, expand=True)
+        card4.pack(fill=tk.X)
         head4 = tk.Frame(card4, bg=COLORS["bg_card"])
         head4.pack(fill=tk.X, padx=12, pady=(8, 4))
         tk.Label(head4, text="⚙ 全局设置", bg=COLORS["bg_card"],
@@ -884,7 +988,7 @@ class DanmakuApp:
                  font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(10, 0))
 
         body4 = tk.Frame(card4, bg=COLORS["bg_card"])
-        body4.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 10))
+        body4.pack(fill=tk.X, padx=12, pady=(0, 6))
 
         # 首个全局设置项：抢码前自动同步时间
         try:
@@ -903,14 +1007,16 @@ class DanmakuApp:
             activebackground=COLORS["bg_card"],
             activeforeground=COLORS["text_primary"],
             font=("微软雅黑", 11), anchor="w")
-        chk.pack(anchor=tk.W, pady=(2, 2))
+        chk.pack(anchor=tk.W, pady=(1, 1))
         tk.Label(body4,
-                 text="说明：只测量 NTP 偏差用于提前量补偿，不修改系统时间；关闭后不再自动检测",
+                 text="（只测量偏差用于补偿，不改系统时间）",
                  bg=COLORS["bg_card"], fg=COLORS["text_muted"],
-                 font=("微软雅黑", 9)).pack(anchor=tk.W, padx=(24, 0))
+                 font=("微软雅黑", 9)).pack(anchor=tk.W, padx=(26, 0))
 
         # 预留空白区（未来放更多全局设置）
-        tk.Frame(body4, bg=COLORS["bg_card"]).pack(fill=tk.BOTH, expand=True)
+        # v6.7.1: 改为 6px 细线提示，节省纵向空间；后续设置项直接加在此行之后
+        _reserve = tk.Frame(body4, bg=COLORS["bg_card"], height=6)
+        _reserve.pack(fill=tk.X)
 
         # 初始化数据
         self._account_verify_cache = {}
@@ -1078,26 +1184,39 @@ class DanmakuApp:
         txt.insert(tk.END, content)
         txt.config(state=tk.DISABLED)
 
-        # 底部按钮：复制凭据 + 关闭（复制按钮从主页移到这里）
+        # v6.7.1: 保存弹窗与文本引用，供「刷新信息」在弹窗内原地更新
+        self._detail_dlg = dlg
+        self._detail_txt = txt
+
+        # 底部按钮：复制凭据 + 刷新 + 关闭
+        # v6.7.1: 改用显式宽度，修复文字被截断（原来 compact 模式算宽不足）
         foot = tk.Frame(dlg, bg=COLORS["bg_card"])
         foot.pack(fill=tk.X, padx=14, pady=(0, 12))
-        DarkButton(foot, "📋 复制 SESSDATA",
+        DarkButton(foot, "📋 复制SESSDATA",
                    command=self._manager_copy_sessdata,
-                   height=32, bg_color="#8e44ad", text_color="#ffffff",
-                   compact=True).pack(side=tk.LEFT, padx=(0, 6))
-        DarkButton(foot, "📋 复制 bili_jct",
+                   width=185, height=32, bg_color="#8e44ad",
+                   text_color="#ffffff").pack(side=tk.LEFT, padx=(0, 6))
+        DarkButton(foot, "📋 复制bili_jct",
                    command=self._manager_copy_bili_jct,
-                   height=32, bg_color="#16a085", text_color="#ffffff",
-                   compact=True).pack(side=tk.LEFT, padx=(0, 6))
-        DarkButton(foot, "刷新信息", command=self._manager_refresh_info,
-                   height=32, bg_color="#2980b9", text_color="#ffffff",
-                   compact=True).pack(side=tk.LEFT)
+                   width=175, height=32, bg_color="#16a085",
+                   text_color="#ffffff").pack(side=tk.LEFT, padx=(0, 6))
+        DarkButton(foot, "🔄 刷新信息",
+                   command=self._refresh_detail_dialog,
+                   width=140, height=32, bg_color="#2980b9",
+                   text_color="#ffffff").pack(side=tk.LEFT)
         DarkButton(foot, "关闭", command=dlg.destroy,
-                   height=32, bg_color="#7f8c8d", text_color="#ffffff",
-                   compact=True).pack(side=tk.RIGHT)
+                   width=100, height=32, bg_color="#7f8c8d",
+                   text_color="#ffffff").pack(side=tk.RIGHT)
 
         try:
             dlg.transient(self.root)
+        except Exception:
+            pass
+
+        # v6.7.1: 若内容是「查询中...」状态，打开后自动查询一次
+        try:
+            if "查询中" in content:
+                dlg.after(150, self._refresh_detail_dialog)
         except Exception:
             pass
 
@@ -1354,16 +1473,35 @@ class DanmakuApp:
             pass
 
     def _refresh_manager_room_list(self):
-        """刷新直播间管理列表"""
-        if not hasattr(self, 'manager_room_listbox') or not self.manager_room_listbox.winfo_exists():
+        """刷新直播间管理表格（v6.7.1 改为 Treeview 三列）。"""
+        w = getattr(self, "manager_room_listbox", None)
+        if w is None:
             return
-        self.manager_room_listbox.delete(0, tk.END)
-        for room in self.room_mgr.rooms:
-            display = f"  {room['name']}"
-            if room.get('remark'):
-                display += f"  [{room['remark']}]"
-            self.manager_room_listbox.insert(tk.END, display)
+        try:
+            if not w.winfo_exists():
+                return
+        except Exception:
+            return
 
+        try:
+            for iid in w.get_children():
+                w.delete(iid)
+        except Exception:
+            pass
+
+        for room in getattr(self.room_mgr, "rooms", []) or []:
+            name = str(room.get("name", ""))
+            rid = str(room.get("id", ""))
+            remark = str(room.get("remark", "") or "-")
+            try:
+                w.insert("", tk.END, values=(name, rid, remark))
+            except Exception:
+                pass
+
+        try:
+            self._update_account_room_counts()
+        except Exception:
+            pass
     def _on_manager_room_select(self, event):
         """选择直播间时填充表单"""
         selection = self.manager_room_listbox.curselection()
@@ -1644,73 +1782,165 @@ bili_jct: {jct_preview}
         except Exception as e:
             messagebox.showerror("错误", f"复制失败: {str(e)}", parent=self.root)
 
-    def _manager_refresh_info(self):
-        """刷新选中账户的详细信息（直播间号、电池余额）"""
-        selection = self.manager_account_listbox.curselection()
-        if not selection:
-            messagebox.showwarning("提示", "请先选择一个账户", parent=self.root)
-            return
-        acc = self.account_mgr.accounts[selection[0]]
+    def _fetch_account_info_text(self, acc):
+        """查询账户详情文本（v6.7.1 提取为纯函数，可在后台线程调用）。"""
         name = acc.get("name", "未知")
         uid = acc.get("DedeUserID", acc.get("uid", ""))
 
-        # 获取直播间号
-        room_id = "未开播"
-        room_status = "未开播"
+        # --- 直播间信息 ---
+        room_id, room_status = "未开播", "未开播"
         if uid:
             try:
-                url = f"https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld?mid={uid}"
-                resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+                url = ("https://api.live.bilibili.com/room/v1/Room/"
+                       "getRoomInfoOld?mid=%s" % uid)
+                resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"},
+                                    timeout=8)
                 data = resp.json()
                 if data.get("code") == 0 and data.get("data"):
                     room_id = data["data"].get("roomid", "未开播")
-                    if data["data"].get("roomStatus") == 1:
-                        room_status = "直播中"
-                    else:
-                        room_status = "未开播"
+                    room_status = ("直播中"
+                                   if data["data"].get("roomStatus") == 1
+                                   else "未开播")
             except Exception:
-                room_id = "查询失败"
-                room_status = "查询失败"
+                room_id, room_status = "查询失败", "查询失败"
 
-        # 获取电池余额
+        # --- 电池余额 ---
         battery = "查询失败"
         try:
             sessdata = acc.get("SESSDATA", "")
             cookies = {"SESSDATA": sessdata}
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-            resp = requests.get("https://api.live.bilibili.com/xlive/revenue/v1/wallet/myWallet?need_bp=1&need_metal=1",
-                                cookies=cookies, headers=headers, timeout=10)
+            headers = {"User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+                                     " AppleWebKit/537.36")}
+            resp = requests.get(
+                "https://api.live.bilibili.com/xlive/revenue/v1/wallet/"
+                "myWallet?need_bp=1&need_metal=1",
+                cookies=cookies, headers=headers, timeout=8)
             data = resp.json()
             if data.get("code") == 0 and data.get("data"):
                 gold = data["data"].get("gold", 0)
-                battery = f"{gold / 100:.1f} 电池"
+                battery = "%.1f 电池" % (gold / 100.0)
         except Exception:
             battery = "查询失败"
 
-        # 更新显示
         sessdata = acc.get("SESSDATA", "")
         bili_jct = acc.get("bili_jct", "")
-        sessdata_preview = sessdata[:20] + "..." if len(sessdata) > 20 else sessdata
-        jct_preview = bili_jct[:15] + "..." if len(bili_jct) > 15 else bili_jct
+        sp = (sessdata[:20] + "...") if len(sessdata) > 20 else sessdata
+        jp = (bili_jct[:15] + "...") if len(bili_jct) > 15 else bili_jct
 
-        self.manager_info_text.config(state=tk.NORMAL)
-        self.manager_info_text.delete(1.0, tk.END)
-        info = f"""账户名称: {name}
-用户UID: {uid}
-SESSDATA: {sessdata_preview}
-bili_jct: {jct_preview}
+        return (
+            "账户名称: %s\n"
+            "用户UID: %s\n"
+            "SESSDATA: %s\n"
+            "bili_jct: %s\n"
+            "\n"
+            "--- 直播间信息 ---\n"
+            "直播间号: %s\n"
+            "直播状态: %s\n"
+            "\n"
+            "--- 电池余额 ---\n"
+            "电池数量: %s\n"
+            % (name, uid or "-", sp, jp, room_id, room_status, battery)
+        )
 
---- 直播间信息 ---
-直播间号: {room_id}
-直播状态: {room_status}
+    def _set_detail_dialog_text(self, content):
+        """设置详情弹窗内的文本（v6.7.1）。"""
+        txt = getattr(self, "_detail_txt", None)
+        if txt is None:
+            return
+        try:
+            if not txt.winfo_exists():
+                return
+            txt.config(state=tk.NORMAL)
+            txt.delete("1.0", tk.END)
+            txt.insert(tk.END, content)
+            txt.config(state=tk.DISABLED)
+        except Exception:
+            pass
 
---- 电池余额 ---
-电池数量: {battery}
-"""
-        self.manager_info_text.insert(tk.END, info)
-        self.manager_info_text.config(state=tk.DISABLED)
-        self.log(f"已刷新账户「{name}」的详细信息")
+    def _refresh_detail_dialog(self):
+        """在详情弹窗内刷新账户信息（v6.7.1：线程查询 + 主线程轮询更新）。
 
+        重要：tkinter 不是线程安全的，不能在工作线程里调用 root.after。
+        改为「工作线程只写结果变量 + 主线程定时轮询」的安全模式。
+        """
+        acc = self.get_manager_selected_account()
+        if not acc:
+            messagebox.showwarning("提示", "请先选择一个账户", parent=self.root)
+            return
+        name = acc.get("name", "未知")
+
+        self._set_detail_dialog_text(
+            "正在查询「%s」的直播间号与电池余额...\n\n（请稍候，约 1~3 秒）" % name)
+        try:
+            self.log("正在刷新账户「%s」的详细信息..." % name)
+        except Exception:
+            pass
+
+        # 结果容器（工作线程只写这里，主线程读）
+        self._detail_refresh_state = {"done": False, "text": "", "name": name}
+
+        def _work():
+            text = ""
+            try:
+                text = self._fetch_account_info_text(acc)
+            except Exception as e:
+                text = "查询失败: %s" % e
+            st = getattr(self, "_detail_refresh_state", None)
+            if st is not None:
+                st["text"] = text
+                st["done"] = True
+
+        threading.Thread(target=_work, daemon=True).start()
+        # 在【主线程】启动轮询（本方法由按钮/after 触发，始终在主线程）
+        try:
+            self.root.after(120, self._poll_detail_refresh)
+        except Exception:
+            pass
+
+    def _poll_detail_refresh(self, _retry=0):
+        """主线程轮询详情查询结果（v6.7.1）。"""
+        st = getattr(self, "_detail_refresh_state", None)
+        if not st:
+            return
+        if st.get("done"):
+            text = st.get("text", "") or "（无数据）"
+            self._set_detail_dialog_text(text)
+            try:
+                self.manager_info_text.config(state=tk.NORMAL)
+                self.manager_info_text.delete("1.0", tk.END)
+                self.manager_info_text.insert(tk.END, text)
+                self.manager_info_text.config(state=tk.DISABLED)
+            except Exception:
+                pass
+            try:
+                self.log("已刷新账户「%s」的详细信息" % st.get("name", ""))
+            except Exception:
+                pass
+            self._detail_refresh_state = {"done": True, "text": text}
+            return
+        # 未完成，继续轮询（最多约 20 秒）
+        if _retry < 200:
+            try:
+                self.root.after(120, lambda: self._poll_detail_refresh(_retry + 1))
+            except Exception:
+                pass
+    def _manager_refresh_info(self):
+        """刷新选中账户的详细信息（v6.7.1：改为调用纯查询函数）。"""
+        acc = self.get_manager_selected_account()
+        if not acc:
+            messagebox.showwarning("提示", "请先选择一个账户", parent=self.root)
+            return
+        name = acc.get("name", "未知")
+        text = self._fetch_account_info_text(acc)
+        try:
+            self.manager_info_text.config(state=tk.NORMAL)
+            self.manager_info_text.delete("1.0", tk.END)
+            self.manager_info_text.insert(tk.END, text)
+            self.manager_info_text.config(state=tk.DISABLED)
+        except Exception:
+            pass
+        self._set_detail_dialog_text(text)
+        self.log("已刷新账户「%s」的详细信息" % name)
     def _manager_edit_account(self):
         """账户管理页面编辑账户"""
         selection = self.manager_account_listbox.curselection()
@@ -2127,7 +2357,7 @@ bili_jct: {jct_preview}
 
         # 顶部：关机设置卡片
         setup_card = tk.Frame(main, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
-        setup_card.pack(fill=tk.X, pady=(0, 8))
+        setup_card.pack(fill=tk.X, pady=(0, 6))
 
         tk.Label(setup_card, text="⏻ 定时关机设置", bg=COLORS["bg_card"], fg=COLORS["accent"],
                  font=theme.font(12, bold=True)).pack(anchor=tk.W, padx=15, pady=(10, 8))
