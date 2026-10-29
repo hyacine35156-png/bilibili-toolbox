@@ -2421,50 +2421,61 @@ class NewModeMixin:
             # 真实到达时刻 = 本地发送时刻 + 时钟偏差 + 单程网络延迟
             #   到达偏差 = actual_fire + offset + one_way - target_timestamp
             #   正数 = 晚到（安全）  负数 = 早到（可能被判未到领取时间）
-            _spin_error_ms = (actual_fire - fire_time) * 1000.0
-            _arrive_dev_ms = (
-                actual_fire + ntp_correction / 1000.0
-                + half_recv / 1000.0 - target_timestamp) * 1000.0
-            _session_id = time.strftime("%Y%m%d_%H%M%S",
-                                         time.localtime(target_timestamp))
-
-            self.nm_log(
-                f"[精准首发] 本地偏差 {(actual_fire - target_timestamp)*1000:+.1f}ms"
-                f"（本地时钟口径，含 {ntp_correction:+.0f}ms 时钟偏差）")
-            self.nm_log(
-                f"[精准首发] 真实到达偏差 {_arrive_dev_ms:+.1f}ms"
-                f"（{'晚到' if _arrive_dev_ms >= 0 else '早到'}，自旋精度 {_spin_error_ms:+.1f}ms）")
-
-            # 到达偏差分级提示（便于立即判断这一枪质量）
-            if _arrive_dev_ms < -20:
-                self.nm_log("  ⚠ 早到超过20ms，可能被判未到领取时间，建议提高晚到补偿")
-            elif _arrive_dev_ms <= 50:
-                self.nm_log("  ✓ 到达时机优秀（0-50ms）")
-            elif _arrive_dev_ms <= 100:
-                self.nm_log("  ✓ 到达时机良好（50-100ms）")
-            elif _arrive_dev_ms <= 200:
-                self.nm_log("  ○ 到达偏晚（100-200ms）")
-            else:
-                self.nm_log("  ⚠ 到达过晚（>200ms），可能错过首批库存")
-
-            # 把本次场次的指标存入 stop_flag，供 nm_execute_task 写入记录
-            stop_flag["_session_id"] = _session_id
-            stop_flag["_ntp_offset_ms"] = ntp_correction
-            stop_flag["_target_ts"] = target_timestamp
-            stop_flag["_fire_ts"] = actual_fire
-            stop_flag["_one_way_ms"] = half_recv
-            stop_flag["_probe_rtt_med"] = probe_rtt or 0
-            stop_flag["_probe_valid"] = probe_valid
-            stop_flag["_probe_total"] = probe_total
-            # v6.6.9: 补存探针原始样本（RTT抖动 指标需要）
+            # v6.6.10 关键加固: 指标计算/日志/写入全部包在 try 内。
+            # 原因：v6.6.8 这里抛了 UnboundLocalError，被外层 except 捕获后
+            # 函数直接退出，导致【阶段4 真正领取】一次都没执行。
+            # 指标统计可以失败，但领取请求必须发出去。
             try:
-                stop_flag["_probe_samples"] = ",".join(
-                    "%.1f" % x for x in (_probe_samples or []))
-            except Exception:
-                stop_flag["_probe_samples"] = ""
-            stop_flag["_spin_error_ms"] = _spin_error_ms
-            stop_flag["_arrive_dev_ms"] = _arrive_dev_ms
-            stop_flag["_first_shot_done"] = False
+                _spin_error_ms = (actual_fire - fire_time) * 1000.0
+                _arrive_dev_ms = (
+                    actual_fire + ntp_correction / 1000.0
+                    + half_recv / 1000.0 - target_timestamp) * 1000.0
+                _session_id = time.strftime("%Y%m%d_%H%M%S",
+                                             time.localtime(target_timestamp))
+
+                self.nm_log(
+                    f"[精准首发] 本地偏差 {(actual_fire - target_timestamp)*1000:+.1f}ms"
+                    f"（本地时钟口径，含 {ntp_correction:+.0f}ms 时钟偏差）")
+                self.nm_log(
+                    f"[精准首发] 真实到达偏差 {_arrive_dev_ms:+.1f}ms"
+                    f"（{'晚到' if _arrive_dev_ms >= 0 else '早到'}，自旋精度 {_spin_error_ms:+.1f}ms）")
+
+                # 到达偏差分级提示（便于立即判断这一枪质量）
+                if _arrive_dev_ms < -20:
+                    self.nm_log("  ⚠ 早到超过20ms，可能被判未到领取时间，建议提高晚到补偿")
+                elif _arrive_dev_ms <= 50:
+                    self.nm_log("  ✓ 到达时机优秀（0-50ms）")
+                elif _arrive_dev_ms <= 100:
+                    self.nm_log("  ✓ 到达时机良好（50-100ms）")
+                elif _arrive_dev_ms <= 200:
+                    self.nm_log("  ○ 到达偏晚（100-200ms）")
+                else:
+                    self.nm_log("  ⚠ 到达过晚（>200ms），可能错过首批库存")
+
+                # 把本次场次的指标存入 stop_flag，供 nm_execute_task 写入记录
+                stop_flag["_session_id"] = _session_id
+                stop_flag["_ntp_offset_ms"] = ntp_correction
+                stop_flag["_target_ts"] = target_timestamp
+                stop_flag["_fire_ts"] = actual_fire
+                stop_flag["_one_way_ms"] = half_recv
+                stop_flag["_probe_rtt_med"] = probe_rtt or 0
+                stop_flag["_probe_valid"] = probe_valid
+                stop_flag["_probe_total"] = probe_total
+                # v6.6.9: 补存探针原始样本（RTT抖动 指标需要）
+                try:
+                    stop_flag["_probe_samples"] = ",".join(
+                        "%.1f" % x for x in (_probe_samples or []))
+                except Exception:
+                    stop_flag["_probe_samples"] = ""
+                stop_flag["_spin_error_ms"] = _spin_error_ms
+                stop_flag["_arrive_dev_ms"] = _arrive_dev_ms
+                stop_flag["_first_shot_done"] = False
+            except Exception as _metrics_err:
+                self.nm_log(f"[警告] 指标统计异常（不影响领取）: {_metrics_err}")
+                try:
+                    _spin_error_ms = globals().get("_spin_error_ms", 0.0)
+                except Exception:
+                    _spin_error_ms = 0.0
 
             # ===== 阶段4: 按优先级依次执行任务 =====
             tasks_sorted = sorted(group["tasks"], key=lambda t: t.get("priority", 99))
