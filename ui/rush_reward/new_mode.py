@@ -2266,18 +2266,43 @@ class NewModeMixin:
             # --- 1) 用只读查询接口测当前 RTT（不消耗领取机会）---
             # v6.4.2: 先检查剩余时间，不够就跳过探针（用兜底值），
             # 保证自旋空间不被探针吃光。
+            # v6.6.9 修复: 必须先初始化全部探针变量，
+            # 否则探针抛异常时 probe_valid/probe_total 未定义，
+            # 到下面 stop_flag["_probe_valid"] = probe_valid 会 UnboundLocalError
             probe_rtt = None
+            probe_valid = 0
+            probe_total = 0
+            _probe_samples = []
             _time_left_ms = (target_timestamp - time.time()) * 1000.0
-            _min_needed_ms = 600.0   # 探针至少需要 600ms，之后还要自旋
-            _skip_probe = _time_left_ms < _min_needed_ms + 500.0
+            # v6.6.9 修复: 原来只判断 "剩余 > 1100ms 就做探针"，
+            # 但探针实际耗时约 1300ms（2次采样×0.8s间隔+RTT），
+            # 做完后剩余时间不足以完成【提前量自旋】，
+            # 导致 fire_time 已过 -> 立即发送 -> 晚到 1000ms+。
+            #
+            # 正确判断：剩余时间 >= 探针耗时 + 实际需要的提前量 + 安全余量
+            _probe_cost_ms = 1300.0          # 2次采样实测约1.3s
+            _delta_ms = 60.0                 # 晚到补偿
+            _est_half = 82.0                 # 兜底半RTT
+            _est_advance = ntp_correction + _est_half - _delta_ms
+            if _est_advance < 10.0:
+                _est_advance = 10.0
+            _needed_ms = _probe_cost_ms + _est_advance + 100.0
+            _skip_probe = _time_left_ms < _needed_ms
             if _skip_probe:
-                self.nm_log(f"[RTT探针] 剩余{_time_left_ms:.0f}ms，跳过探针避免挤占自旋时间")
+                self.nm_log(
+                    f"[RTT探针] 剩余{_time_left_ms:.0f}ms < 需要{_needed_ms:.0f}ms"
+                    f"（探针{_probe_cost_ms:.0f}+提前量{_est_advance:.0f}+余量100），"
+                    f"跳过探针保住自旋窗口")
             try:
                 if prewarm_tasks and not _skip_probe:
                     _probe_session = sessions.get(prewarm_tasks[0]["task_id"])
                     # v6.4.2: 采样 2 次（间隔0.80s，总耗时约 0.8+2*RTT≈1.2s）
                     # 优先用历史缓存基线，只有缓存过期时才真探
-                    probe_rtt, probe_valid, probe_total = self._nm_probe_smart(
+                    # v6.6.9 修复: _nm_probe_smart 已改为返回 4 元组
+                    # (rtt, valid, total, samples)，原 3 元组解包会
+                    # "too many values to unpack (expected 3, got 4)"
+                    (probe_rtt, probe_valid, probe_total,
+                     _probe_samples) = self._nm_probe_smart(
                         prewarm_tasks[0], _probe_session, target_timestamp)
             except Exception as e:
                 self.nm_log(f"[RTT探针] 异常: {e}")
@@ -2431,6 +2456,12 @@ class NewModeMixin:
             stop_flag["_probe_rtt_med"] = probe_rtt or 0
             stop_flag["_probe_valid"] = probe_valid
             stop_flag["_probe_total"] = probe_total
+            # v6.6.9: 补存探针原始样本（RTT抖动 指标需要）
+            try:
+                stop_flag["_probe_samples"] = ",".join(
+                    "%.1f" % x for x in (_probe_samples or []))
+            except Exception:
+                stop_flag["_probe_samples"] = ""
             stop_flag["_spin_error_ms"] = _spin_error_ms
             stop_flag["_arrive_dev_ms"] = _arrive_dev_ms
             stop_flag["_first_shot_done"] = False
