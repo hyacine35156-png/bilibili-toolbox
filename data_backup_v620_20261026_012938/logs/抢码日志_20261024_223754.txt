@@ -1,0 +1,89 @@
+===== B站抢码工具日志 =====
+启动时间: 2026-10-24 22:37:54
+日志文件: C:\Users\15868\Doubao\chats\2026-08-29\new-chat\bilibili-danmaku-bot\dist\data\logs\抢码日志_20261024_223754.txt
+============================
+
+[22:37:55] 抢码工具已启动，选择任务和账户后点击「开始监控」
+[22:37:55] 提示：领取需要先完成投稿任务并绑定游戏账号
+[22:38:05] 查询: [全版本][投稿] 投稿≥4，单稿点赞≥10且累计播放≥400 => 菲林*80
+[22:38:05]   账户: 灵砂是无敌的, task_id: 6ERAcwloghvaeu00
+[22:38:06]   ✓ act_id: 1ERAzwloghv2ai00
+[22:38:06] [库存调试] 从描述解析: 总库存=8000, 每日限量=1000
+[22:38:06] [库存调试] 开始解析库存...
+[22:38:06] [库存调试] 顶层字段: ['act_id', 'act_name', 'task_id', 'task_name', 'reward_info', 'stock_info', 'status', 'message', 'check_error_code', 'check_error_type', 'check_error_msg', 'stime', 'etime', 'article_display_date', 'task_finished', 'task_refresh_conf', 'task_desc']
+[22:38:06] [库存调试] 找到相关字段: reward_info = {"award_id": "5ERAnwloghv54m00", "award_inner_id": -494038, "award_name": "菲林*80", "award_icon": "https://i0.hdslb.com/bfs/activity-plat/static/8201/10377/11850/d41d8cd98f00b204e9800998ecf8427e/iF7Vej
+[22:38:06] [库存调试] 找到相关字段: stock_info = {"total_stock": 73, "day_stock": 0, "total_stock_limit": true, "day_stock_limit": true, "total_stock_limit_num": 0, "day_stock_limit_num": 0, "total_remain_num": 0, "day_remain_num": 0}
+[22:38:06] [库存调试] stock_info内容: {"total_stock": 73, "day_stock": 0, "total_stock_limit": true, "day_stock_limit": true, "total_stock_limit_num": 0, "day_stock_limit_num": 0, "total_remain_num": 0, "day_remain_num": 0}
+[22:38:06] [库存调试] 使用stock字段: 剩余总量=73, 今日剩余=0
+[22:38:06] [库存调试] reward_info内容: {"award_id": "5ERAnwloghv54m00", "award_inner_id": -494038, "award_name": "菲林*80", "award_icon": "https://i0.hdslb.com/bfs/activity-plat/static/8201/10377/11850/d41d8cd98f00b204e9800998ecf8427e/iF7VejbdVx.jpg", "award_type": "CdKeyV2", "award_description": "1、投稿时需选择#绝区零UP主激励计划#活动话题或本次创作激励计划中的活动话题/标签
+[22:38:06] [库存调试] 使用stock_info作为库存（可能是活动级别）: 0/73
+[22:38:06] [库存调试] 解析结果: 今日剩余=0%, 活动剩余=73%, 来源=stock_info
+[22:38:06] [库存调试] 描述解析: 总库存=8000, 每日限量=1000
+[22:38:06] [库存调试] 库存原始数据: {"total_stock": 73, "day_stock": 0, "total_stock_limit": true, "day_stock_limit": true, "total_stock_limit_num": 0, "day_stock_limit_num": 0, "total_remain_num": 0, "day_remain_num": 0}
+[22:38:06]   库存: 总库存8000 / 剩余总量73% / 每日限量1000 / 今日剩余0% | 来源:stock_info | 更新:22:38:06
+[22:38:06]   状态: 暂无领取资格 (status=8, 任务完成=False)
+[22:38:06]   任务名: 投稿≥4，单稿点赞≥10且累计播放≥400
+[22:38:07] 查询: [全版本][投稿] 投稿≥4，单稿点赞≥10且累计播放≥400 => 菲林*80
+[22:38:07]   账户: 灵砂是无敌的, task_id: 6ERAcwloghvaeu00
+[22:38:07]   ✓ act_id: 1ERAzwloghv2ai00
+[22:38:07] [库存调试] 从描述解析: 总库存=8000, 每日限量=1000
+[22:38:07] [库存调试] 开始解析库存...
+[22:38:07] [库存调试] 顶层字段: ['act_id', 'act_name', 'task_id', 'task_name', 'reward_info', 'stock_info', 'status', 'message', 'check_error_code', 'check_error_type', 'check_error_msg', 'stime', 'etime', 'article_display_date', 'task_finished', 'task_refresh_conf', 'task_desc']
+[22:38:07] [库存调试] 找到相关字段: reward_info = {"award_id": "5ERAnwloghv54m00", "award_inner_id": -494038, "award_name": "菲林*80", "award_icon": "https://i0.hdslb.com/bfs/activity-plat/static/8201/10377/11850/d41d8cd98f00b204e9800998ecf8427e/iF7Vej
+[22:38:07] [库存调试] 找到相关字段: stock_info = {"total_stock": 73, "day_stock": 0, "total_stock_limit": true, "day_stock_limit": true, "total_stock_limit_num": 0, "day_stock_limit_num": 0, "total_remain_num": 0, "day_remain_num": 0}
+[22:38:07] [库存调试] stock_info内容: {"total_stock": 73, "day_stock": 0, "total_stock_limit": true, "day_stock_limit": true, "total_stock_limit_num": 0, "day_stock_limit_num": 0, "total_remain_num": 0, "day_remain_num": 0}
+[22:38:07] [库存调试] 使用stock字段: 剩余总量=73, 今日剩余=0
+[22:38:07] [库存调试] reward_info内容: {"award_id": "5ERAnwloghv54m00", "award_inner_id": -494038, "award_name": "菲林*80", "award_icon": "https://i0.hdslb.com/bfs/activity-plat/static/8201/10377/11850/d41d8cd98f00b204e9800998ecf8427e/iF7VejbdVx.jpg", "award_type": "CdKeyV2", "award_description": "1、投稿时需选择#绝区零UP主激励计划#活动话题或本次创作激励计划中的活动话题/标签
+[22:38:07] [库存调试] 使用stock_info作为库存（可能是活动级别）: 0/73
+[22:38:07] [库存调试] 解析结果: 今日剩余=0%, 活动剩余=73%, 来源=stock_info
+[22:38:07] [库存调试] 描述解析: 总库存=8000, 每日限量=1000
+[22:38:07] [库存调试] 库存原始数据: {"total_stock": 73, "day_stock": 0, "total_stock_limit": true, "day_stock_limit": true, "total_stock_limit_num": 0, "day_stock_limit_num": 0, "total_remain_num": 0, "day_remain_num": 0}
+[22:38:07]   库存: 总库存8000 / 剩余总量73% / 每日限量1000 / 今日剩余0% | 来源:stock_info | 更新:22:38:07
+[22:38:07]   状态: 暂无领取资格 (status=8, 任务完成=False)
+[22:38:08]   任务名: 投稿≥4，单稿点赞≥10且累计播放≥400
+[22:38:08] 查询: [全版本][投稿] 投稿≥4，单稿点赞≥10且累计播放≥400 => 菲林*80
+[22:38:08]   账户: 灵砂是无敌的, task_id: 6ERAcwloghvaeu00
+[22:38:08]   ✓ act_id: 1ERAzwloghv2ai00
+[22:38:08] [库存调试] 从描述解析: 总库存=8000, 每日限量=1000
+[22:38:08] [库存调试] 开始解析库存...
+[22:38:08] [库存调试] 顶层字段: ['act_id', 'act_name', 'task_id', 'task_name', 'reward_info', 'stock_info', 'status', 'message', 'check_error_code', 'check_error_type', 'check_error_msg', 'stime', 'etime', 'article_display_date', 'task_finished', 'task_refresh_conf', 'task_desc']
+[22:38:08] [库存调试] 找到相关字段: reward_info = {"award_id": "5ERAnwloghv54m00", "award_inner_id": -494038, "award_name": "菲林*80", "award_icon": "https://i0.hdslb.com/bfs/activity-plat/static/8201/10377/11850/d41d8cd98f00b204e9800998ecf8427e/iF7Vej
+[22:38:08] [库存调试] 找到相关字段: stock_info = {"total_stock": 73, "day_stock": 0, "total_stock_limit": true, "day_stock_limit": true, "total_stock_limit_num": 0, "day_stock_limit_num": 0, "total_remain_num": 0, "day_remain_num": 0}
+[22:38:08] [库存调试] stock_info内容: {"total_stock": 73, "day_stock": 0, "total_stock_limit": true, "day_stock_limit": true, "total_stock_limit_num": 0, "day_stock_limit_num": 0, "total_remain_num": 0, "day_remain_num": 0}
+[22:38:08] [库存调试] 使用stock字段: 剩余总量=73, 今日剩余=0
+[22:38:08] [库存调试] reward_info内容: {"award_id": "5ERAnwloghv54m00", "award_inner_id": -494038, "award_name": "菲林*80", "award_icon": "https://i0.hdslb.com/bfs/activity-plat/static/8201/10377/11850/d41d8cd98f00b204e9800998ecf8427e/iF7VejbdVx.jpg", "award_type": "CdKeyV2", "award_description": "1、投稿时需选择#绝区零UP主激励计划#活动话题或本次创作激励计划中的活动话题/标签
+[22:38:08] [库存调试] 使用stock_info作为库存（可能是活动级别）: 0/73
+[22:38:08] [库存调试] 解析结果: 今日剩余=0%, 活动剩余=73%, 来源=stock_info
+[22:38:08] [库存调试] 描述解析: 总库存=8000, 每日限量=1000
+[22:38:08] [库存调试] 库存原始数据: {"total_stock": 73, "day_stock": 0, "total_stock_limit": true, "day_stock_limit": true, "total_stock_limit_num": 0, "day_stock_limit_num": 0, "total_remain_num": 0, "day_remain_num": 0}
+[22:38:08]   库存: 总库存8000 / 剩余总量73% / 每日限量1000 / 今日剩余0% | 来源:stock_info | 更新:22:38:08
+[22:38:09]   状态: 暂无领取资格 (status=8, 任务完成=False)
+[22:38:09]   任务名: 投稿≥4，单稿点赞≥10且累计播放≥400
+[22:38:57] 手动领取: [全版本][投稿] 投稿≥5，单稿点赞≥10且累计播放≥500 => 原装母带*1
+[22:38:57]   账户: 灵砂是无敌的
+[22:38:57]   ✓ act_id: 1ERAzwloghv2ai00
+[22:38:57] ✗ 领取失败：[-101] 账号未登录
+[22:38:57] 手动领取: [全版本][投稿] 投稿≥5，单稿点赞≥10且累计播放≥500 => 原装母带*1
+[22:38:57]   账户: 灵砂是无敌的
+[22:38:57]   ✓ act_id: 1ERAzwloghv2ai00
+[22:38:57] ✗ 领取失败：[-101] 账号未登录
+[22:38:59] 查询: [全版本][投稿] 投稿≥5，单稿点赞≥10且累计播放≥500 => 原装母带*1
+[22:38:59]   账户: 灵砂是无敌的, task_id: 6ERAcwloghvpar00
+[22:38:59]   ✓ act_id: 1ERAzwloghv2ai00
+[22:38:59] [库存调试] 从描述解析: 总库存=8000, 每日限量=1000
+[22:38:59] [库存调试] 开始解析库存...
+[22:38:59] [库存调试] 顶层字段: ['act_id', 'act_name', 'task_id', 'task_name', 'reward_info', 'stock_info', 'status', 'message', 'check_error_code', 'check_error_type', 'check_error_msg', 'stime', 'etime', 'article_display_date', 'task_finished', 'task_refresh_conf', 'task_desc']
+[22:38:59] [库存调试] 找到相关字段: reward_info = {"award_id": "5ERAnwloghv7ir00", "award_inner_id": -493348, "award_name": "原装母带*1", "award_icon": "https://i0.hdslb.com/bfs/activity-plat/static/8201/10377/11850/d41d8cd98f00b204e9800998ecf8427e/RlK2Z
+[22:38:59] [库存调试] 找到相关字段: stock_info = {"total_stock": 74, "day_stock": 2, "total_stock_limit": true, "day_stock_limit": true, "total_stock_limit_num": 0, "day_stock_limit_num": 0, "total_remain_num": 0, "day_remain_num": 0}
+[22:38:59] [库存调试] stock_info内容: {"total_stock": 74, "day_stock": 2, "total_stock_limit": true, "day_stock_limit": true, "total_stock_limit_num": 0, "day_stock_limit_num": 0, "total_remain_num": 0, "day_remain_num": 0}
+[22:38:59] [库存调试] 使用stock字段: 剩余总量=74, 今日剩余=2
+[22:38:59] [库存调试] reward_info内容: {"award_id": "5ERAnwloghv7ir00", "award_inner_id": -493348, "award_name": "原装母带*1", "award_icon": "https://i0.hdslb.com/bfs/activity-plat/static/8201/10377/11850/d41d8cd98f00b204e9800998ecf8427e/RlK2ZLL2LO.png", "award_type": "CdKeyV2", "award_description": "1、投稿时需选择#绝区零UP主激励计划#活动话题或本次创作激励计划中的活动话题/标
+[22:38:59] [库存调试] 使用stock_info作为库存（可能是活动级别）: 2/74
+[22:38:59] [库存调试] 解析结果: 今日剩余=2%, 活动剩余=74%, 来源=stock_info
+[22:38:59] [库存调试] 描述解析: 总库存=8000, 每日限量=1000
+[22:38:59] [库存调试] 库存原始数据: {"total_stock": 74, "day_stock": 2, "total_stock_limit": true, "day_stock_limit": true, "total_stock_limit_num": 0, "day_stock_limit_num": 0, "total_remain_num": 0, "day_remain_num": 0}
+[22:38:59]   库存: 总库存8000 / 剩余总量74% / 每日限量1000 / 今日剩余2% | 来源:stock_info | 更新:22:38:59
+[22:38:59]   状态: 暂无领取资格 (status=8, 任务完成=False)
+[22:38:59]   任务名: 投稿≥5，单稿点赞≥10且累计播放≥500
+[22:40:39] ----------------------------------------
+[22:40:39] 已停止

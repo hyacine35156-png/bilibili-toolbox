@@ -1,0 +1,31 @@
+===== B站抢码工具日志 =====
+启动时间: 2026-10-25 11:41:08
+日志文件: C:\Users\15868\Doubao\chats\2026-08-29\new-chat\bilibili-danmaku-bot\dist\data\logs\抢码日志_20261025_114108.txt
+============================
+
+[11:41:09] 抢码工具已启动，选择任务和账户后点击「开始监控」
+[11:41:09] 提示：领取需要先完成投稿任务并绑定游戏账号
+[11:43:20] 手动领取: [池沼][区] 每日收到5条弹幕 => 中级作战记录*5
+[11:43:20]   账户: 灵砂是无敌的
+[11:43:21]   ✓ act_id: 1ERAzwloghv1nf00
+[11:43:21] ✗ 领取失败：[202032] 无资格领取奖励
+[11:43:22] 查询: [池沼][区] 每日收到5条弹幕 => 中级作战记录*5
+[11:43:22]   账户: 灵砂是无敌的, task_id: 6ERAcwloghvali00
+[11:43:22]   ✓ act_id: 1ERAzwloghv1nf00
+[11:43:22] [库存调试] 从描述解析: 总库存=80000, 每日限量=0
+[11:43:22] [库存调试] 开始解析库存...
+[11:43:22] [库存调试] 顶层字段: ['act_id', 'act_name', 'task_id', 'task_name', 'reward_info', 'stock_info', 'status', 'message', 'check_error_code', 'check_error_type', 'check_error_msg', 'stime', 'etime', 'article_display_date', 'task_finished', 'task_refresh_conf', 'task_desc']
+[11:43:22] [库存调试] 找到相关字段: reward_info = {"award_id": "5ERAnwloghv76b00", "award_inner_id": -492456, "award_name": "中级作战记录*5", "award_icon": "https://i0.hdslb.com/bfs/activity-plat/static/8201/11647/11648/d41d8cd98f00b204e9800998ecf8427e/G0I
+[11:43:22] [库存调试] 找到相关字段: stock_info = {"total_stock": 79, "day_stock": 80, "total_stock_limit": true, "day_stock_limit": true, "total_stock_limit_num": 0, "day_stock_limit_num": 0, "total_remain_num": 0, "day_remain_num": 0}
+[11:43:22] [库存调试] stock_info内容: {"total_stock": 79, "day_stock": 80, "total_stock_limit": true, "day_stock_limit": true, "total_stock_limit_num": 0, "day_stock_limit_num": 0, "total_remain_num": 0, "day_remain_num": 0}
+[11:43:22] [库存调试] 使用stock字段: 剩余总量=79, 今日剩余=80
+[11:43:22] [库存调试] reward_info内容: {"award_id": "5ERAnwloghv76b00", "award_inner_id": -492456, "award_name": "中级作战记录*5", "award_icon": "https://i0.hdslb.com/bfs/activity-plat/static/8201/11647/11648/d41d8cd98f00b204e9800998ecf8427e/G0IPKwSbG8.png", "award_type": "CdKeyV2", "award_description": "1、参与活动需在手游-明日方舟：终末地分区开播，请勿在任务刷新前后（即0点）卡
+[11:43:22] [库存调试] 使用stock_info作为库存（可能是活动级别）: 80/79
+[11:43:22] [库存调试] 解析结果: 今日剩余=80%, 活动剩余=79%, 来源=stock_info
+[11:43:22] [库存调试] 描述解析: 总库存=80000, 每日限量=0
+[11:43:22] [库存调试] 库存原始数据: {"total_stock": 79, "day_stock": 80, "total_stock_limit": true, "day_stock_limit": true, "total_stock_limit_num": 0, "day_stock_limit_num": 0, "total_remain_num": 0, "day_remain_num": 0}
+[11:43:22]   库存: 总库存80000 / 剩余总量79% / 今日剩余80% | 来源:stock_info | 更新:11:43:22
+[11:43:22]   状态: 暂无领取资格 (status=7, 任务完成=False)
+[11:43:22]   任务名: 每日收到5条弹幕
+[11:44:11] ----------------------------------------
+[11:44:11] 已停止

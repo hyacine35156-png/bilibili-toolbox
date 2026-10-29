@@ -17,7 +17,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from config import COLORS
-from ui.theme import sz, font as theme_font
+from ui.theme import font as theme_font
 from widgets import DarkButton
 from tasks_config import (ALL_TASKS, MANUAL_TASKS, MANUAL_VERSION, MANUAL_PERIOD,
                           MANUAL_TYPE, OFFICIAL_TASKS, HIDDEN_TASK_IDS,
