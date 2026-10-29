@@ -63,10 +63,10 @@ class ScheduleFrame(tk.Frame):
         create_card = tk.Frame(self, bg=COLORS["bg_card"],
                                highlightthickness=1,
                                highlightbackground=COLORS["border"])
-        create_card.pack(fill=tk.X, pady=(0, 6))
+        create_card.pack(fill=tk.X, pady=(0, 10))
 
         head = tk.Frame(create_card, bg=COLORS["bg_card"])
-        head.pack(fill=tk.X, padx=12, pady=(8, 4))
+        head.pack(fill=tk.X, padx=16, pady=(12, 8))
         tk.Label(head, text="➕ 创建日程任务", bg=COLORS["bg_card"],
                  fg=COLORS["accent"], font=("微软雅黑", 15, "bold")).pack(side=tk.LEFT)
         self.scheduler_status_label = tk.Label(
@@ -75,13 +75,13 @@ class ScheduleFrame(tk.Frame):
         self.scheduler_status_label.pack(side=tk.RIGHT)
 
         row1 = tk.Frame(create_card, bg=COLORS["bg_card"])
-        row1.pack(fill=tk.X, padx=12, pady=2)
+        row1.pack(fill=tk.X, padx=16, pady=(4, 8))
 
         tk.Label(row1, text="名称", bg=COLORS["bg_card"],
                  fg=COLORS["text_secondary"],
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
-        self.task_name_entry = DarkEntry(row1, width=16)
-        self.task_name_entry.pack(side=tk.LEFT, padx=(6, 14))
+        self.task_name_entry = DarkEntry(row1, width=18)
+        self.task_name_entry.pack(side=tk.LEFT, padx=(8, 22))
 
         tk.Label(row1, text="类型", bg=COLORS["bg_card"],
                  fg=COLORS["text_secondary"],
@@ -94,22 +94,22 @@ class ScheduleFrame(tk.Frame):
                          ("danmaku", "💬 弹幕"), ("shutdown", "⏻ 关机")]:
             lbl = tk.Label(row1, text=txt, bg=COLORS["bg_input"],
                            fg=COLORS["text_secondary"],
-                           font=("微软雅黑", 11), padx=10, pady=4,
+                           font=("微软雅黑", 11), padx=14, pady=6,
                            cursor="hand2")
-            lbl.pack(side=tk.LEFT, padx=2)
+            lbl.pack(side=tk.LEFT, padx=4)
             lbl.bind("<Button-1>",
                      lambda e, v=val: self._select_type_card(v))
             self._type_cards[val] = lbl
 
-        tk.Label(row1, text="  时间", bg=COLORS["bg_card"],
+        tk.Label(row1, text="时间", bg=COLORS["bg_card"],
                  fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 11)).pack(side=tk.LEFT, padx=(12, 0))
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT, padx=(18, 0))
         # v6.6.5: 时间改为下拉选择（用户要求，不要手动输入）
         self.schedule_hour_var = tk.StringVar(value="02")
         self.schedule_hour = RoundCombobox(
             row1, textvariable=self.schedule_hour_var,
             values=["%02d" % h for h in range(24)], width=4, height=28)
-        self.schedule_hour.pack(side=tk.LEFT, padx=(6, 1))
+        self.schedule_hour.pack(side=tk.LEFT, padx=(8, 2))
         tk.Label(row1, text=":", bg=COLORS["bg_card"],
                  fg=COLORS["text_primary"],
                  font=("微软雅黑", 11, "bold")).pack(side=tk.LEFT)
@@ -117,21 +117,21 @@ class ScheduleFrame(tk.Frame):
         self.schedule_minute = RoundCombobox(
             row1, textvariable=self.schedule_minute_var,
             values=["%02d" % m for m in range(60)], width=4, height=28)
-        self.schedule_minute.pack(side=tk.LEFT, padx=(1, 10))
+        self.schedule_minute.pack(side=tk.LEFT, padx=(2, 16))
 
         # 常用时间快捷
         for hhmm in ["00:10", "01:00", "02:00", "18:00"]:
             b = tk.Label(row1, text=hhmm, bg=COLORS["bg_input"],
                          fg=COLORS["text_secondary"],
-                         font=("Consolas", 11), padx=6, pady=3,
+                         font=("Consolas", 11), padx=8, pady=4,
                          cursor="hand2")
-            b.pack(side=tk.LEFT, padx=1)
+            b.pack(side=tk.LEFT, padx=2)
             b.bind("<Button-1>",
                    lambda e, t=hhmm: self._apply_quick_time(t))
 
         # 第二行：参数区（动态）+ 添加按钮
         row2 = tk.Frame(create_card, bg=COLORS["bg_card"])
-        row2.pack(fill=tk.X, padx=12, pady=(2, 2))
+        row2.pack(fill=tk.X, padx=16, pady=(2, 8))
 
         self.param_frame = tk.Frame(row2, bg=COLORS["bg_card"])
         self.param_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -148,7 +148,7 @@ class ScheduleFrame(tk.Frame):
 
         # 第三行：保存为模板
         row3 = tk.Frame(create_card, bg=COLORS["bg_card"])
-        row3.pack(fill=tk.X, padx=12, pady=(0, 8))
+        row3.pack(fill=tk.X, padx=16, pady=(0, 12))
         tk.Label(row3, text="💾 存为模板", bg=COLORS["bg_card"],
                  fg=COLORS["text_muted"],
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
@@ -1001,7 +1001,7 @@ class ScheduleFrame(tk.Frame):
             ("", 12), ("状态", 96), ("类型", 82), ("名称", 100),
             ("时间", 70), ("参数", 96), ("上次执行", 130), ("操作", 200),
         ]
-        ROW_PADY = 6
+        ROW_PADY = 12   # v6.6.8: 行内上下间距加大（用户要求）
 
         def make_cell(parent, px, bg):
             """创建一个固定宽度的单元格容器（只锁宽度，高度自适应）。"""
@@ -1010,18 +1010,18 @@ class ScheduleFrame(tk.Frame):
             # 关键：只锁宽度方向，高度交给内部控件撑开
             f.pack_propagate(False)
             # 让内部控件撑开高度
-            f.configure(height=44)
+            f.configure(height=52)
             return f
 
         # ---- 表头 ----
         head = tk.Frame(self.task_list_frame, bg=COLORS["bg_input"])
-        head.pack(fill=tk.X, pady=(0, 2))
+        head.pack(fill=tk.X, pady=(0, 6))
         for txt, px in COLS:
             cell = make_cell(head, px, COLORS["bg_input"])
             tk.Label(cell, text=txt, bg=COLORS["bg_input"],
                      fg=COLORS["text_secondary"],
                      font=("微软雅黑", 11, "bold"),
-                     anchor=tk.W).pack(side=tk.LEFT, padx=(4, 0), pady=6)
+                     anchor=tk.W).pack(side=tk.LEFT, padx=(4, 0), pady=10)
 
         # ---- 数据行 ----
         for idx, task in enumerate(self.schedule_tasks):
@@ -1033,7 +1033,7 @@ class ScheduleFrame(tk.Frame):
                     bg = COLORS["bg_card"] if idx % 2 == 0 else COLORS["bg_input"]
 
                 row = tk.Frame(self.task_list_frame, bg=bg)
-                row.pack(fill=tk.X, pady=1)
+                row.pack(fill=tk.X, pady=3)
                 tid_row = task["id"]
 
                 # 列0：选中标记条

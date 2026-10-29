@@ -719,7 +719,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         head = tk.Frame(dlg, bg=COLORS["bg_card"])
         head.pack(fill=tk.X, padx=10, pady=(10, 6))
         tk.Label(head, text="📦 抢码预案", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 13, "bold")).pack(anchor=tk.W, padx=14, pady=(10, 2))
+                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=14, pady=(10, 2))
         tk.Label(head, text="把当前整套任务组配置存成预案，下次一键切换，不用再手改时间/间隔",
                  bg=COLORS["bg_card"], fg=COLORS["text_muted"],
                  font=("微软雅黑", 9)).pack(anchor=tk.W, padx=14, pady=(0, 10))
@@ -1944,7 +1944,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         right_head = tk.Frame(right, bg=COLORS["bg_card"])
         right_head.pack(fill=tk.X, padx=14, pady=(12, 6))
         tk.Label(right_head, text="📋 明细记录", bg=COLORS["bg_card"],
-                 fg=COLORS["accent"], font=("微软雅黑", 12, "bold")
+                 fg=COLORS["accent"], font=("微软雅黑", 10, "bold")
                  ).pack(side=tk.LEFT)
         detail_count_lbl = tk.Label(right_head, text="", bg=COLORS["bg_card"],
                                     fg=D["muted"], font=("微软雅黑", 11))
@@ -2710,7 +2710,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         scheduler_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8), pady=(0, 0))
         scheduler_card.config(width=450)
         tk.Label(scheduler_card, text="📋 任务组调度器（实时更新，双击启动/停止）", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 13, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 5))
+                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 5))
         
         scheduler_inner = tk.Frame(scheduler_card, bg=COLORS["bg_card"])
         scheduler_inner.pack(fill=tk.X, padx=15, pady=(0, 10))
@@ -2721,12 +2721,12 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             background=COLORS["bg_card"],
             foreground=COLORS["text_primary"],
             fieldbackground=COLORS["bg_card"],
-            font=("微软雅黑", 12),
+            font=("微软雅黑", 10),
             rowheight=28)
         scheduler_style.configure("Scheduler.Treeview.Heading",
             background=COLORS["bg_input"],
             foreground=COLORS["accent"],
-            font=("微软雅黑", 12, "bold"))
+            font=("微软雅黑", 10, "bold"))
         scheduler_style.map("Scheduler.Treeview",
             background=[("selected", COLORS["accent"])],
             foreground=[("selected", "#000000")])
@@ -2771,15 +2771,15 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         color_frame = tk.Frame(scheduler_btn_frame, bg=COLORS["bg_card"])
         color_frame.pack(side=tk.RIGHT)
         tk.Label(color_frame, text="● 未启动", bg=COLORS["bg_card"], fg="#95a5a6",
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=5)
+                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=5)
         tk.Label(color_frame, text="● 等待中", bg=COLORS["bg_card"], fg="#3498db",
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=5)
+                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=5)
         tk.Label(color_frame, text="● 运行中", bg=COLORS["bg_card"], fg=COLORS["success"],
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=5)
+                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=5)
         tk.Label(color_frame, text="● 已完成", bg=COLORS["bg_card"], fg="#27ae60",
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=5)
+                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=5)
         tk.Label(color_frame, text="● 已停止", bg=COLORS["bg_card"], fg="#f39c12",
-                 font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=5)
+                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=5)
         
         # 启动定时更新（每秒更新一次）
         self.nm_scheduler_running = True
@@ -2792,7 +2792,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         log_inner = tk.Frame(log_card, bg=COLORS["bg_card"])
         log_inner.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 10))
         self.nm_log_text = tk.Text(log_inner, bg=COLORS["bg_dark"], fg=COLORS["text_primary"],
-                                   font=("Consolas", 11), wrap=tk.WORD, height=8)
+                                   font=("Consolas", 10), wrap=tk.WORD, height=8)
         nm_log_scroll = ttk.Scrollbar(log_inner, command=self.nm_log_text.yview)
         self.nm_log_text.config(yscrollcommand=nm_log_scroll.set)
         nm_log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
