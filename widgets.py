@@ -463,7 +463,7 @@ class DarkButton(tk.Canvas):
     """自定义深色主题按钮"""
     def __init__(self, parent, text, command=None, width=None, height=44,
                  bg_color=COLORS["accent"], text_color="#000000", hover_color=COLORS["accent_hover"],
-                 compact=False):
+                 compact=False, tip=None):
         """compact=True 用于小尺寸按钮（表格操作列等）：
         不套用 100px 最小宽度和 44px 内边距，按 min(width, 文字+16) 精确控制。
         """
@@ -497,6 +497,13 @@ class DarkButton(tk.Canvas):
         self.bind("<Enter>", lambda e: self._draw(self.hover_color))
         self.bind("<Leave>", lambda e: self._draw(self.bg_color))
         self.bind("<Button-1>", self._on_click)
+        # v6.6.6: 按钮悬浮提示（用户反馈"搞不清按钮含义"）
+        if tip:
+            try:
+                self.tip_text = tip
+                ToolTip(self, tip)
+            except Exception:
+                pass
 
     def _draw(self, color):
         self.delete("all")

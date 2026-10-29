@@ -427,7 +427,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
         # 手动添加任务（task_id / 活动网址）
         self.mt_add_btn = DarkButton(row1b, text="＋ 手动添加", command=self.mt_open_add_dialog,
-                                     height=32, bg_color="#8e44ad", text_color="#ffffff")
+                                     height=32, bg_color="#8e44ad", text_color="#ffffff", tip="手动输入 task_id 或活动网址来添加任务（官方任务表里没有的活动也能加）")
         self.mt_add_btn.pack(side=tk.LEFT, padx=(10, 0))
 
         self.on_version_change()  # 初始化期数、类型下拉框选项和任务列表
@@ -615,10 +615,10 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         tk.Label(stats_head, text="📊 抢码统计（今日）", bg=COLORS["bg_card"],
                  fg=COLORS["accent"], font=("微软雅黑", 11, "bold")).pack(side=tk.LEFT)
         DarkButton(stats_head, text="刷新", command=self.refresh_stats_panel,
-                  height=26, width=70, bg_color=COLORS["bg_input"],
+                  height=26, width=70, bg_color=COLORS["bg_input"], tip="刷新抢码统计面板数据",
                   text_color=COLORS["text_primary"]).pack(side=tk.RIGHT, padx=(6, 0))
         DarkButton(stats_head, text="📈 详细仪表盘", command=self.open_stats_dashboard,
-                  height=26, width=120, bg_color="#8e44ad",
+                  height=26, width=120, bg_color="#8e44ad", tip="打开详细统计仪表盘（18项指标、库存窗口等）",
                   text_color="#ffffff").pack(side=tk.RIGHT)
         self.stats_label = tk.Label(stats_card, text="暂无数据（抢码后自动统计）",
                                     bg=COLORS["bg_card"], fg=COLORS["text_muted"],
@@ -2256,7 +2256,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             render()
 
         # 右侧按钮：从右往左排
-        DarkButton(foot, text="刷新", command=render,
+        DarkButton(foot, text="刷新", command=render, tip="刷新抢码统计面板数据",
                    height=30, width=76, bg_color="#2980b9").pack(side=tk.RIGHT, padx=(6, 0))
         DarkButton(foot, text="清空全部剔除", command=clear_all_excluded,
                    height=30, width=124, bg_color="#c0392b").pack(side=tk.RIGHT, padx=(6, 0))
@@ -2489,19 +2489,19 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
         # 用 DarkButton（自带 8px 圆角），替代原生 tk.Button 的直角外观
         self.nm_new_group_btn = DarkButton(grow1, text="+ 新建组", command=self.nm_new_group,
-                                           height=32, bg_color=COLORS["accent"], text_color="#000000")
+                                           height=32, bg_color=COLORS["accent"], text_color="#000000", tip="创建一个新的任务组（一组任务共享同一首发时间）")
         self.nm_new_group_btn.pack(side=tk.LEFT, padx=5)
         # v6.2.1: 任务组改名
         self.nm_rename_group_btn = DarkButton(grow1, text="✎ 改名", command=self.nm_rename_group,
-                                              height=32, bg_color="#2980b9", text_color="#ffffff")
+                                              height=32, bg_color="#2980b9", text_color="#ffffff", tip="修改当前任务组的名称")
         self.nm_rename_group_btn.pack(side=tk.LEFT, padx=5)
         self.nm_del_group_btn = DarkButton(grow1, text="删除当前组", command=self.nm_del_group,
-                                           height=32, bg_color="#c0392b", text_color="#ffffff")
+                                           height=32, bg_color="#c0392b", text_color="#ffffff", tip="删除当前选中的任务组（含组内所有任务）")
         self.nm_del_group_btn.pack(side=tk.LEFT, padx=5)
 
         # v6.2.0: 抢码预案（一键切换整套配置）
         self.nm_preset_btn = DarkButton(grow1, text="📦 预案", command=self.open_preset_manager,
-                                        height=32, bg_color="#8e44ad", text_color="#ffffff")
+                                        height=32, bg_color="#8e44ad", text_color="#ffffff", tip="打开预案管理：保存/载入整套抢码配置")
         self.nm_preset_btn.pack(side=tk.LEFT, padx=(15, 0))
 
         # 第二行：目标时间设置（自动保存）
@@ -2602,7 +2602,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
         # 手动添加任务（task_id / 活动网址）
         self.nm_mt_add_btn = DarkButton(row2, text="＋ 手动添加", command=self.mt_open_add_dialog,
-                                        height=32, bg_color="#8e44ad", text_color="#ffffff")
+                                        height=32, bg_color="#8e44ad", text_color="#ffffff", tip="手动输入 task_id 或活动网址来添加任务（官方任务表里没有的活动也能加）")
         self.nm_mt_add_btn.pack(side=tk.LEFT, padx=(0, 15))
 
         # 第三行：窗口期+基础间隔+添加按钮
@@ -2628,7 +2628,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
         self.nm_add_task_btn = DarkButton(row3, text="+ 添加到当前组", command=self.nm_add_task,
                                           height=36, width=180, bg_color=COLORS["accent"],
-                                          text_color="#000000")
+                                          text_color="#000000", tip="把上方选好的任务加入当前任务组")
         self.nm_add_task_btn.pack(side=tk.RIGHT, padx=10)
 
 
@@ -2654,7 +2654,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         self.nm_query_all_btn = DarkButton(list_title_frame, text="🔍 批量查询状态",
                                            command=self.nm_query_all_tasks,
                                            height=28, width=150, bg_color="#f39c12",
-                                           text_color="#ffffff")
+                                           text_color="#ffffff", tip="批量查询组内所有任务的库存与领取状态（圆点颜色随之变化）")
         self.nm_query_all_btn.pack(side=tk.RIGHT)
         tk.Label(list_title_frame, text="●=可抢  ●=已领取  ●=不可抢  ●=未查询", bg=COLORS["bg_card"],
                  fg=COLORS["text_muted"], font=("微软雅黑", 9)).pack(side=tk.RIGHT, padx=10)
@@ -2683,20 +2683,20 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         ctrl_inner.pack(fill=tk.X, padx=15, pady=4)
 
         self.nm_start_btn = DarkButton(ctrl_inner, text="🚀 启动精准抢码", command=self.nm_start_rush,
-                                      height=44, bg_color=COLORS["accent"], text_color="#000000")
+                                      height=44, bg_color=COLORS["accent"], text_color="#000000", tip="启动当前任务组：按目标时间精准首发，失败后按间隔重试")
         self.nm_start_btn.pack(side=tk.LEFT, padx=6)
         self.nm_stop_btn = DarkButton(ctrl_inner, text="⏹ 停止", command=self.nm_stop_rush,
-                                     height=44, bg_color="#c0392b", text_color="#ffffff")
+                                     height=44, bg_color="#c0392b", text_color="#ffffff", tip="停止当前任务组的抢码")
         self.nm_stop_btn.pack(side=tk.LEFT, padx=6)
         self.nm_stop_btn.set_state("disabled")
         self.nm_sync_time_btn = DarkButton(ctrl_inner, text="🕐 同步系统时间", command=self.nm_sync_system_time,
-                                           height=44, bg_color=COLORS["accent_hover"], text_color="#000000")
+                                           height=44, bg_color=COLORS["accent_hover"], text_color="#000000", tip="校准系统时钟（用 Set-Date 精确设置，偏差可降到 ±5ms）")
         self.nm_sync_time_btn.pack(side=tk.LEFT, padx=6)
         self.nm_query_time_btn = DarkButton(ctrl_inner, text="📊 查询时间状态", command=self.nm_query_time_status,
-                                            height=44, bg_color="#2d3436", text_color=COLORS["text_primary"])
+                                            height=44, bg_color="#2d3436", text_color=COLORS["text_primary"], tip="查看 NTP 偏差、根分散、自动校正能力判定")
         self.nm_query_time_btn.pack(side=tk.LEFT, padx=6)
         self.nm_fix_time_btn = DarkButton(ctrl_inner, text="🔧 修复时间服务", command=self.nm_fix_time_service,
-                                          height=44, bg_color="#e67e22", text_color="#ffffff")
+                                          height=44, bg_color="#e67e22", text_color="#ffffff", tip="重建 Windows 时间服务（恢复自动同步能力，需管理员权限）")
         self.nm_fix_time_btn.pack(side=tk.LEFT, padx=6)
         self.nm_status_label = tk.Label(ctrl_inner, text="● 未运行", bg=COLORS["bg_card"],
                                         fg=COLORS["text_muted"], font=("微软雅黑", 11))
@@ -2710,7 +2710,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         scheduler_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8), pady=(0, 0))
         scheduler_card.config(width=450)
         tk.Label(scheduler_card, text="📋 任务组调度器（实时更新，双击启动/停止）", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 5))
+                 font=("微软雅黑", 13, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 5))
         
         scheduler_inner = tk.Frame(scheduler_card, bg=COLORS["bg_card"])
         scheduler_inner.pack(fill=tk.X, padx=15, pady=(0, 10))
@@ -2721,12 +2721,12 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             background=COLORS["bg_card"],
             foreground=COLORS["text_primary"],
             fieldbackground=COLORS["bg_card"],
-            font=("微软雅黑", 10),
+            font=("微软雅黑", 12),
             rowheight=28)
         scheduler_style.configure("Scheduler.Treeview.Heading",
             background=COLORS["bg_input"],
             foreground=COLORS["accent"],
-            font=("微软雅黑", 10, "bold"))
+            font=("微软雅黑", 12, "bold"))
         scheduler_style.map("Scheduler.Treeview",
             background=[("selected", COLORS["accent"])],
             foreground=[("selected", "#000000")])
@@ -2758,28 +2758,28 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         # 操作按钮（圆角）
         scheduler_btn_frame = tk.Frame(scheduler_card, bg=COLORS["bg_card"])
         scheduler_btn_frame.pack(fill=tk.X, padx=15, pady=(0, 10))
-        DarkButton(scheduler_btn_frame, text="▶ 启动选中组", command=self.nm_scheduler_start_selected,
+        DarkButton(scheduler_btn_frame, text="▶ 启动选中组", command=self.nm_scheduler_start_selected, tip="在调度器表格里启动勾选的多个任务组",
                   height=44, bg_color=COLORS["success"], text_color="#ffffff").pack(side=tk.LEFT, padx=(0, 8))
-        DarkButton(scheduler_btn_frame, text="⏹ 停止选中组", command=self.nm_scheduler_stop_selected,
+        DarkButton(scheduler_btn_frame, text="⏹ 停止选中组", command=self.nm_scheduler_stop_selected, tip="停止调度器表格里勾选的任务组",
                   height=44, bg_color="#c0392b", text_color="#ffffff").pack(side=tk.LEFT, padx=(0, 8))
-        DarkButton(scheduler_btn_frame, text="⏹ 停止全部", command=self.nm_stop_rush,
+        DarkButton(scheduler_btn_frame, text="⏹ 停止全部", command=self.nm_stop_rush, tip="停止调度器里的所有任务组",
                   height=44, bg_color="#e74c3c", text_color="#ffffff").pack(side=tk.LEFT, padx=(0, 8))
-        DarkButton(scheduler_btn_frame, text="🔄 刷新", command=self.nm_update_scheduler,
+        DarkButton(scheduler_btn_frame, text="🔄 刷新", command=self.nm_update_scheduler, tip="刷新调度器表格（更新剩余时间与进度）",
                   height=44, bg_color=COLORS["bg_input"], text_color=COLORS["text_primary"]).pack(side=tk.LEFT)
         
         # 状态颜色标签
         color_frame = tk.Frame(scheduler_btn_frame, bg=COLORS["bg_card"])
         color_frame.pack(side=tk.RIGHT)
         tk.Label(color_frame, text="● 未启动", bg=COLORS["bg_card"], fg="#95a5a6",
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=5)
+                 font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=5)
         tk.Label(color_frame, text="● 等待中", bg=COLORS["bg_card"], fg="#3498db",
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=5)
+                 font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=5)
         tk.Label(color_frame, text="● 运行中", bg=COLORS["bg_card"], fg=COLORS["success"],
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=5)
+                 font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=5)
         tk.Label(color_frame, text="● 已完成", bg=COLORS["bg_card"], fg="#27ae60",
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=5)
+                 font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=5)
         tk.Label(color_frame, text="● 已停止", bg=COLORS["bg_card"], fg="#f39c12",
-                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=5)
+                 font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=5)
         
         # 启动定时更新（每秒更新一次）
         self.nm_scheduler_running = True
@@ -2792,7 +2792,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         log_inner = tk.Frame(log_card, bg=COLORS["bg_card"])
         log_inner.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 10))
         self.nm_log_text = tk.Text(log_inner, bg=COLORS["bg_dark"], fg=COLORS["text_primary"],
-                                   font=("Consolas", 10), wrap=tk.WORD, height=8)
+                                   font=("Consolas", 11), wrap=tk.WORD, height=8)
         nm_log_scroll = ttk.Scrollbar(log_inner, command=self.nm_log_text.yview)
         self.nm_log_text.config(yscrollcommand=nm_log_scroll.set)
         nm_log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -3041,19 +3041,19 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             btn_frame.grid(row=0, column=6, sticky="w")
             # 紧凑模式：表格操作列需要小按钮，不能用默认 100px 最小宽度
             DarkButton(btn_frame, text="↑", command=lambda tid=task["task_id"]: self.nm_move_task(tid, -1),
-                       height=24, width=30, bg_color=COLORS["bg_input"],
+                       height=24, width=30, bg_color=COLORS["bg_input"], tip="上移：提高该任务在组内的执行优先级",
                        text_color=COLORS["text_primary"], compact=True).pack(side=tk.LEFT, padx=1)
             DarkButton(btn_frame, text="↓", command=lambda tid=task["task_id"]: self.nm_move_task(tid, 1),
-                       height=24, width=30, bg_color=COLORS["bg_input"],
+                       height=24, width=30, bg_color=COLORS["bg_input"], tip="下移：降低该任务在组内的执行优先级",
                        text_color=COLORS["text_primary"], compact=True).pack(side=tk.LEFT, padx=1)
             DarkButton(btn_frame, text="✎", command=lambda t=task: self.nm_edit_task(t),
-                       height=24, width=30, bg_color="#3498db",
+                       height=24, width=30, bg_color="#3498db", tip="编辑该任务的窗口期、账户等参数",
                        text_color="#ffffff", compact=True).pack(side=tk.LEFT, padx=1)
             DarkButton(btn_frame, text="🔍", command=lambda t=task: self.nm_query_single_task(t),
-                       height=24, width=34, bg_color="#f39c12",
+                       height=24, width=34, bg_color="#f39c12", tip="查询该任务当前的库存与领取状态",
                        text_color="#ffffff", compact=True).pack(side=tk.LEFT, padx=1)
             DarkButton(btn_frame, text="×", command=lambda tid=task["task_id"]: self.nm_remove_task(tid),
-                       height=24, width=30, bg_color="#c0392b",
+                       height=24, width=30, bg_color="#c0392b", tip="从当前任务组中移除该任务",
                        text_color="#ffffff", compact=True).pack(side=tk.LEFT, padx=1)
 
     def _do_query_task_status(self, task):
@@ -4177,7 +4177,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         DarkButton(foot, text="＋ 全部加入任务组",
                    command=_add_all_claimable, height=32, width=180,
                    bg_color="#8e44ad").pack(side=tk.RIGHT, padx=(8, 0))
-        DarkButton(foot, text="刷新", command=_render, height=32, width=90,
+        DarkButton(foot, text="刷新", command=_render, height=32, width=90, tip="刷新抢码统计面板数据",
                    bg_color="#2980b9").pack(side=tk.RIGHT, padx=(8, 0))
 
         def _toggle():
