@@ -3103,6 +3103,19 @@ class NewModeMixin:
         except Exception:
             pass
 
+
+    def _nm_ntp_offset_seconds(self, stop_flag):
+        """从 stop_flag 读取本次场次的 NTP 偏差（秒）。v6.7.2 新增。
+
+        用途：把"本地时钟口径"的时间差换算成"真实时间口径"。
+        stop_flag["_ntp_offset_ms"] 由 nm_rush_worker 在首枪前写入。
+        """
+        try:
+            v = stop_flag.get("_ntp_offset_ms", 0) or 0
+            return float(v) / 1000.0
+        except Exception:
+            return 0.0
+
     def nm_execute_task(self, task, task_info, session, deadline, target_time, stop_flag,
                         advance_ms=0):
         """执行单个任务的抢码（带风控递增延迟）
@@ -3157,7 +3170,10 @@ class NewModeMixin:
                 # 判断是否是未到领奖时间（202120），这种情况不切下一个优先级
                 if "202120" in msg or "未到领取时间" in msg or "未到领奖时间" in msg:
                     # P2-7: 未到领取时间时，根据距目标时间动态调整间隔
-                    _time_to_target = target_time - time.time()
+                    # v6.7.2 修复: 补偿时钟偏差（本地时钟慢时差值会偏大）
+                    _ntp_off_s = self._nm_ntp_offset_seconds(stop_flag)
+                    _time_to_target = (target_time - time.time()
+                                       - _ntp_off_s)
                     if _time_to_target > 10:
                         current_interval = min(current_interval, 2.0)  # 还早，放慢
                     elif _time_to_target > 3:
@@ -3168,7 +3184,15 @@ class NewModeMixin:
                 elif "75255" in msg or "库存已经使用完" in msg or "库存已使用完" in msg:
                     # P1-4: 直接用传入的target_time，不再从deadline反推
                     consecutive_risk_control = 0
-                    _elapsed_after_target = time.time() - target_time
+                    # v6.7.2 关键修复: 「目标后X秒」必须补偿时钟偏差。
+                    # 实测 bug（用户 22:40 日志）：
+                    #   本地时钟慢 138ms 时，
+                    #   本地 22:39:59.953 - 目标 22:40:00.000 = -47ms
+                    #   日志显示「目标后-0.0s」→ 用户误以为【提早到了】
+                    #   但真实已是对目标后 +91ms（正确晚到）
+                    _ntp_off_s = self._nm_ntp_offset_seconds(stop_flag)
+                    _elapsed_after_target = ((time.time() - target_time)
+                                             + _ntp_off_s)
                     _over_5s = _elapsed_after_target > 5
                     if not _over_5s:
                         # 目标后5秒内：库存可能正在刷新，放慢间隔持续重试（不限时段）
