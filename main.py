@@ -402,26 +402,55 @@ class DanmakuApp:
         style.configure("Dark.TRadiobutton", background=COLORS["bg_card"], foreground=COLORS["text_primary"], font=theme.font(9))
         style.configure("Dark.Horizontal.TScrollbar", background=COLORS["bg_input"], troughcolor=COLORS["bg_card"], bordercolor=COLORS["bg_card"], arrowcolor=COLORS["accent"])
 
+    def _serif_font(self, size, bold=True):
+        """返回「思源宋体 Heavy900」风格 font 元组（v6.7.11）。
+
+        说明：系统实际安装的是 Noto Serif SC —— 思源宋体（Source Han Serif）
+              的 Google 开源同源版本，字形与字重体系一致。
+              其 "Black" 字重即 900 = Heavy。
+
+              实测 Tk 可用族名: Noto Serif SC Black / Noto Serif SC
+              而 "Source Han Serif SC"、"思源宋体"、"Noto Serif SC Heavy"
+              均无法被 Tk 识别。
+
+        两级兜底：Black -> 普通 Noto Serif SC -> 原微软雅黑。
+        """
+        fam = "Noto Serif SC Black"
+        try:
+            from tkinter import font as _tkf
+            _fams = set(_tkf.families())
+            if fam not in _fams:
+                fam = ('Noto Serif SC' if 'Noto Serif SC' in _fams
+                       else theme.FONT_FAMILY)
+        except Exception:
+            fam = theme.FONT_FAMILY
+        sz = theme.font(size, bold=bold)[1]
+        return (fam, sz, 'bold') if bold else (fam, sz)
+
     def build_ui(self):
         # 顶部标题栏
-        header = tk.Frame(self.root, bg=COLORS["bg_card"], height=56)
+        # v6.7.12: 标题宋体 18 bold（行高 35px）+ 上下余量 -> 62px
+        header = tk.Frame(self.root, bg=COLORS["bg_card"], height=62)
         header.pack(fill=tk.X)
         header.pack_propagate(False)
 
         title_frame = tk.Frame(header, bg=COLORS["bg_card"])
         title_frame.pack(side=tk.LEFT, padx=20)
 
-        tk.Label(title_frame, text="● B站工具箱", bg=COLORS["bg_card"],
-                 fg=COLORS["accent"], font=theme.font(16, bold=True)).pack(side=tk.LEFT)
-        tk.Label(title_frame, text="  弹幕+抢码+定时关机", bg=COLORS["bg_card"],
-                 fg=COLORS["text_muted"], font=theme.font(11)).pack(side=tk.LEFT, padx=(8, 0))
+        tk.Label(title_frame, text="● B站工具箱",
+                 bg=COLORS["bg_card"], fg=COLORS["accent"],
+                 font=self._serif_font(16, bold=True)
+                 ).pack(side=tk.LEFT)
+        # v6.7.11: 按用户要求删除「弹幕+抢码+定时关机」副标题（画红线部分）
 
         self.header_status = tk.Label(header, text="● 未运行", bg=COLORS["bg_card"],
-                                       fg=COLORS["text_muted"], font=theme.font(11))
+                                       fg=COLORS["text_muted"], font=self._serif_font(11))
         self.header_status.pack(side=tk.RIGHT, padx=20)
 
         # 标签切换栏
-        tab_bar = tk.Frame(self.root, bg=COLORS["bg_card"], height=52)
+        # v6.7.12: 宋体 Black 字高 40px + pady(6*2)=12 + 4px 余量 -> 72px
+        # （实测控件 reqheight=56px，故 72 足够且不挤压下方内容）
+        tab_bar = tk.Frame(self.root, bg=COLORS["bg_card"], height=72)
         tab_bar.pack(fill=tk.X)
         tab_bar.pack_propagate(False)
 
@@ -430,44 +459,44 @@ class DanmakuApp:
         # 而 ◈ ○ 等几何符号只需 6-12ms。两个 Tab 换成几何符号可省约 700ms 启动时间。
         # 视觉效果基本一致（都是图标+文字），但启动快得多。
         self.tab_rush = tk.Label(tab_bar, text="◈ 抢码工具", bg=COLORS["accent"], fg="#000000",
-                                  font=theme.font(12, bold=True), padx=24, pady=10, cursor="hand2")
-        self.tab_rush.pack(side=tk.LEFT, padx=(15, 5), pady=6)
+                                  font=self._serif_font(12, bold=True), padx=24, pady=6, cursor="hand2")
+        self.tab_rush.pack(side=tk.LEFT, padx=(15, 5), pady=8)
         self.tab_rush.bind("<Button-1>", lambda e: self.switch_tab("rush"))
 
         self.tab_danmaku = tk.Label(tab_bar, text="○ 弹幕工具", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                     font=theme.font(12), padx=24, pady=10, cursor="hand2")
-        self.tab_danmaku.pack(side=tk.LEFT, padx=(0, 5), pady=6)
+                                     font=self._serif_font(12), padx=24, pady=6, cursor="hand2")
+        self.tab_danmaku.pack(side=tk.LEFT, padx=(0, 5), pady=8)
         self.tab_danmaku.bind("<Button-1>", lambda e: self.switch_tab("danmaku"))
 
         self.tab_shutdown = tk.Label(tab_bar, text="◷ 定时关机", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                      font=theme.font(12), padx=24, pady=10, cursor="hand2")
-        self.tab_shutdown.pack(side=tk.LEFT, padx=(0, 5), pady=6)
+                                      font=self._serif_font(12), padx=24, pady=6, cursor="hand2")
+        self.tab_shutdown.pack(side=tk.LEFT, padx=(0, 5), pady=8)
         self.tab_shutdown.bind("<Button-1>", lambda e: self.switch_tab("shutdown"))
 
         self.tab_watch = tk.Label(tab_bar, text="▣ 看播任务", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                   font=theme.font(12), padx=24, pady=10, cursor="hand2")
-        self.tab_watch.pack(side=tk.LEFT, padx=(0, 5), pady=6)
+                                   font=self._serif_font(12), padx=24, pady=6, cursor="hand2")
+        self.tab_watch.pack(side=tk.LEFT, padx=(0, 5), pady=8)
         self.tab_watch.bind("<Button-1>", lambda e: self.switch_tab("watch"))
 
         self.tab_code_export = tk.Label(tab_bar, text="◆ 兑换码", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                         font=theme.font(12), padx=24, pady=10, cursor="hand2")
-        self.tab_code_export.pack(side=tk.LEFT, padx=(0, 5), pady=6)
+                                         font=self._serif_font(12), padx=24, pady=6, cursor="hand2")
+        self.tab_code_export.pack(side=tk.LEFT, padx=(0, 5), pady=8)
         self.tab_code_export.bind("<Button-1>", lambda e: self.switch_tab("code_export"))
 
         self.tab_schedule = tk.Label(tab_bar, text="▤ 日程任务", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                      font=theme.font(12), padx=24, pady=10, cursor="hand2")
-        self.tab_schedule.pack(side=tk.LEFT, padx=(0, 5), pady=6)
+                                      font=self._serif_font(12), padx=24, pady=6, cursor="hand2")
+        self.tab_schedule.pack(side=tk.LEFT, padx=(0, 5), pady=8)
         self.tab_schedule.bind("<Button-1>", lambda e: self.switch_tab("schedule"))
 
         self.tab_account = tk.Label(tab_bar, text="⚙ 设置", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                     font=theme.font(12), padx=24, pady=10, cursor="hand2")
-        self.tab_account.pack(side=tk.LEFT, padx=(0, 5), pady=6)
+                                     font=self._serif_font(12), padx=24, pady=6, cursor="hand2")
+        self.tab_account.pack(side=tk.LEFT, padx=(0, 5), pady=8)
         self.tab_account.bind("<Button-1>", lambda e: self.switch_tab("account"))
 
         # 任务说明标签
         self.tab_guide = tk.Label(tab_bar, text="▥ 使用说明", bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                                  font=theme.font(12), padx=24, pady=10, cursor="hand2")
-        self.tab_guide.pack(side=tk.LEFT, padx=(0, 15), pady=6)
+                                  font=self._serif_font(12), padx=24, pady=6, cursor="hand2")
+        self.tab_guide.pack(side=tk.LEFT, padx=(0, 15), pady=8)
         self.tab_guide.bind("<Button-1>", lambda e: self.switch_tab("guide"))
 
         # 底部控制栏（必须先pack，固定在底部，否则会被主内容区挤出窗口）
@@ -2433,61 +2462,61 @@ bili_jct: {jct_preview}
                     pass
 
         # 重置所有标签样式
-        self.tab_rush.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(12))
-        self.tab_danmaku.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(12))
-        self.tab_shutdown.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(12))
-        self.tab_watch.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(12))
-        self.tab_code_export.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(12))
-        self.tab_schedule.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(12))
-        self.tab_account.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(12))
-        self.tab_guide.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=theme.font(12))
+        self.tab_rush.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=self._serif_font(12))
+        self.tab_danmaku.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=self._serif_font(12))
+        self.tab_shutdown.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=self._serif_font(12))
+        self.tab_watch.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=self._serif_font(12))
+        self.tab_code_export.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=self._serif_font(12))
+        self.tab_schedule.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=self._serif_font(12))
+        self.tab_account.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=self._serif_font(12))
+        self.tab_guide.config(bg=COLORS["bg_input"], fg=COLORS["text_secondary"], font=self._serif_font(12))
 
         if tab_name == "danmaku":
             self.danmaku_page.pack(fill=tk.BOTH, expand=True)
-            self.tab_danmaku.config(bg=COLORS["accent"], fg="#000000", font=theme.font(12, bold=True))
+            self.tab_danmaku.config(bg=COLORS["accent"], fg="#000000", font=self._serif_font(12, bold=True))
             self.current_tab = "danmaku"
             # 切换到弹幕工具时刷新账户列表
             self._refresh_danmaku_account_checkboxes()
         elif tab_name == "rush":
             self.rush_page.pack(fill=tk.BOTH, expand=True)
-            self.tab_rush.config(bg=COLORS["accent"], fg="#000000", font=theme.font(12, bold=True))
+            self.tab_rush.config(bg=COLORS["accent"], fg="#000000", font=self._serif_font(12, bold=True))
             self.current_tab = "rush"
             # 切换到抢码工具时刷新账户列表
             self.rush_page.refresh_account_list()
         elif tab_name == "shutdown":
             if self._ensure_page_built("shutdown"):
                 self.shutdown_page.pack(fill=tk.BOTH, expand=True)
-                self.tab_shutdown.config(bg=COLORS["accent"], fg="#000000", font=theme.font(12, bold=True))
+                self.tab_shutdown.config(bg=COLORS["accent"], fg="#000000", font=self._serif_font(12, bold=True))
                 self.current_tab = "shutdown"
                 self.refresh_shutdown_task_list()
         elif tab_name == "watch":
             # v6.2.0 延迟构建：首次进入才创建
             if self._ensure_page_built("watch"):
                 self.watch_page.pack(fill=tk.BOTH, expand=True)
-                self.tab_watch.config(bg=COLORS["accent"], fg="#000000", font=theme.font(12, bold=True))
+                self.tab_watch.config(bg=COLORS["accent"], fg="#000000", font=self._serif_font(12, bold=True))
                 self.current_tab = "watch"
                 self.watch_page.refresh_account_list()
         elif tab_name == "code_export":
             if self._ensure_page_built("code"):
                 self.code_export_page.pack(fill=tk.BOTH, expand=True)
-                self.tab_code_export.config(bg=COLORS["accent"], fg="#000000", font=theme.font(12, bold=True))
+                self.tab_code_export.config(bg=COLORS["accent"], fg="#000000", font=self._serif_font(12, bold=True))
                 self.current_tab = "code_export"
                 self.code_export_page.refresh_list()
         elif tab_name == "schedule":
             if self._ensure_page_built("schedule"):
                 self.schedule_page.pack(fill=tk.BOTH, expand=True)
-                self.tab_schedule.config(bg=COLORS["accent"], fg="#000000", font=theme.font(12, bold=True))
+                self.tab_schedule.config(bg=COLORS["accent"], fg="#000000", font=self._serif_font(12, bold=True))
                 self.current_tab = "schedule"
         elif tab_name == "account":
             if self._ensure_page_built("account"):
                 self.account_page.pack(fill=tk.BOTH, expand=True)
-                self.tab_account.config(bg=COLORS["accent"], fg="#000000", font=theme.font(12, bold=True))
+                self.tab_account.config(bg=COLORS["accent"], fg="#000000", font=self._serif_font(12, bold=True))
                 self.current_tab = "account"
                 self.refresh_account_manager_list()
         elif tab_name == "guide":
             if self._ensure_page_built("guide"):
                 self.guide_page.pack(fill=tk.BOTH, expand=True)
-                self.tab_guide.config(bg=COLORS["accent"], fg="#000000", font=theme.font(12, bold=True))
+                self.tab_guide.config(bg=COLORS["accent"], fg="#000000", font=self._serif_font(12, bold=True))
                 self.current_tab = "guide"
         # 保存当前标签页
         self.save_config()
