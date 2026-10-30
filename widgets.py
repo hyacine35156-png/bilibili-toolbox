@@ -463,11 +463,20 @@ class DarkButton(tk.Canvas):
     """自定义深色主题按钮"""
     def __init__(self, parent, text, command=None, width=None, height=44,
                  bg_color=COLORS["accent"], text_color="#000000", hover_color=COLORS["accent_hover"],
-                 compact=False, tip=None):
+                 compact=False, tip=None, exact_width=False):
         """compact=True 用于小尺寸按钮（表格操作列等）：
         不套用 100px 最小宽度和 44px 内边距，按 min(width, 文字+16) 精确控制。
+
+        exact_width=True（v6.7.8 新增）：强制使用给定的 width，完全不自动撑宽。
+          用途：表格操作列要求「每个按钮大小完全一致」，
+                但不同图标字符的测量宽度不同（"✏" 量出 39px、"⧉" 只有 30px），
+                compact 会把窄按钮撑到文字宽度，导致一排按钮宽度参差。
+          注意：exact_width 优先于 compact 和自动测量。
         """
-        if compact:
+        if exact_width and width is not None:
+            # 精确宽度：跳过所有测量与撑宽逻辑
+            pass
+        elif compact:
             # 紧凑模式：按文字实际宽度 + 少量内边距，且允许很窄
             natural = _measure_button_width(text, height, pad_x=16, min_width=1)
             if width is None:

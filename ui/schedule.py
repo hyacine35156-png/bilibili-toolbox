@@ -843,8 +843,13 @@ class ScheduleFrame(tk.Frame):
             name = ""
         if not name:
             return
-        if not custom_askyesno("确认删除", "确定删除模板「%s」？" % name,
-                               parent=self.winfo_toplevel()):
+        # v6.7.8 修复: custom_askyesno 签名是 (parent, title, message)，
+        # 原调用把字符串当 parent、又传了 parent= 关键字 ->
+        # TypeError: got multiple values for argument 'parent'
+        # 异常被 tkinter 的 report_callback_exception 静默吞掉，
+        # 表现为「点删除按钮毫无反应」。
+        if not custom_askyesno(self.app.root, "确认删除",
+                               "确定删除模板「%s」？" % name):
             return
         if sp.delete_template(name):
             self.log("✓ 模板「%s」已删除" % name)
@@ -1010,13 +1015,17 @@ class ScheduleFrame(tk.Frame):
         t = next((x for x in self.schedule_tasks if x["id"] == task_id), None)
         if not t:
             return
-        if not custom_askyesno("确认删除",
-                               "确定删除日程「%s」？" % t.get("name", ""),
-                               parent=self.winfo_toplevel()):
+        # v6.7.8 修复: 同上，参数顺序错误导致点 × 无反应
+        if not custom_askyesno(self.app.root, "确认删除",
+                               "确定删除日程「%s」？" % t.get("name", "")):
             return
         self.schedule_tasks = [x for x in self.schedule_tasks
                                if x["id"] != task_id]
-        self.schedule_task_stop_flags.pop(task_id, None)
+        # v6.7.8 修复: 原来这里引用了不存在的 schedule_task_stop_flags，
+        # 抛 AttributeError 被 tkinter 吞掉 -> 表现为「点 × 完全没反应」。
+        # ScheduleFrame 实际只有 scheduler_stop（全局调度器开关），
+        # 单任务没有独立 stop_flag，因此这里无需清理。
+        self.selected_ids.discard(task_id)
         self.save_schedule()
         self.refresh_task_list()
         self.log("🗑 已删除日程「%s」" % t.get("name", ""))
@@ -1075,8 +1084,8 @@ class ScheduleFrame(tk.Frame):
         _names = ["", "状态", "类型", "名称", "时间", "参数",
                   "上次执行", "操作"]
         # 权重合计 = 1.0
-        _weights = [0.030, 0.105, 0.090, 0.155, 0.095, 0.115,
-                    0.150, 0.260]
+        _weights = [0.028, 0.102, 0.088, 0.152, 0.093, 0.113,
+                    0.148, 0.276]
         _COL_GAP = 6        # 每列内部右侧留白（视觉上把列隔开）
         _CELL_PADX = 10     # 单元格内容左侧留白
         _OP_MIN = 200       # 操作列（5个按钮）最小宽度
@@ -1201,34 +1210,47 @@ class ScheduleFrame(tk.Frame):
                          font=("Consolas", 10), anchor=tk.W
                          ).pack(side=tk.LEFT, padx=(12, 0), pady=ROW_PADY)
 
-                # 列7：操作按钮
+                # 列7：操作按钮（v6.7.8 统一重绘）
+                # 设计要点（用户要求"五个按钮大小要一致，风格要一致"）：
+                #   · 统一尺寸 30x24（原来是 28x22 且被 compact 二次撑宽，
+                #     导致各按钮实际宽度不一致）
+                #   · 统一图标字号与圆角，视觉一致
+                #   · 统一间距 6px，不再贴在一起
+                #   · 统一去掉 compact，用显式尺寸精确控制
                 cell7 = make_cell(row, COLS[7][1], bg)
                 ops = tk.Frame(cell7, bg=bg)
-                ops.pack(side=tk.LEFT, padx=(2, 0))
+                ops.pack(side=tk.LEFT, padx=(14, 0))
                 tid = task["id"]
-                DarkButton(ops, "✏", command=lambda i=tid: self._edit_task_by_id(i),
-                           width=28, height=22, bg_color="#3498db",
-                           text_color="#ffffff", compact=True,
-                           tip="编辑该任务的参数").pack(side=tk.LEFT, padx=1)
-                DarkButton(ops, "⧉", command=lambda i=tid: self.copy_schedule_task(i),
-                           width=28, height=22, bg_color="#8e44ad",
-                           text_color="#ffffff", compact=True,
-                           tip="复制该任务（参数和时间一起复制）").pack(side=tk.LEFT, padx=1)
-                DarkButton(ops, "▶", command=lambda i=tid: self.run_task_now(i),
-                           width=28, height=22, bg_color=COLORS["success"],
-                           text_color="#ffffff", compact=True,
-                           tip="立即执行该任务").pack(side=tk.LEFT, padx=1)
-                en_txt = "⏸" if task.get("enabled") else "▶"
-                en_bg = "#e67e22" if task.get("enabled") else "#27ae60"
-                DarkButton(ops, en_txt,
-                           command=lambda i=tid: self.toggle_task_enabled(i),
-                           width=28, height=22, bg_color=en_bg,
-                           text_color="#ffffff", compact=True,
-                           tip="启用/停用该任务").pack(side=tk.LEFT, padx=1)
-                DarkButton(ops, "×", command=lambda i=tid: self.delete_one_task(i),
-                           width=28, height=22, bg_color=COLORS["danger"],
-                           text_color="#ffffff", compact=True,
-                           tip="删除该任务").pack(side=tk.LEFT, padx=1)
+                _BTN_W, _BTN_H, _BTN_GAP = 30, 24, 6
+
+                def _op_btn(parent, icon, cmd, color, tip_text):
+                    """统一的表格操作小按钮（v6.7.8 新增）。
+
+                    五个按钮共用同一套尺寸/圆角/字号/间距，保证风格一致。
+                    """
+                    # exact_width=True: 强制用 _BTN_W，不按字符宽度自动撑宽。
+                    # 否则 "✏" 会被量成 39px，"⧉" 只有 30px，一排按钮参差。
+                    btn = DarkButton(parent, icon, command=cmd,
+                                     width=_BTN_W, height=_BTN_H,
+                                     bg_color=color, text_color="#ffffff",
+                                     compact=True, tip=tip_text,
+                                     exact_width=True)
+                    btn.pack(side=tk.LEFT, padx=(0, _BTN_GAP))
+                    return btn
+
+                _op_btn(ops, "✏", lambda i=tid: self._edit_task_by_id(i),
+                        "#3498db", "编辑该任务的参数")
+                _op_btn(ops, "⧉", lambda i=tid: self.copy_schedule_task(i),
+                        "#8e44ad", "复制该任务（参数和时间一起复制）")
+                _op_btn(ops, "▶", lambda i=tid: self.run_task_now(i),
+                        COLORS["success"], "立即执行该任务")
+                _en_on = bool(task.get("enabled"))
+                _op_btn(ops, "⏸" if _en_on else "▶",
+                        lambda i=tid: self.toggle_task_enabled(i),
+                        "#e67e22" if _en_on else "#27ae60",
+                        "停用该任务" if _en_on else "启用该任务")
+                _op_btn(ops, "×", lambda i=tid: self.delete_one_task(i),
+                        COLORS["danger"], "删除该任务")
             except Exception as e:
                 self.log("渲染任务行异常: %s" % e)
 

@@ -1254,7 +1254,13 @@ class DanmakuApp:
             return None
 
     def _manager_verify_all_accounts(self):
-        """并行验证全部账户登录状态（v6.7.0 新增）。"""
+        """并行验证全部账户登录状态（v6.7.8 重写修复）。
+
+        修复的问题（v6.7.0 版本报「有效 0 / 失效 7」）：
+          工作线程里调用了 self.root.after(0, ...)，tkinter 非线程安全，
+          跨线程投递会静默失败，导致结果汇总回调从未执行 -> 统计永远 0。
+        改为「工作线程只写结果字典 + 主线程定时轮询」的安全模式。
+        """
         accs = list(getattr(self.account_mgr, "accounts", []) or [])
         if not accs:
             messagebox.showwarning("提示", "还没有任何账户", parent=self.root)
@@ -1264,9 +1270,13 @@ class DanmakuApp:
         total = len(accs)
         self.log("开始批量验证 %d 个账户..." % total)
 
-        # 禁用按钮防重复点击
-        results = {}
-        done = {"n": 0}
+        # 结果容器：工作线程只写这里，主线程读（不跨线程调 after）
+        self._verify_all_state = {
+            "total": total,
+            "done": 0,
+            "results": {},
+        }
+        self._verify_all_logged = 0
 
         def _one(acc):
             name = str(acc.get("name", ""))
@@ -1275,14 +1285,10 @@ class DanmakuApp:
                 ok, msg = verify_login(cookie_str)
             except Exception as e:
                 ok, msg = False, str(e)[:60]
-            results[name] = (bool(ok), str(msg)[:60])
-            done["n"] += 1
-            try:
-                self.root.after(0, lambda: self.log(
-                    "  [%d/%d] %s: %s" % (done["n"], total, name,
-                                          "✓ 有效" if ok else "✗ %s" % str(msg)[:30])))
-            except Exception:
-                pass
+            st = getattr(self, "_verify_all_state", None)
+            if st is not None:
+                st["results"][name] = (bool(ok), str(msg)[:60])
+                st["done"] = st.get("done", 0) + 1
 
         threads = []
         for acc in accs:
@@ -1291,35 +1297,56 @@ class DanmakuApp:
             threads.append(t)
             _t.sleep(0.05)   # 轻微错开，避免瞬时并发过高
 
-        def _wait_done():
-            for t in threads:
-                t.join(timeout=20)
+        # 主线程轮询（本方法由按钮触发，始终在主线程）
+        self._verify_all_poll(0, _t)
 
-            def _finish():
-                # 记录验证时间
-                cache = getattr(self, "_account_verify_cache", {}) or {}
-                stamp = _t.strftime("%m-%d %H:%M")
-                ok_n = 0
-                for nm, (ok, msg) in results.items():
-                    cache[nm] = "%s %s" % (stamp, "✓" if ok else "✗")
-                    if ok:
-                        ok_n += 1
-                self._account_verify_cache = cache
-                self._save_account_verify_cache()
-                self.refresh_account_manager_list()
-                self.log("批量验证完成: %d/%d 有效" % (ok_n, total))
-                messagebox.showinfo(
-                    "批量验证完成",
-                    "共 %d 个账户\n有效: %d\n失效: %d"
-                    % (total, ok_n, total - ok_n),
-                    parent=self.root)
+    def _verify_all_poll(self, _retry, _t):
+        """主线程轮询批量验证进度（v6.7.8 新增）。"""
+        st = getattr(self, "_verify_all_state", None)
+        if not st:
+            return
 
+        total = st.get("total", 0)
+        done = st.get("done", 0)
+        finished = (done >= total)
+
+        # 进度日志（新增几个就打印几个）
+        last = getattr(self, "_verify_all_logged", 0)
+        if done > last:
+            items = list(st.get("results", {}).items())
+            for nm, (ok, msg) in items[last:]:
+                self.log("  [%d/%d] %s: %s" % (
+                    done, total, nm,
+                    ("✓ 有效" if ok else "✗ " + msg[:30])))
+            self._verify_all_logged = done
+
+        if finished:
+            results = st.get("results", {})
+            cache = getattr(self, "_account_verify_cache", {}) or {}
+            stamp = _t.strftime("%m-%d %H:%M")
+            ok_n = 0
+            for nm, (ok, msg) in results.items():
+                cache[nm] = "%s %s" % (stamp, "✓" if ok else "✗")
+                if ok:
+                    ok_n += 1
+            self._account_verify_cache = cache
+            self._save_account_verify_cache()
+            self.refresh_account_manager_list()
+            self.log("批量验证完成: %d/%d 有效" % (ok_n, total))
+            messagebox.showinfo(
+                "批量验证完成",
+                "共 %d 个账户\n有效: %d\n失效: %d" % (total, ok_n, total - ok_n),
+                parent=self.root)
+            self._verify_all_state = None
+            self._verify_all_logged = 0
+            return
+
+        # 未完成，继续轮询（最长约 30 秒）
+        if _retry < 300:
             try:
-                self.root.after(0, _finish)
+                self.root.after(100, lambda: self._verify_all_poll(_retry + 1, _t))
             except Exception:
                 pass
-
-        threading.Thread(target=_wait_done, daemon=True).start()
 
     def on_toggle_rush_default_mode(self):
         """全局设置：抢码页默认显示哪个模式（v6.7.4 新增）。"""
