@@ -1221,7 +1221,7 @@ class ScheduleFrame(tk.Frame):
                 ops = tk.Frame(cell7, bg=bg)
                 ops.pack(side=tk.LEFT, padx=(14, 0))
                 tid = task["id"]
-                _BTN_W, _BTN_H, _BTN_GAP = 30, 24, 6
+                _BTN_W, _BTN_H, _BTN_GAP = 34, 26, 8
 
                 def _op_btn(parent, icon, cmd, color, tip_text):
                     """统一的表格操作小按钮（v6.7.8 新增）。

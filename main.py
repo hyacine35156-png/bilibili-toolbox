@@ -144,32 +144,146 @@ class DanmakuApp:
         self._startup_check_accounts()
 
     def _startup_check_accounts(self):
-        """启动时在后台线程验证所有账号登录状态，失效则弹窗报错"""
-        import threading
+        """启动时在后台线程验证所有账号登录状态（v6.7.9 重写）。
+
+        修复的严重误报（用户截图：网络断开却弹「账号登录已失效」）：
+          v6.7.8 及之前把所有 Exception 都当成账号失效，
+          连 HTTPSConnectionPool 连接失败也算，导致网络抖动时
+          误报「账号登录已失效，请重新登录」。
+
+        新策略：严格区分三类结果
+          1) 登录有效        code == 0
+          2) 真正失效        code in (-101, -111)  账号未登录/csrf失效
+                              -> 才计入 failed 并弹窗提示重新登录
+          3) 网络异常        连接失败/超时/无法解析
+                              -> 每个账号重试 3 次，仍失败则【只写日志】，
+                                 绝不弹「登录失效」窗口
+        另外：所有 tkinter 调用（弹窗/日志）全部回到主线程，
+              后台线程不直接碰 UI（tkinter 非线程安全）。
+        """
+        self._startup_check_state = {"done": False, "failed": [], "net_err": []}
+
         def _check():
+            import requests
             try:
-                import requests
-                time.sleep(2)  # 等UI完全加载
-                failed = []
-                for acc in self.account_mgr.accounts:
-                    name = acc.get("name", "未知")
+                time.sleep(2)  # 等 UI 完全加载
+            except Exception:
+                pass
+
+            # 真正的登录失效码（B站约定）
+            EXPIRED_CODES = (-101, -111, -400)
+            NAV_URL = "https://api.bilibili.com/x/web-interface/nav"
+
+            for acc in list(self.account_mgr.accounts or []):
+                name = acc.get("name", "未知")
+                result = None          # "ok" / "expired" / "network"
+                detail = ""
+
+                # v6.7.9 关键修复：-101（账号未登录）在启动瞬间并发高峰期
+                # 也会偶发出现（B站风控/会话刷新），不能一见 -101 就判定失效。
+                # 实测：独立请求 7/7 全部有效；但启动瞬间并发校验时偶发 -101。
+                # 策略：-101/-111 也重试，只有【连续 3 次】都是失效码才判定失效。
+                expired_hits = 0
+                for attempt in range(1, 4):      # 最多重试 3 次
                     try:
                         cookies = cookies_from_account(acc)
-                        resp = requests.get("https://api.bilibili.com/x/web-interface/nav",
-                                            headers=HEADERS, cookies=cookies, timeout=8)
+                        resp = requests.get(NAV_URL, headers=HEADERS,
+                                            cookies=cookies, timeout=8)
                         data = resp.json()
-                        if data.get("code") != 0:
-                            failed.append(f"{name}（{data.get('message', '未知错误')}）")
+                        code = data.get("code")
+                        if code == 0:
+                            result = "ok"
+                            expired_hits = 0
+                            break
+                        elif code in EXPIRED_CODES:
+                            # 记一次失效命中，但继续重试确认
+                            expired_hits += 1
+                            detail = str(data.get("message", "code=%s" % code))
+                            result = "expired"
+                        else:
+                            # 其它业务码（如 -352 风控）视作临时问题
+                            detail = "code=%s %s" % (
+                                code, str(data.get("message", ""))[:24])
+                            result = "network"
                     except Exception as e:
-                        failed.append(f"{name}（验证异常: {str(e)[:30]}）")
-                if failed:
-                    msg = "以下 " + str(len(failed)) + " 个账号登录已失效，请重新登录：\n\n" + "\n".join(failed)
-                    self.root.after(0, lambda: self._show_account_login_error(msg))
+                        detail = str(e)[:48]
+                        result = "network"
+
+                    if attempt < 3:
+                        try:
+                            time.sleep(1.5)      # 退避后重试（拉长到1.5s）
+                        except Exception:
+                            pass
+
+                # 只有连续 3 次都返回失效码，才认为是真的登录失效
+                if expired_hits >= 3:
+                    result = "expired"
+                elif expired_hits > 0:
+                    # 部分失效、部分网络错 -> 视作网络问题，不误报
+                    result = "network"
+                    detail = "验证不稳定(%d/3次返回未登录)" % expired_hits
+
+                st = getattr(self, "_startup_check_state", None)
+                if st is None:
+                    return
+                if result == "ok":
+                    continue
+                if result == "expired":
+                    st["failed"].append("%s（%s）" % (name, detail))
                 else:
-                    self.log(f"✓ 启动账号验证: 全部 {len(self.account_mgr.accounts)} 个账号登录有效")
-            except Exception as e:
-                self.log(f"⚠ 启动账号验证异常: {e}")
-        threading.Thread(target=_check, daemon=True).start()
+                    # 3 次都失败仍是网络问题 -> 只记录，不算失效
+                    st["net_err"].append("%s（%s）" % (name, detail))
+
+            st = getattr(self, "_startup_check_state", None)
+            if st is not None:
+                st["done"] = True
+
+        try:
+            threading.Thread(target=_check, daemon=True).start()
+            # 主线程轮询结果（不跨线程调 after）
+            self.root.after(1500, lambda: self._startup_check_poll(0))
+        except Exception as e:
+            self.log("启动账号验证无法启动: %s" % e)
+
+    def _startup_check_poll(self, _retry):
+        """主线程轮询启动账号验证结果（v6.7.9 新增）。"""
+        st = getattr(self, "_startup_check_state", None)
+        if not st:
+            return
+        if not st.get("done"):
+            if _retry < 200:          # 最长约 40 秒
+                try:
+                    self.root.after(200, lambda: self._startup_check_poll(_retry + 1))
+                except Exception:
+                    pass
+            return
+
+        failed = st.get("failed") or []
+        net_err = st.get("net_err") or []
+        total = len(self.account_mgr.accounts or [])
+
+        if net_err:
+            # 网络问题：只写日志，不弹「登录失效」窗口
+            self.log("⚠ 启动账号验证：%d 个账号因网络问题未能验证（非登录失效）" % len(net_err))
+            for item in net_err:
+                self.log("   · %s" % item)
+
+        if failed:
+            msg = ("以下 " + str(len(failed)) + " 个账号登录已失效，请重新登录：\n\n"
+                   + "\n".join(failed))
+            self.log("⚠ " + msg)
+            try:
+                from tkinter import messagebox
+                messagebox.showerror("账号登录失效", msg, parent=self.root)
+            except Exception:
+                pass
+        elif not net_err:
+            self.log("✓ 启动账号验证：全部 %d 个账号登录有效" % total)
+        else:
+            ok_n = total - len(net_err)
+            self.log("✓ 启动账号验证：%d 个有效，%d 个因网络原因跳过" % (ok_n, len(net_err)))
+
+        self._startup_check_state = None
 
     def _show_account_login_error(self, msg):
         """在主线程弹出账号登录失效错误"""
@@ -676,59 +790,12 @@ class DanmakuApp:
         """
         import app_settings as _appset
 
-        # v6.7.1: 整页可滚动（板块较多，避免底部「全局设置」被挤出视野）
-        _sc_container = tk.Frame(self.account_page, bg=COLORS["bg_dark"])
-        _sc_container.pack(fill=tk.BOTH, expand=True)
-        _sc_canvas = tk.Canvas(_sc_container, bg=COLORS["bg_dark"],
-                               highlightthickness=0, bd=0)
-        _sc_vsb = tk.Scrollbar(_sc_container, orient=tk.VERTICAL,
-                               command=_sc_canvas.yview)
-        _sc_vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        _sc_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        _sc_canvas.configure(yscrollcommand=_sc_vsb.set)
-
-        outer = tk.Frame(_sc_canvas, bg=COLORS["bg_dark"])
-        _sc_win = _sc_canvas.create_window(0, 0, window=outer, anchor="nw")
-
-        def _sc_on_frame(_e=None):
-            try:
-                _sc_canvas.configure(scrollregion=_sc_canvas.bbox("all"))
-            except Exception:
-                pass
-
-        def _sc_on_canvas(e):
-            try:
-                _sc_canvas.itemconfigure(_sc_win, width=e.width)
-            except Exception:
-                pass
-
-        def _sc_wheel(e):
-            try:
-                _sc_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
-            except Exception:
-                pass
-
-        def _sc_bind(_e=None):
-            try:
-                _sc_canvas.bind_all("<MouseWheel>", _sc_wheel)
-            except Exception:
-                pass
-
-        def _sc_unbind(_e=None):
-            try:
-                _sc_canvas.unbind_all("<MouseWheel>")
-            except Exception:
-                pass
-
-        outer.bind("<Configure>", _sc_on_frame)
-        _sc_canvas.bind("<Configure>", _sc_on_canvas)
-        _sc_canvas.bind("<Enter>", _sc_bind)
-        _sc_canvas.bind("<Leave>", _sc_unbind)
-        self._settings_canvas = _sc_canvas
-
-        _pad = tk.Frame(outer, bg=COLORS["bg_dark"])
-        _pad.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
-        outer = _pad
+        # v6.7.9: 移除整页滚动条（用户要求）。
+        # 实测内容高度 910px <= 可视 912px，一屏即可完整显示，
+        # 不需要滚动，去掉滚动条让右侧界面更干净。
+        outer = tk.Frame(self.account_page, bg=COLORS["bg_dark"])
+        outer.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+        self._settings_canvas = None
 
         CARD = dict(bg=COLORS["bg_card"], bd=0, highlightthickness=1,
                     highlightbackground=COLORS["border"])
@@ -799,11 +866,9 @@ class DanmakuApp:
         self.manager_account_listbox.column("room", width=200, anchor=tk.CENTER)
         self.manager_account_listbox.column("verified", width=150, anchor=tk.CENTER)
 
-        acct_sb = tk.Scrollbar(tree_wrap, orient=tk.VERTICAL,
-                               command=self.manager_account_listbox.yview)
-        acct_sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self.manager_account_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.manager_account_listbox.configure(yscrollcommand=acct_sb.set)
+        # v6.7.9: 移除表格内部滚动条（用户要求去掉下拉框）。
+        # 表格高度按账户数量自适应，7 个账户刚好完整显示，无需滚动。
+        self.manager_account_listbox.pack(fill=tk.BOTH, expand=True)
 
         # 兼容层：让 Treeview 支持原来的 curselection() 语义（返回索引元组）
         def _tree_curselection(_t=None):
@@ -898,11 +963,8 @@ class DanmakuApp:
         self.manager_room_listbox.column("rid", width=180, anchor=tk.CENTER)
         self.manager_room_listbox.column("remark", width=200, anchor=tk.W)
 
-        room_sb = tk.Scrollbar(room_tree_wrap, orient=tk.VERTICAL,
-                               command=self.manager_room_listbox.yview)
-        room_sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self.manager_room_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.manager_room_listbox.configure(yscrollcommand=room_sb.set)
+        # v6.7.9: 移除表格内部滚动条（同上）
+        self.manager_room_listbox.pack(fill=tk.BOTH, expand=True)
 
         # 兼容层：让 Treeview 支持原来的 curselection() 语义
         def _room_curselection(_t=None):
@@ -1280,14 +1342,34 @@ class DanmakuApp:
 
         def _one(acc):
             name = str(acc.get("name", ""))
-            try:
-                cookie_str = self.account_mgr.get_cookie_string(name)
-                ok, msg = verify_login(cookie_str)
-            except Exception as e:
-                ok, msg = False, str(e)[:60]
+            ok, msg, kind = False, "", "network"
+            # v6.7.9: 区分「真正失效」与「网络异常」，避免误报
+            for _att in range(1, 4):
+                try:
+                    cookie_str = self.account_mgr.get_cookie_string(name)
+                    ok, msg = verify_login(cookie_str)
+                    m = str(msg)
+                    if ok:
+                        kind = "ok"
+                    elif ("过期" in m or "未登录" in m or "无效" in m
+                          or "-101" in m or "-111" in m or "csrf" in m.lower()):
+                        kind = "expired"
+                    else:
+                        # 其它情况（风控/未知）按网络问题处理，重试
+                        kind = "network"
+                    if kind != "network":
+                        break
+                except Exception as e:
+                    msg = str(e)[:60]
+                    kind = "network"
+                if _att < 3:
+                    try:
+                        time.sleep(1.0)
+                    except Exception:
+                        pass
             st = getattr(self, "_verify_all_state", None)
             if st is not None:
-                st["results"][name] = (bool(ok), str(msg)[:60])
+                st["results"][name] = (bool(ok), str(msg)[:60], kind)
                 st["done"] = st.get("done", 0) + 1
 
         threads = []
