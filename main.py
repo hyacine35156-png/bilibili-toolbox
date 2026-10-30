@@ -3322,5 +3322,73 @@ def main():
     root.mainloop()
 
 
+def _cleanup_stale_mei_dirs():
+    """清理 PyInstaller 残留的 _MEI 临时目录（v6.7.7 新增）。
+
+    背景：PyInstaller 单文件 exe 每次运行会把自身解压到
+          %TEMP%/_MEIxxxxxx（约 37MB）。正常退出时自动删除，
+          但如果进程被强杀（任务管理器结束、崩溃、反复测试），
+          目录会残留不清理。
+
+          实测一次开发过程中残留 108 个、占用 2892MB，
+          最终导致启动报：
+            Could not create temporary directory!
+
+    策略（务必保守，避免误删正在运行的实例）：
+      1. 只处理 sys.frozen（真 exe），源码运行不动
+      2. 跳过当前进程自己的 _MEIPASS 目录
+      3. 只删【1 小时以上未修改】的目录 —— 正在运行的实例
+         mtime 会持续更新，不会被误删
+      4. rmtree(ignore_errors=True)，删不掉就跳过
+
+    返回：成功清理的目录数量。
+    """
+    # 注意：main.py 模块级【没有】import sys，必须在这里单独导入，
+    # 否则 sys 会触发 NameError 并被下面的 except 吞掉，函数永远返回 0。
+    import sys as _sys
+    try:
+        if not getattr(_sys, "frozen", False):
+            return 0
+    except Exception:
+        return 0
+    freed = 0
+    try:
+        import glob as _glob
+        import os as _os
+        import shutil as _shutil
+        import tempfile as _tf
+        import time as _t
+
+        _tmp = _tf.gettempdir()
+        _cur = getattr(_sys, "_MEIPASS", "") or ""
+        _cur_name = _os.path.basename(_cur) if _cur else ""
+        _now = _t.time()
+
+        for _d in _glob.glob(_os.path.join(_tmp, "_MEI*")):
+            try:
+                if not _os.path.isdir(_d):
+                    continue
+                if _cur_name and _os.path.basename(_d) == _cur_name:
+                    continue                      # 自己正在用
+                if _now - _os.path.getmtime(_d) < 3600:
+                    continue                      # 1 小时内不动
+                _shutil.rmtree(_d, ignore_errors=True)
+                if not _os.path.isdir(_d):
+                    freed += 1
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return freed
+
+
 if __name__ == "__main__":
+    # v6.7.7: 启动时先清理 PyInstaller 残留临时目录，
+    # 防止长期累积占满磁盘导致 "Could not create temporary directory!"
+    try:
+        _n_cleaned = _cleanup_stale_mei_dirs()
+        if _n_cleaned:
+            print("[清理] 已移除 %d 个残留临时目录" % _n_cleaned)
+    except Exception:
+        pass
     main()
