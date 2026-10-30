@@ -276,13 +276,14 @@ class ScheduleFrame(tk.Frame):
 
         tk.Label(log_card, text="📝 执行日志", bg=COLORS["bg_card"],
                  fg=COLORS["accent"],
-                 font=("微软雅黑", 15, "bold")).pack(anchor=tk.W, padx=12, pady=(8, 4))
+                 font=("微软雅黑", 13, "bold")).pack(anchor=tk.W, padx=12, pady=(6, 4))
 
         log_frame = tk.Frame(log_card, bg=COLORS["bg_card"])
         log_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 10))
+        # v6.7.10: 日志字号 11 -> 10（用户反馈图2方框内字体太大）
         self.schedule_log_text = tk.Text(
             log_frame, bg="#0d1117", fg=COLORS["text_secondary"],
-            insertbackground=COLORS["accent"], font=("Consolas", 11),
+            insertbackground=COLORS["accent"], font=("Consolas", 10),
             bd=0, highlightthickness=0, wrap=tk.WORD, state=tk.DISABLED)
         self.schedule_log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb = tk.Scrollbar(log_frame, orient=tk.VERTICAL,
@@ -1119,7 +1120,7 @@ class ScheduleFrame(tk.Frame):
             cell = make_cell(head, px, COLORS["bg_input"])
             tk.Label(cell, text=txt, bg=COLORS["bg_input"],
                      fg=COLORS["text_secondary"],
-                     font=("微软雅黑", 11, "bold"),
+                     font=("微软雅黑", 10, "bold"),
                      anchor=tk.W).pack(side=tk.LEFT,
                                        padx=(12, 0), pady=10)
 
@@ -1166,13 +1167,13 @@ class ScheduleFrame(tk.Frame):
                         sfg = COLORS["text_secondary"]
                 cell1 = make_cell(row, COLS[1][1], bg)
                 tk.Label(cell1, text="● " + stxt, bg=bg, fg=sfg,
-                         font=("微软雅黑", 11), anchor=tk.W
+                         font=("微软雅黑", 10), anchor=tk.W
                          ).pack(side=tk.LEFT, padx=(12, 0), pady=ROW_PADY)
 
                 # 列2：类型
                 cell2 = make_cell(row, COLS[2][1], bg)
                 tk.Label(cell2, text=task.get("type_name", ""), bg=bg,
-                         fg=COLORS["text_primary"], font=("微软雅黑", 11),
+                         fg=COLORS["text_primary"], font=("微软雅黑", 10),
                          anchor=tk.W
                          ).pack(side=tk.LEFT, padx=(12, 0), pady=ROW_PADY)
 
@@ -1180,14 +1181,14 @@ class ScheduleFrame(tk.Frame):
                 cell3 = make_cell(row, COLS[3][1], bg)
                 tk.Label(cell3, text=task.get("name", "")[:9], bg=bg,
                          fg=COLORS["text_primary"],
-                         font=("微软雅黑", 11, "bold"), anchor=tk.W
+                         font=("微软雅黑", 10, "bold"), anchor=tk.W
                          ).pack(side=tk.LEFT, padx=(12, 0), pady=ROW_PADY)
 
                 # 列4：执行时间
                 cell4 = make_cell(row, COLS[4][1], bg)
                 tk.Label(cell4, text=task.get("time_str", "--:--"), bg=bg,
                          fg=COLORS["accent"],
-                         font=("Consolas", 11, "bold"), anchor=tk.W
+                         font=("Consolas", 10, "bold"), anchor=tk.W
                          ).pack(side=tk.LEFT, padx=(12, 0), pady=ROW_PADY)
 
                 # 列5：参数摘要
@@ -2064,15 +2065,30 @@ class ScheduleFrame(tk.Frame):
 
 
     def _mark_task_done_with_log(self, task, msg):
-        """标记任务完成并写日志，状态重置为等待中（次日继续执行）"""
-        task["status"] = "等待中"
+        """标记任务完成并写日志（v6.7.10 修复：显示「已完成」）。
+
+        原实现把状态重置为「等待中」，导致任务明明跑完了
+        却仍显示「等待中」，用户误以为没执行。
+        现改为显示「已完成」并记录完成时间；
+        调度器在次日到达触发时间时会把状态重置为「等待中」再执行。
+        """
+        task["status"] = "已完成"
+        try:
+            task["last_done"] = time.strftime("%m-%d %H:%M")
+        except Exception:
+            pass
         self.log(msg)
         self.sync_log_to_modules(msg)
         self.refresh_task_list()
         self.save_schedule()
 
     def _mark_task_done(self, task):
-        task["status"] = "等待中"
+        """标记任务完成（v6.7.10：显示「已完成」而非重置为等待中）"""
+        task["status"] = "已完成"
+        try:
+            task["last_done"] = time.strftime("%m-%d %H:%M")
+        except Exception:
+            pass
         self.refresh_task_list()
         self.save_schedule()
 
