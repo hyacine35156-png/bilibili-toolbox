@@ -240,6 +240,34 @@ class ScheduleFrame(tk.Frame):
         self.task_list_frame.pack(fill=tk.BOTH, expand=True,
                                   padx=12, pady=(4, 10))
 
+        # v6.7.6: 列宽随可用宽度动态分配，窗口缩放时需要重算。
+        # 防死循环两条措施：
+        #   1. 宽度变化小于 40px 直接忽略
+        #   2. after 防抖 350ms，连续 resize 只触发一次
+        try:
+            def _sched_on_width_change(_e=None):
+                try:
+                    _w = self.task_list_frame.winfo_width()
+                except Exception:
+                    return
+                if abs(_w - getattr(self, "_last_list_width", 0)) < 40:
+                    return
+                try:
+                    job = getattr(self, "_cols_resize_job", None)
+                    if job:
+                        self.after_cancel(job)
+                except Exception:
+                    pass
+                try:
+                    self._cols_resize_job = self.after(
+                        350, self.refresh_task_list)
+                except Exception:
+                    pass
+
+            self.task_list_frame.bind("<Configure>", _sched_on_width_change)
+        except Exception:
+            pass
+
         # ============ ④ 日志（35%） ============
         log_card = tk.Frame(mid, bg=COLORS["bg_card"],
                             highlightthickness=1,
@@ -1020,16 +1048,49 @@ class ScheduleFrame(tk.Frame):
                      font=("微软雅黑", 11), justify=tk.CENTER).pack(pady=40)
             return
 
-        # 固定列宽（px）：总 943px 可用，各列合计约 930px
-        # v6.6.7: 上次执行需容纳 "10-29 13:37"（约 120px），给 130px
-        COLS = [
-            # v6.7.4: 列宽按 list_card=74.5% 重新分配。
-            #         实测 635px 仍会导致「00:10」被截成「00:1」、
-            #         「10-29 13:37」被截断、5 个操作按钮挤在一起，
-            #         故放宽到 950px（1722 窗口下可用约 1259px，留足余量）。
-            ("", 14), ("状态", 112), ("类型", 96), ("名称", 150),
-            ("时间", 84), ("参数", 110), ("上次执行", 134), ("操作", 250),
-        ]
+        # ============================================================
+        # v6.7.6: 列宽改为【按可用宽度动态分配】
+        # ------------------------------------------------------------
+        # 用户反馈：「这些都隔开，把长度均匀分配，每个项目留一定空隙」
+        # 原固定像素方案（合计 946px）在 1722 窗口下可用约 1223px，
+        # 右侧会空出 277px，内容全挤在左边。
+        # 现改为按权重把【实际可用宽度】按比例分给 8 列。
+        # ============================================================
+        _avail = 0
+        try:
+            _avail = self.task_list_frame.winfo_width()
+        except Exception:
+            _avail = 0
+        if _avail < 500:
+            # 首次调用时控件尚未完成布局，按窗口宽度估算
+            try:
+                _avail = int(self.app.root.winfo_width() * 0.745) - 24
+            except Exception:
+                _avail = 900
+            if _avail < 500:
+                _avail = 900
+        # 记录本次宽度，供 <Configure> 判断是否需要重算
+        self._last_list_width = _avail
+
+        _names = ["", "状态", "类型", "名称", "时间", "参数",
+                  "上次执行", "操作"]
+        # 权重合计 = 1.0
+        _weights = [0.030, 0.105, 0.090, 0.155, 0.095, 0.115,
+                    0.150, 0.260]
+        _COL_GAP = 6        # 每列内部右侧留白（视觉上把列隔开）
+        _CELL_PADX = 10     # 单元格内容左侧留白
+        _OP_MIN = 200       # 操作列（5个按钮）最小宽度
+        _CELL_MIN = 34      # 其它列最小宽度
+
+        COLS = []
+        for _nm, _wgt in zip(_names, _weights):
+            _px = int(_avail * _wgt)
+            if _nm == "操作":
+                _px = max(_OP_MIN, _px)
+            else:
+                _px = max(_CELL_MIN, _px)
+            COLS.append((_nm, _px))
+
         ROW_PADY = 12   # v6.6.8: 行内上下间距加大（用户要求）
 
         def make_cell(parent, px, bg):
@@ -1050,7 +1111,8 @@ class ScheduleFrame(tk.Frame):
             tk.Label(cell, text=txt, bg=COLORS["bg_input"],
                      fg=COLORS["text_secondary"],
                      font=("微软雅黑", 11, "bold"),
-                     anchor=tk.W).pack(side=tk.LEFT, padx=(4, 0), pady=10)
+                     anchor=tk.W).pack(side=tk.LEFT,
+                                       padx=(12, 0), pady=10)
 
         # ---- 数据行 ----
         for idx, task in enumerate(self.schedule_tasks):
@@ -1096,28 +1158,28 @@ class ScheduleFrame(tk.Frame):
                 cell1 = make_cell(row, COLS[1][1], bg)
                 tk.Label(cell1, text="● " + stxt, bg=bg, fg=sfg,
                          font=("微软雅黑", 11), anchor=tk.W
-                         ).pack(side=tk.LEFT, padx=(4, 0), pady=ROW_PADY)
+                         ).pack(side=tk.LEFT, padx=(12, 0), pady=ROW_PADY)
 
                 # 列2：类型
                 cell2 = make_cell(row, COLS[2][1], bg)
                 tk.Label(cell2, text=task.get("type_name", ""), bg=bg,
                          fg=COLORS["text_primary"], font=("微软雅黑", 11),
                          anchor=tk.W
-                         ).pack(side=tk.LEFT, padx=(4, 0), pady=ROW_PADY)
+                         ).pack(side=tk.LEFT, padx=(12, 0), pady=ROW_PADY)
 
                 # 列3：任务名称
                 cell3 = make_cell(row, COLS[3][1], bg)
                 tk.Label(cell3, text=task.get("name", "")[:9], bg=bg,
                          fg=COLORS["text_primary"],
                          font=("微软雅黑", 11, "bold"), anchor=tk.W
-                         ).pack(side=tk.LEFT, padx=(4, 0), pady=ROW_PADY)
+                         ).pack(side=tk.LEFT, padx=(12, 0), pady=ROW_PADY)
 
                 # 列4：执行时间
                 cell4 = make_cell(row, COLS[4][1], bg)
                 tk.Label(cell4, text=task.get("time_str", "--:--"), bg=bg,
                          fg=COLORS["accent"],
                          font=("Consolas", 11, "bold"), anchor=tk.W
-                         ).pack(side=tk.LEFT, padx=(4, 0), pady=ROW_PADY)
+                         ).pack(side=tk.LEFT, padx=(12, 0), pady=ROW_PADY)
 
                 # 列5：参数摘要
                 desc = sp.describe_params(task.get("type", ""),
@@ -1128,7 +1190,7 @@ class ScheduleFrame(tk.Frame):
                 tk.Label(cell5, text=desc[:10], bg=bg,
                          fg=COLORS["text_secondary"], font=("微软雅黑", 10),
                          anchor=tk.W
-                         ).pack(side=tk.LEFT, padx=(4, 0), pady=ROW_PADY)
+                         ).pack(side=tk.LEFT, padx=(12, 0), pady=ROW_PADY)
 
                 # 列6：上次执行
                 lr = task.get("last_run", "") or "-"
@@ -1137,7 +1199,7 @@ class ScheduleFrame(tk.Frame):
                 cell6 = make_cell(row, COLS[6][1], bg)
                 tk.Label(cell6, text=lr, bg=bg, fg=COLORS["text_muted"],
                          font=("Consolas", 10), anchor=tk.W
-                         ).pack(side=tk.LEFT, padx=(4, 0), pady=ROW_PADY)
+                         ).pack(side=tk.LEFT, padx=(12, 0), pady=ROW_PADY)
 
                 # 列7：操作按钮
                 cell7 = make_cell(row, COLS[7][1], bg)
