@@ -1,0 +1,265 @@
+    def build_account_page(self):
+        """构建「设置」页面（v6.7.0 全面重构）。
+
+        布局：取消左右栏隔离，改为从上往下依次排列的板块（①②③ 编号）：
+          ① 👤 账户管理     表格 + 7 个操作按钮
+          ② 📺 直播间管理    列表 + 表单 + 3 个按钮
+          ③ 🛡 数据备份与恢复
+          ⚙ 全局设置        首个设置项 + 预留空白区
+
+        两项关键兼容设计（避免大范围改动既有方法）：
+          1. manager_account_listbox 用 ttk.Treeview 替代 Listbox，
+             并挂上 curselection() 兼容方法 —— 其余 7 处调用无需改动
+          2. manager_info_text 保留为隐藏 Text（详情数据源），
+             账户详情改由弹窗展示 —— 14 处引用无需改动
+        """
+        import app_settings as _appset
+
+        outer = tk.Frame(self.account_page, bg=COLORS["bg_dark"])
+        outer.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+        CARD = dict(bg=COLORS["bg_card"], bd=0, highlightthickness=1,
+                    highlightbackground=COLORS["border"])
+
+        def make_section(title, hint=""):
+            """创建一个板块卡片，返回 (卡片, 内容容器)。"""
+            card = tk.Frame(outer, **CARD)
+            card.pack(fill=tk.X, pady=(0, 8))
+            head = tk.Frame(card, bg=COLORS["bg_card"])
+            head.pack(fill=tk.X, padx=12, pady=(8, 4))
+            tk.Label(head, text=title, bg=COLORS["bg_card"],
+                     fg=COLORS["accent"], font=("微软雅黑", 12, "bold")
+                     ).pack(side=tk.LEFT)
+            if hint:
+                tk.Label(head, text=hint, bg=COLORS["bg_card"],
+                         fg=COLORS["text_muted"], font=("微软雅黑", 9)
+                         ).pack(side=tk.LEFT, padx=(10, 0))
+            body = tk.Frame(card, bg=COLORS["bg_card"])
+            body.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 10))
+            return card, head, body
+
+        # ==================== ① 账户管理 ====================
+        _c1, _h1, body1 = make_section("① 👤 账户管理")
+        self.account_count_label = tk.Label(
+            _h1, text="", bg=COLORS["bg_card"],
+            fg=COLORS["text_muted"], font=("微软雅黑", 10))
+        self.account_count_label.pack(side=tk.RIGHT)
+
+        # --- 账户表格（Treeview）---
+        tree_wrap = tk.Frame(body1, bg=COLORS["bg_card"])
+        tree_wrap.pack(fill=tk.X)
+        tree_wrap.configure(height=170)
+        tree_wrap.pack_propagate(False)
+
+        style = ttk.Style()
+        try:
+            style.configure("Acct.Treeview",
+                            background=COLORS["bg_input"],
+                            foreground=COLORS["text_primary"],
+                            fieldbackground=COLORS["bg_input"],
+                            font=("微软雅黑", 10), rowheight=26)
+            style.configure("Acct.Treeview.Heading",
+                            background=COLORS["bg_card"],
+                            foreground=COLORS["accent"],
+                            font=("微软雅黑", 10, "bold"))
+            style.map("Acct.Treeview",
+                      background=[("selected", COLORS["accent"])],
+                      foreground=[("selected", "#000000")])
+        except Exception:
+            pass
+
+        acct_cols = ("status", "name", "uid", "room", "verified")
+        self.manager_account_listbox = ttk.Treeview(
+            tree_wrap, columns=acct_cols, show="headings",
+            style="Acct.Treeview", selectmode="browse")
+        self.manager_account_listbox.heading("status", text="状态")
+        self.manager_account_listbox.heading("name", text="账户名")
+        self.manager_account_listbox.heading("uid", text="UID")
+        self.manager_account_listbox.heading("room", text="绑定直播间")
+        self.manager_account_listbox.heading("verified", text="最后验证")
+        self.manager_account_listbox.column("status", width=80, anchor=tk.CENTER)
+        self.manager_account_listbox.column("name", width=200, anchor=tk.W)
+        self.manager_account_listbox.column("uid", width=150, anchor=tk.CENTER)
+        self.manager_account_listbox.column("room", width=200, anchor=tk.CENTER)
+        self.manager_account_listbox.column("verified", width=150, anchor=tk.CENTER)
+
+        acct_sb = tk.Scrollbar(tree_wrap, orient=tk.VERTICAL,
+                               command=self.manager_account_listbox.yview)
+        acct_sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.manager_account_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.manager_account_listbox.configure(yscrollcommand=acct_sb.set)
+
+        # 兼容层：让 Treeview 支持原来的 curselection() 语义（返回索引元组）
+        def _tree_curselection(_t=None):
+            t = _t or self.manager_account_listbox
+            try:
+                sel = t.selection()
+                if not sel:
+                    return ()
+                kids = list(t.get_children())
+                return (kids.index(sel[0]),)
+            except Exception:
+                return ()
+        try:
+            self.manager_account_listbox.curselection = _tree_curselection
+        except Exception:
+            pass
+
+        # 单击=选中并刷新详情数据源（隐藏 Text）；双击=打开详情弹窗
+        self.manager_account_listbox.bind("<<TreeviewSelect>>",
+                                          self._on_manager_account_select)
+        self.manager_account_listbox.bind("<Double-Button-1>",
+                                          lambda e: self.open_account_detail_dialog())
+
+        # --- 账户操作按钮行 ---
+        btn1 = tk.Frame(body1, bg=COLORS["bg_card"])
+        btn1.pack(fill=tk.X, pady=(8, 0))
+        DarkButton(btn1, "＋ 添加账户", command=self.add_account,
+                   height=30, compact=True).pack(side=tk.LEFT, padx=(0, 6))
+        DarkButton(btn1, "📄 详情", command=self.open_account_detail_dialog,
+                   height=30, bg_color="#16a085", text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT, padx=(0, 6))
+        DarkButton(btn1, "编辑", command=self._manager_edit_account,
+                   height=30, bg_color="#27ae60", text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT, padx=(0, 6))
+        DarkButton(btn1, "删除", command=self._manager_delete_account,
+                   height=30, bg_color=COLORS["danger"], text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT, padx=(0, 6))
+        DarkButton(btn1, "验证登录", command=self._manager_verify_account,
+                   height=30, bg_color="#444466", text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT, padx=(0, 6))
+        DarkButton(btn1, "⚡ 全部验证", command=self._manager_verify_all_accounts,
+                   height=30, bg_color="#e67e22", text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT, padx=(0, 6))
+        DarkButton(btn1, "刷新信息", command=self._manager_refresh_info,
+                   height=30, bg_color="#2980b9", text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT)
+
+        # --- 隐藏的详情数据源（保留供既有方法写入，不在界面显示）---
+        self.manager_info_text = tk.Text(self.account_page, wrap=tk.WORD)
+        self.manager_info_text.insert(tk.END, "请选择一个账户查看详细信息")
+        self.manager_info_text.config(state=tk.DISABLED)
+
+        # ==================== ② 直播间管理 ====================
+        _c2, _h2, body2 = make_section("② 📺 直播间管理")
+        self.room_count_label = tk.Label(
+            _h2, text="", bg=COLORS["bg_card"],
+            fg=COLORS["text_muted"], font=("微软雅黑", 10))
+        self.room_count_label.pack(side=tk.RIGHT)
+
+        # 横向：左侧列表 + 右侧表单
+        row2 = tk.Frame(body2, bg=COLORS["bg_card"])
+        row2.pack(fill=tk.X)
+
+        room_left = tk.Frame(row2, bg=COLORS["bg_card"])
+        room_left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        room_left.configure(height=140)
+        room_left.pack_propagate(False)
+        room_sb = tk.Scrollbar(room_left, orient=tk.VERTICAL)
+        room_sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.manager_room_listbox = tk.Listbox(
+            room_left, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+            selectbackground=COLORS["accent"], selectforeground="#000000",
+            font=("微软雅黑", 10), bd=0, highlightthickness=0,
+            activestyle="none", exportselection=False,
+            yscrollcommand=room_sb.set)
+        room_sb.config(command=self.manager_room_listbox.yview)
+        self.manager_room_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.manager_room_listbox.bind("<<ListboxSelect>>",
+                                       self._on_manager_room_select)
+
+        room_form = tk.Frame(row2, bg=COLORS["bg_input"])
+        room_form.pack(side=tk.LEFT, fill=tk.Y)
+        room_form.configure(width=420)
+        room_form.pack_propagate(False)
+        tk.Label(room_form, text="添加 / 编辑直播间", bg=COLORS["bg_input"],
+                 fg=COLORS["accent"], font=("微软雅黑", 10, "bold")
+                 ).pack(anchor=tk.W, padx=10, pady=(6, 4))
+        for lbl_txt, attr_name in [("直播间号", "room_id_entry"),
+                                   ("显示名称", "room_name_entry"),
+                                   ("备注", "room_remark_entry")]:
+            rr = tk.Frame(room_form, bg=COLORS["bg_input"])
+            rr.pack(fill=tk.X, padx=10, pady=(0, 4))
+            tk.Label(rr, text=lbl_txt, bg=COLORS["bg_input"],
+                     fg=COLORS["text_secondary"], font=("微软雅黑", 10),
+                     width=7, anchor=tk.W).pack(side=tk.LEFT)
+            ent = DarkEntry(rr, width=12)
+            ent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
+            setattr(self, attr_name, ent)
+        tk.Frame(room_form, bg=COLORS["bg_input"], height=6).pack(fill=tk.X)
+
+        btn2 = tk.Frame(body2, bg=COLORS["bg_card"])
+        btn2.pack(fill=tk.X, pady=(8, 0))
+        DarkButton(btn2, "＋ 添加直播间", command=self._manager_add_room,
+                   height=30, compact=True).pack(side=tk.LEFT, padx=(0, 6))
+        DarkButton(btn2, "删除直播间", command=self._manager_delete_room,
+                   height=30, bg_color=COLORS["danger"], text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT, padx=(0, 6))
+        DarkButton(btn2, "从账户导入", command=self._manager_import_rooms_from_accounts,
+                   height=30, bg_color="#2980b9", text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT)
+
+        # ==================== ③ 数据备份与恢复 ====================
+        _c3, _h3, body3 = make_section(
+            "③ 🛡 数据备份与恢复",
+            "定期备份 data 目录，防止配置丢失")
+        btn3 = tk.Frame(body3, bg=COLORS["bg_card"])
+        btn3.pack(fill=tk.X)
+        DarkButton(btn3, "🛡 打开数据备份与恢复",
+                   command=self._open_backup_manager,
+                   height=32, bg_color="#7d3c98", text_color="#ffffff",
+                   compact=True).pack(side=tk.LEFT)
+
+        # ==================== ⚙ 全局设置（底部，弹性填充）====================
+        card4 = tk.Frame(outer, **CARD)
+        card4.pack(fill=tk.BOTH, expand=True)
+        head4 = tk.Frame(card4, bg=COLORS["bg_card"])
+        head4.pack(fill=tk.X, padx=12, pady=(8, 4))
+        tk.Label(head4, text="⚙ 全局设置", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=("微软雅黑", 12, "bold")
+                 ).pack(side=tk.LEFT)
+        tk.Label(head4, text="影响全程序的设置项（其余空间预留）",
+                 bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(10, 0))
+
+        body4 = tk.Frame(card4, bg=COLORS["bg_card"])
+        body4.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 10))
+
+        # 首个全局设置项：抢码前自动同步时间
+        try:
+            _auto_ntp_on = _appset.should_auto_ntp()
+            _lead = _appset.auto_ntp_lead()
+        except Exception:
+            _auto_ntp_on, _lead = True, 120
+        self.auto_ntp_var = tk.BooleanVar(value=bool(_auto_ntp_on))
+        chk = tk.Checkbutton(
+            body4,
+            text="抢码前 %d 秒（%d 分钟）自动同步时间" % (_lead, max(1, _lead // 60)),
+            variable=self.auto_ntp_var,
+            command=self.on_toggle_global_auto_ntp,
+            bg=COLORS["bg_card"], fg=COLORS["text_primary"],
+            selectcolor=COLORS["bg_input"],
+            activebackground=COLORS["bg_card"],
+            activeforeground=COLORS["text_primary"],
+            font=("微软雅黑", 11), anchor="w")
+        chk.pack(anchor=tk.W, pady=(2, 2))
+        tk.Label(body4,
+                 text="说明：只测量 NTP 偏差用于提前量补偿，不修改系统时间；关闭后不再自动检测",
+                 bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                 font=("微软雅黑", 9)).pack(anchor=tk.W, padx=(24, 0))
+
+        # 预留空白区（未来放更多全局设置）
+        tk.Frame(body4, bg=COLORS["bg_card"]).pack(fill=tk.BOTH, expand=True)
+
+        # 初始化数据
+        self._account_verify_cache = {}
+        try:
+            self._load_account_verify_cache()
+        except Exception:
+            pass
+        self.refresh_account_manager_list()
+        self._refresh_manager_room_list()
+        try:
+            self._update_account_room_counts()
+        except Exception:
+            pass

@@ -1,0 +1,53 @@
+# -*- coding: utf-8 -*-
+import io
+
+MSG = '''chore: 清理 116 个临时诊断脚本
+
+## 清理内容
+开发排查过程中生成的 116 个 _*.py 临时脚本
+（_peek_*.py / _verify_*.py / _fix_*.py / _check_*.py / _shot_*.py 等）
+
+## 安全措施（三重保障）
+1. 先备份：archives/temp_scripts_20261030_113404.zip（0.13 MB, 116 个文件）
+   备份后立即 testzip() 校验完整性 + 数量核对，通过后才执行删除
+2. 引用检查：扫描全部 484 个主程序模块，
+   确认 0 个 _*.py 被 import 或被字符串引用
+3. 白名单保留：_make_shortcut.py（打包快捷方式的工具脚本）
+
+## 清理结果
+删除前: 117 个 _*.py
+删除后:   1 个（仅 _make_shortcut.py）
+
+## 关键文件完整性核对（全部 OK）
+  main.py             159825 bytes
+  config.py            22665 bytes
+  app_settings.py       2879 bytes
+  dialogs.py            7695 bytes
+  storage.py            7092 bytes
+  widgets.py           26628 bytes
+  rush_stats.py        81171 bytes
+  tasks_config.py      44745 bytes
+  bili_api.py          26164 bytes
+  schedule_params.py    9592 bytes
+  main_gui.py          20531 bytes
+  ui/         10 个模块
+  managers/    3 个模块
+
+## 清理后完整验证（0 失败 0 异常）
+- compileall OK
+- 22 项单元测试 OK
+- 10 个核心模块导入全部正常
+- 应用启动正常
+- 8 页面加载正常
+- 账户表格 7 行 / 直播间表格 5 行
+- 日程 4 任务
+- 动态列宽仍铺满：1238 / 1238 px（100%）
+- 抢码页正常
+- 数据完好: 账户7/日程4/任务组7/直播间5
+- 全局设置 4 项完整
+- 18 项指标正常
+- 0 Tk 回调异常
+'''
+
+io.open('_msg_cleanup.txt', 'w', encoding='utf-8').write(MSG)
+print('已生成')
