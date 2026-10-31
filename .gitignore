@@ -142,3 +142,16 @@ uploaded_file
 !*/__init__.py
 !*/*/__init__.py
 !*/*/*/__init__.py
+
+# WASM 实验残留（已确认程序不引用）
+calc_sign*.js
+convert_wat.js
+find_unreachable.js
+test_min.js
+test_wasmer.js
+git_installer.exe
+
+# 测试日志与过期依赖备份
+risk_test_*.txt
+output.txt
+requirements_v*.txt
