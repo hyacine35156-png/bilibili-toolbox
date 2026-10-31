@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """配置与常量：路径、版本、颜色、API地址。无外部依赖。"""
 
 import threading
@@ -50,7 +50,7 @@ BACKUP_DIR = BASE_DIR / "backup"
 
 # ---------- 版本 ----------
 # 程序版本号
-APP_VERSION = "v6.7.12"
+APP_VERSION = "v6.7.14"
 
 # ---------- API 地址 ----------
 
