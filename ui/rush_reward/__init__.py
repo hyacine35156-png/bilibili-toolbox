@@ -118,14 +118,18 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         except Exception:
             show = True
         frame = getattr(self, "nm_tools_frame", None)
-        if frame is None:
+        parent = getattr(self, "nm_tools_parent", None)
+        if frame is None or parent is None:
             return
         try:
+            # 用 winfo_manager() 判断是否已 pack，比 winfo_ismapped() 可靠
+            # （父容器未完全映射时 ismapped 会误报 0）
+            packed = bool(frame.winfo_manager())
             if show:
-                if not frame.winfo_ismapped():
-                    frame.pack(fill=tk.X)
+                if not packed:
+                    frame.pack(side=tk.RIGHT, padx=(0, 2))
             else:
-                if frame.winfo_ismapped():
+                if packed:
                     frame.pack_forget()
         except Exception:
             pass
@@ -2645,6 +2649,24 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                  font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=(2, 10))
         tk.Label(grow2, text="✓ 修改自动保存，组内所有任务统一首发时间", bg=COLORS["bg_card"],
                  fg=COLORS["success"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        # v6.7.14: 新模式也可用「详细仪表盘」与「任务查询中心」（全局设置可开关）
+        # 位置：放在「目标首发时间」这一行的右侧（用户指定位置）
+        self.nm_tools_frame = tk.Frame(grow2, bg=COLORS["bg_card"])
+        self.nm_tools_parent = grow2
+        self.nm_dashboard_btn = DarkButton(
+            self.nm_tools_frame, text="📈 详细仪表盘",
+            command=self.open_stats_dashboard,
+            height=32, width=150, bg_color="#8e44ad", text_color="#ffffff",
+            tip="打开详细统计仪表盘（18项指标、库存窗口、提前量分布等）")
+        self.nm_query_center_btn = DarkButton(
+            self.nm_tools_frame, text="🔍 任务查询中心",
+            command=self.open_task_center,
+            height=32, width=170, bg_color="#2980b9", text_color="#ffffff",
+            tip="批量查询任务状态，把已完成可抢的任务写入版本集合")
+        # 注意：side=RIGHT 时先 pack 的在最右，所以先 pack 查询中心
+        self.nm_query_center_btn.pack(side=tk.RIGHT, padx=(8, 0))
+        self.nm_dashboard_btn.pack(side=tk.RIGHT)
+        self.nm_tools_frame.pack(side=tk.RIGHT, padx=(0, 2))
 
 
         # ===== 第二步：添加任务到当前组 =====
@@ -2804,26 +2826,6 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         self.nm_status_label = tk.Label(ctrl_inner, text="● 未运行", bg=COLORS["bg_card"],
                                         fg=COLORS["text_muted"], font=("微软雅黑", 11))
         self.nm_status_label.pack(side=tk.LEFT, padx=20)
-
-        # v6.7.14: 新模式也可用「详细仪表盘」与「任务查询中心」（全局设置可开关）
-        # 单独占用一行，避免和上面 5 个按钮挤在一行导致文字被压缩
-        self.nm_tools_frame = tk.Frame(ctrl_card, bg=COLORS["bg_card"])
-        self.nm_tools_inner = tk.Frame(self.nm_tools_frame, bg=COLORS["bg_card"])
-        self.nm_tools_inner.pack(fill=tk.X, padx=15, pady=(0, 6))
-        self.nm_dashboard_btn = DarkButton(
-            self.nm_tools_inner, text="📈 详细仪表盘",
-            command=self.open_stats_dashboard,
-            height=38, width=170, bg_color="#8e44ad", text_color="#ffffff",
-            tip="打开详细统计仪表盘（18项指标、库存窗口、提前量分布等）")
-        self.nm_dashboard_btn.pack(side=tk.LEFT, padx=(0, 8))
-        self.nm_query_center_btn = DarkButton(
-            self.nm_tools_inner, text="🔍 任务查询中心",
-            command=self.open_task_center,
-            height=38, width=190, bg_color="#2980b9", text_color="#ffffff",
-            tip="批量查询任务状态，把已完成可抢的任务写入版本集合")
-        self.nm_query_center_btn.pack(side=tk.LEFT)
-        # 默认显示；真正显隐由 nm_apply_tools_visibility() 按全局设置控制
-        self.nm_tools_frame.pack(fill=tk.X)
 
         # ===== 日志 =====
 
