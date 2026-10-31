@@ -1,2 +1,14 @@
+# B站工具箱 依赖清单（v6.7.17 补全）
+# 安装: pip install -r requirements.txt
+
+# 网络请求（bili_api / http_client）
 requests>=2.31.0
+
+# WebSocket 连接（弹幕、看播任务）
 websocket-client>=1.8.0
+
+# CA 证书包（http_client 强制校验用）
+certifi>=2023.7.22
+
+# Excel 导出（看播任务数据导出）
+openpyxl>=3.1.0

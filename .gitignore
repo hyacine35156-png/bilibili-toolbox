@@ -125,7 +125,6 @@ list_*.py
 get_*.py
 change_*.py
 show_*.py
-http_*.py
 build.py
 query2.py
 
@@ -159,3 +158,5 @@ requirements_v*.txt
 !scripts/
 !scripts/_make_shortcut.py
 !scripts/*.bat
+# http_client.py 是正式核心模块（bili_api 依赖），不能被前缀规则误伤
+!http_client.py
