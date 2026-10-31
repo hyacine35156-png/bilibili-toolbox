@@ -104,6 +104,32 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         except Exception:
             pass
 
+    def nm_apply_tools_visibility(self):
+        """按全局设置显示/隐藏新模式的仪表盘与查询中心按钮（v6.7.14 新增）。
+
+        说明：这两个按钮原本只有旧模式才有。用户要求新模式也能用，
+              并提供全局开关（⚙ 设置 -> 全局设置）。
+        注意：界面可能尚未构建（新模式 UI 是懒加载的），
+              此时直接返回，等构建完成后再调用。
+        """
+        try:
+            import app_settings as _appset
+            show = bool(_appset.rush_new_mode_show_tools())
+        except Exception:
+            show = True
+        frame = getattr(self, "nm_tools_frame", None)
+        if frame is None:
+            return
+        try:
+            if show:
+                if not frame.winfo_ismapped():
+                    frame.pack(side=tk.LEFT, padx=(10, 0))
+            else:
+                if frame.winfo_ismapped():
+                    frame.pack_forget()
+        except Exception:
+            pass
+
     def _apply_default_rush_mode(self):
         """按全局设置切换到默认抢码模式（v6.7.4 新增）。"""
         try:
@@ -2534,6 +2560,11 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             self.new_mode_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
             self.refresh_new_mode_group_list()
             self.refresh_new_mode_task_list()
+            # v6.7.14: 按全局设置应用仪表盘/查询中心按钮的显隐
+            try:
+                self.nm_apply_tools_visibility()
+            except Exception:
+                pass
 
     def build_new_mode_ui(self):
         global ttk
@@ -2773,6 +2804,23 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         self.nm_status_label = tk.Label(ctrl_inner, text="● 未运行", bg=COLORS["bg_card"],
                                         fg=COLORS["text_muted"], font=("微软雅黑", 11))
         self.nm_status_label.pack(side=tk.LEFT, padx=20)
+
+        # v6.7.14: 新模式也可用「详细仪表盘」与「任务查询中心」（全局设置可开关）
+        # 需要确保 _tools_frame 已创建，供 nm_apply_tools_visibility() 控制显隐
+        self.nm_tools_frame = tk.Frame(ctrl_inner, bg=COLORS["bg_card"])
+        self.nm_tools_frame.pack(side=tk.LEFT, padx=(10, 0))
+        self.nm_dashboard_btn = DarkButton(
+            self.nm_tools_frame, text="📈 详细仪表盘",
+            command=self.open_stats_dashboard,
+            height=44, width=150, bg_color="#8e44ad", text_color="#ffffff",
+            tip="打开详细统计仪表盘（18项指标、库存窗口、提前量分布等）")
+        self.nm_dashboard_btn.pack(side=tk.LEFT, padx=6)
+        self.nm_query_center_btn = DarkButton(
+            self.nm_tools_frame, text="🔍 任务查询中心",
+            command=self.open_task_center,
+            height=44, width=170, bg_color="#2980b9", text_color="#ffffff",
+            tip="批量查询任务状态，把已完成可抢的任务写入版本集合")
+        self.nm_query_center_btn.pack(side=tk.LEFT, padx=6)
 
         # ===== 日志 =====
 
@@ -4026,26 +4074,39 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             if not rows:
                 messagebox.showinfo("提示", "当前没有可抢任务。", parent=dlg)
                 return
+            # v6.7.14: 统计「按账号」的已有记录，提示会覆盖多少条
+            _acc_count = len({str(r.get("account") or r.get("account_name") or "")
+                              for r in rows})
             if not messagebox.askyesno(
                     "确认加入",
-                    "把 %d 个可抢任务加入版本集合「%s」？\n\n"
-                    "加入后它们会出现在「版本」下拉框的「%s」下\n"
-                    "（期数=已完成，类型=已完成任务）。\n\n"
-                    "已存在的任务会跳过。" % (len(rows), target, target),
+                    "把 %d 个可抢任务（来自 %d 个账号）写入版本集合「%s」？\n\n"
+                    "写入规则：\n"
+                    "  · 按【任务ID + 账号名】区分记录\n"
+                    "  · 同一账号的同一任务 -> 覆盖更新状态\n"
+                    "  · 其他账号的记录保持不变\n\n"
+                    "加入后可在「版本」下拉框的「%s」下看到它们。"
+                    % (len(rows), _acc_count, target, target),
                     parent=dlg):
                 return
-            n = _tc.add_tasks_to_version(target, rows)
-            if n == 0:
+            added, updated = _tc.add_tasks_to_version(target, rows)
+            if added == 0 and updated == 0:
                 messagebox.showinfo("无需加入",
-                                    "这些任务都已在「%s」中。" % target,
+                                    "这些任务都已在「%s」中且状态无变化。\n\n"
+                                    "提示：若刚抢领成功，重新查询一次状态再点加入，\n"
+                                    "即可覆盖更新为最新状态。" % target,
                                     parent=dlg)
             else:
+                parts = []
+                if added:
+                    parts.append("新增 %d 个任务" % added)
+                if updated:
+                    parts.append("覆盖更新 %d 个已有记录" % updated)
                 messagebox.showinfo(
-                    "已加入",
-                    "成功加入 %d 个任务到版本集合「%s」。\n\n"
+                    "写入完成",
+                    "%s 到版本集合「%s」。\n\n"
                     "现在可以在抢码界面的「版本」下拉框选到它。"
-                    % (n, target), parent=dlg)
-            _log("✓ 加入 %d 个任务到「%s」" % (n, target))
+                    % ("，".join(parts), target), parent=dlg)
+            _log("✓ 写入版本集合「%s」: 新增 %d, 更新 %d" % (target, added, updated))
             _save_cfg()
             try:
                 # v6.4.9: 两个模式的下拉框都要刷新

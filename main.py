@@ -1122,6 +1122,23 @@ class DanmakuApp:
             activeforeground=COLORS["text_primary"],
             font=("微软雅黑", 11), anchor="w").pack(anchor=tk.W, pady=(1, 1))
 
+        # ---- 全局设置项3：新模式显示仪表盘/查询中心（v6.7.14 新增）----
+        try:
+            _show_tools = _appset.rush_new_mode_show_tools()
+        except Exception:
+            _show_tools = True
+        self.rush_show_tools_var = tk.BooleanVar(value=bool(_show_tools))
+        tk.Checkbutton(
+            body4,
+            text="新模式显示「📈 详细仪表盘」与「🔍 任务查询中心」按钮",
+            variable=self.rush_show_tools_var,
+            command=self.on_toggle_rush_show_tools,
+            bg=COLORS["bg_card"], fg=COLORS["text_primary"],
+            selectcolor=COLORS["bg_input"],
+            activebackground=COLORS["bg_card"],
+            activeforeground=COLORS["text_primary"],
+            font=("微软雅黑", 11), anchor="w").pack(anchor=tk.W, pady=(1, 1))
+
         # 预留空白区（未来放更多全局设置）
         # v6.7.1: 改为 6px 细线提示，节省纵向空间；后续设置项直接加在此行之后
         _reserve = tk.Frame(body4, bg=COLORS["bg_card"], height=6)
@@ -1456,6 +1473,30 @@ class DanmakuApp:
         if _retry < 300:
             try:
                 self.root.after(100, lambda: self._verify_all_poll(_retry + 1, _t))
+            except Exception:
+                pass
+
+    def on_toggle_rush_show_tools(self):
+        """全局设置：新模式是否显示仪表盘/查询中心按钮（v6.7.14 新增）。"""
+        try:
+            import app_settings as _appset
+            val = bool(self.rush_show_tools_var.get())
+            _appset.set_setting("rush_new_mode_show_tools", val)
+            if val:
+                self.log("⚙ 已开启：新模式显示仪表盘/查询中心按钮")
+            else:
+                self.log("⚙ 已关闭：新模式不显示仪表盘/查询中心按钮")
+            # 立即刷新新模式界面（若已构建）
+            try:
+                rp = getattr(self, "rush_page", None)
+                if rp is not None and hasattr(rp, "nm_apply_tools_visibility"):
+                    rp.nm_apply_tools_visibility()
+            except Exception:
+                pass
+            self.log("   下次进入抢码页也会按此设置显示")
+        except Exception as e:
+            try:
+                self.log("保存全局设置失败: %s" % e)
             except Exception:
                 pass
 

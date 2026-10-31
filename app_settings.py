@@ -24,6 +24,8 @@ DEFAULTS = {
     #   False = 旧模式显示在第一页（默认）
     #   True  = 新模式·精准抢码显示在第一页
     "rush_new_mode_first": False,
+    # 新模式是否显示仪表盘/查询中心按钮（v6.7.14）
+    "rush_new_mode_show_tools": True,
 }
 
 
@@ -95,3 +97,15 @@ def rush_new_mode_first():
         return bool(get_setting("rush_new_mode_first"))
     except Exception:
         return False
+
+
+def rush_new_mode_show_tools():
+    """新模式是否显示「📈 详细仪表盘」与「🔍 任务查询中心」按钮（v6.7.14）。
+
+    这两个原本只有旧模式才有。用户要求新模式也能用，做成全局开关。
+    默认 True（开启），保持功能可用。
+    """
+    try:
+        return bool(get_setting("rush_new_mode_show_tools"))
+    except Exception:
+        return True

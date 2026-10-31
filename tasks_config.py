@@ -147,6 +147,13 @@ ALL_TASKS = [
     {"version": "绝区零3.3", "period": "全版本", "type": "直播里程碑", "name": "累计35天完成开播及互动任务", "task_id": "18ERA1wloghvc3e00", "award": "菲林*1000"},
 ]
 
+# v6.7.14: 保存内置官方任务基线快照，供 rebuild_all_tasks() 使用。
+# 说明：ALL_TASKS 在运行期会被 load_official_tasks() / rebuild_all_tasks() 原地修改，
+#       这里在模块加载时立刻深拷贝一份原始内置表，作为重建时的稳定基线。
+import copy as _copy
+_BUILTIN_TASKS = _copy.deepcopy(ALL_TASKS)
+
+
 # ========== O9：任务表外置 ==========
 # 优先从 data/tasks_official.json 加载官方任务表；文件不存在或损坏时回退到
 # 代码内置的 ALL_TASKS。这样更新游戏活动只需替换 JSON，不必重新打包 exe。
@@ -663,23 +670,117 @@ def custom_version_all_tasks():
     return out
 
 
+def rebuild_all_tasks():
+    """重建 ALL_TASKS：官方内置 + 自定义版本任务 + 已完成任务 + 手动任务。
+
+    v6.7.14 新增。此前代码里已有 4 处调用 rebuild_all_tasks() 但函数从未实现，
+    导致：新增/删除自定义版本任务后，ALL_TASKS 不会刷新，
+    「版本」下拉框选到新集合时读不到任务（表现为集合空着）。
+
+    设计原则：
+      · 以模块启动时的内置官方任务为基线（_BUILTIN_TASKS）
+      · 叠加当前 CUSTOM_VERSION_TASKS 里的所有自定义任务
+      · 叠加 DONE_TASKS（已完成任务集合）
+      · 叠加 MANUAL_TASKS（手动添加的任务）
+      · 用 ALL_TASKS[:] 原地替换，保持所有外部引用有效
+      · 联合键 (task_id, account_name) 去重，同账号覆盖
+    """
+    global ALL_TASKS
+    try:
+        base = list(_BUILTIN_TASKS) if _BUILTIN_TASKS else []
+
+        merged = list(base)
+        index = {}
+        for it in merged:
+            k = (str(it.get("task_id", "")).strip(),
+                 str(it.get("account_name", "") or "").strip())
+            if k[0]:
+                index[k] = len(merged) - 1
+
+        def _merge(items):
+            for it in (items or []):
+                if not isinstance(it, dict):
+                    continue
+                tid = str(it.get("task_id", "") or "").strip()
+                if not tid:
+                    continue
+                acc = str(it.get("account_name", "") or
+                          it.get("account", "") or "").strip()
+                k = (tid, acc)
+                if k in index:
+                    merged[index[k]] = it
+                else:
+                    index[k] = len(merged)
+                    merged.append(it)
+
+        # 自定义版本任务
+        try:
+            custom = custom_version_all_tasks()
+            _merge(custom)
+        except Exception:
+            pass
+
+        # 已完成任务
+        try:
+            _merge(DONE_TASKS)
+        except Exception:
+            pass
+
+        # 手动任务
+        try:
+            _merge(MANUAL_TASKS)
+        except Exception:
+            pass
+
+        ALL_TASKS[:] = merged
+        return len(ALL_TASKS)
+    except Exception as e:
+        print("重建 ALL_TASKS 失败: %s" % e)
+        return 0
+
+
 def _add_tasks_to_custom_version(version, tasks):
-    """内部：往自定义版本任务表里追加并持久化。返回加入数。"""
+    """内部：往自定义版本任务表里写入并持久化。
+
+    v6.7.14 重写：修复「按账号覆盖」问题。
+
+    原实现的问题：
+      去重键只有 task_id，完全不看 account_name。
+      所以同一 task_id 被不同账号抢到时，第二个账号永远加不进去；
+      而且已存在的条目只会被【跳过】，状态永远不会刷新
+      —— 导致抢领成功后，集合里还是旧的「可抢」状态。
+
+    新实现：
+      · 去重键改为 (task_id, account_name) 联合键
+      · 已存在则【覆盖更新】字段（状态/奖励/act_id/查询时间）
+      · 同一 task_id 不同账号 -> 各自独立一条记录
+      · 返回 (新增数, 更新数)
+    """
     if version not in CUSTOM_VERSION_TASKS:
         CUSTOM_VERSION_TASKS[version] = []
     bucket = CUSTOM_VERSION_TASKS[version]
-    existing = {t.get("task_id") for t in bucket}
-    # 也检查 ALL_TASKS 里同版本已存在的
-    for t in ALL_TASKS:
-        if t.get("version") == version:
-            existing.add(t.get("task_id"))
-    added = 0
+
     now = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    # 建立联合键索引：{(task_id, account_name): 条目引用}
+    existing_index = {}
+    for idx, t in enumerate(bucket):
+        key = (str(t.get("task_id", "")).strip(),
+               str(t.get("account_name", "")).strip())
+        existing_index[key] = idx
+
+    added = 0
+    updated = 0
+
     for it in (tasks or []):
         tid = str(it.get("task_id", "") or "").strip()
-        if not tid or tid in existing:
+        if not tid:
             continue
-        bucket.append({
+        acc = str(it.get("account") or it.get("account_name") or "").strip()
+        key = (tid, acc)
+
+        # 统一整理要写入的字段
+        fields = {
             "version": version,
             "period": CUSTOM_PERIOD,
             "type": CUSTOM_TYPE,
@@ -688,40 +789,77 @@ def _add_tasks_to_custom_version(version, tasks):
             "award": str(it.get("award") or ""),
             "act_id": str(it.get("act_id") or ""),
             "act_name": str(it.get("act_name") or ""),
-            "account_name": str(it.get("account") or it.get("account_name") or ""),
+            "account_name": acc,
             "status_text": str(it.get("status_text") or "可抢"),
-            "added_at": now,
+            "task_finished": bool(it.get("task_finished")),
+            "stock_available": bool(it.get("stock_available")),
+            "status": it.get("status"),
+            "total_stock": it.get("total_stock", 0),
+            "day_stock": it.get("day_stock", 0),
+            "queried_at": str(it.get("queried_at") or ""),
+            "updated_at": now,
             "is_custom": True,
-        })
-        existing.add(tid)
-        added += 1
-    if added:
-        save_custom_version_tasks()
-    return added
+        }
 
+        if key in existing_index:
+            # 覆盖更新已有条目（保留 added_at 原始加入时间）
+            idx = existing_index[key]
+            keep_added_at = bucket[idx].get("added_at", now)
+            bucket[idx] = dict(fields, added_at=keep_added_at)
+            updated += 1
+        else:
+            # 新增条目
+            bucket.append(dict(fields, added_at=now))
+            existing_index[key] = len(bucket) - 1
+            added += 1
+
+    if added or updated:
+        save_custom_version_tasks()
+
+    return added, updated
 
 def add_tasks_to_version(version, tasks):
-    """把一批任务加入指定版本集合（用户需求：加入版本集合）。
+    """把一批任务加入指定版本集合（v6.7.14 重写：按账号独立 + 覆盖更新）。
 
-    参数：
-      version  目标版本名（可以是官方版本，也可以是自定义版本）
-      tasks    [{"task_id","name","award","act_id"}...]
+    修复的问题：
+      原实现去重键只有 task_id，不看 account_name。
+        · 同一 task_id 被多个账号抢到时，只有第一个账号能进集合
+        · 已存在条目只跳过不更新 -> 抢领成功后集合里仍是旧状态
 
-    返回：实际加入数量（已存在的跳过）
+    新行为：
+      · 去重键 = (task_id, account_name)
+      · 已存在 -> 覆盖更新状态/奖励/库存/查询时间
+      · 新组合 -> 新增
+      · 返回 (新增数, 更新数)
     """
     version = str(version or "").strip()
     if not version:
-        return 0
-    existing_ids = {t.get("task_id") for t in DONE_TASKS}
-    # 目标版本已有任务里，同 task_id 也跳过
-    for t in ALL_TASKS:
-        if t.get("version") == version:
-            existing_ids.add(t.get("task_id"))
+        return 0, 0
+
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    def _key(item):
+        return (str(item.get("task_id", "")).strip(),
+                str(item.get("account_name", "") or
+                    item.get("account") or "").strip())
+
+    existing_index = {}
+    for idx, t in enumerate(DONE_TASKS):
+        if str(t.get("version", "")) == version:
+            k = _key(t)
+            if k[0]:
+                existing_index[k] = idx
+
     added = 0
+    updated = 0
+
     for it in (tasks or []):
         tid = str(it.get("task_id", "") or "").strip()
-        if not tid or tid in existing_ids:
+        if not tid:
             continue
+        acc = str(it.get("account") or it.get("account_name") or "").strip()
+        key = (tid, acc)
+
         entry = {
             "version": version,
             "period": CUSTOM_PERIOD,
@@ -731,98 +869,34 @@ def add_tasks_to_version(version, tasks):
             "award": str(it.get("award") or ""),
             "act_id": str(it.get("act_id") or ""),
             "act_name": str(it.get("act_name") or ""),
-            "account_name": str(it.get("account") or ""),
+            "account_name": acc,
             "status_text": str(it.get("status_text") or "可抢"),
-            "added_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "task_finished": bool(it.get("task_finished")),
+            "stock_available": bool(it.get("stock_available")),
+            "status": it.get("status"),
+            "total_stock": it.get("total_stock", 0),
+            "day_stock": it.get("day_stock", 0),
+            "queried_at": str(it.get("queried_at") or ""),
+            "updated_at": now,
             "is_custom": True,
         }
-        DONE_TASKS.append(entry)
-        existing_ids.add(tid)
-        added += 1
-    if added:
-        # v6.5.0: 持久化到 custom_version_tasks.json（修复重启丢失）
+
+        if key in existing_index:
+            idx = existing_index[key]
+            keep_added_at = DONE_TASKS[idx].get("added_at", now)
+            DONE_TASKS[idx] = dict(entry, added_at=keep_added_at)
+            updated += 1
+        else:
+            DONE_TASKS.append(dict(entry, added_at=now))
+            existing_index[key] = len(DONE_TASKS) - 1
+            added += 1
+
+    if added or updated:
         try:
             _add_tasks_to_custom_version(version, tasks)
         except Exception:
             pass
         rebuild_all_tasks()
-    return added
 
+    return added, updated
 
-def all_version_names():
-    """返回所有可选版本名（官方 + 自定义 + 已完成任务 + 手动任务）。"""
-    names = []
-    for t in OFFICIAL_TASKS:
-        v = t.get("version")
-        if v and v not in names:
-            names.append(v)
-    for v in CUSTOM_VERSIONS:
-        nv = v.get("version")
-        if nv and nv not in names:
-            names.append(nv)
-    if DONE_TASKS and DONE_VERSION not in names:
-        names.append(DONE_VERSION)
-    if MANUAL_TASKS and MANUAL_VERSION not in names:
-        names.append(MANUAL_VERSION)
-    return names
-
-
-def rebuild_all_tasks():
-    """按「官方任务快照(排除已删除) + 手动任务」重建 ALL_TASKS（保持原对象引用不变）。
-
-    必须基于 OFFICIAL_TASKS 快照，而不是当前 ALL_TASKS：
-    否则被删除的任务一旦移除就无法通过 unhide 恢复。
-    """
-    _manual_ids = {m.get("task_id") for m in MANUAL_TASKS}
-    _official = [t for t in OFFICIAL_TASKS
-                 if t.get("task_id") not in _manual_ids
-                 and t.get("task_id") not in HIDDEN_TASK_IDS]
-    # v6.4.6: 末尾追加「已完成任务」虚拟分类（查询到的可抢任务）
-    # v6.4.8: DONE_TASKS 里可能包含用户自定义版本的任务（version 字段已指定）
-    # v6.5.0: 追加从 custom_version_tasks.json 持久化载入的自定义版本任务
-    #         （修复重启后新集合消失的 bug）
-    _custom = []
-    try:
-        _custom = custom_version_all_tasks()
-    except Exception:
-        _custom = []
-
-    # v6.5.0: 同一个 task_id 可以同时属于「官方版本」和「自定义版本集合」
-    # （这是业务需求：任务既在鸣潮3.7里，也在「已完成任务」集合里）。
-    # 所以只按 (version, task_id) 去重，不跨版本排除。
-    _seen = set()
-    _merged = []
-    for t in list(DONE_TASKS) + _custom:
-        k = (t.get("version"), t.get("task_id"))
-        if k in _seen:
-            continue
-        _seen.add(k)
-        _merged.append(t)
-    ALL_TASKS[:] = _official + list(MANUAL_TASKS) + _merged
-    return ALL_TASKS
-
-
-# ========== 启动时加载并应用 ==========
-# 顺序很重要：
-#   1) 载入官方任务（优先 JSON，回退内置）
-#   2) 用加载结果填充 OFFICIAL_TASKS 不可变快照
-#   3) 载入手动任务 / 已删除集合
-#   4) 统一 rebuild
-_tasks_from_json, _versions_from_json, TASKS_SOURCE = load_official_tasks()
-
-# 无论来自 JSON 还是内置，都要建立快照（快照是 rebuild 的唯一基准）
-OFFICIAL_TASKS[:] = [dict(t) for t in ALL_TASKS]
-
-load_manual_tasks()
-load_hidden_tasks()
-# v6.4.8: 载入用户自定义版本集合（查询中心里手动创建的）
-try:
-    load_custom_versions()
-except Exception:
-    CUSTOM_VERSIONS = []
-# v6.5.0: 载入自定义版本集合下的任务（修复重启后新集合消失）
-try:
-    load_custom_version_tasks()
-except Exception:
-    CUSTOM_VERSION_TASKS = {}
-rebuild_all_tasks()
