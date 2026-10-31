@@ -95,7 +95,7 @@ bilibili-danmaku-bot/
 ├── B站工具箱_v6.0.4.spec        # 当前打包配置（每个版本一个spec，旧spec全部保留）
 ├── requirements.txt             # 仅 requests、websocket-client
 ├── build.py                     # ⚠ 已过时的旧打包脚本（引用 main_gui_pro.py），实际打包用 spec，勿用
-├── 一键打包.bat                 # 旧打包批处理（同样过时，以 spec 为准）
+├── scripts/一键打包.bat                 # 旧打包批处理（同样过时，以 spec 为准）
 ├── README.md                    # 早期弹幕工具的说明，已不能反映当前完整功能
 ├── agent.md                     # 项目开发规则/用户偏好（部分内容如 main_gui_pro.py 已过时）
 ├── 项目完整档案.md               # v4.6.5~v6.0.3 历史档案

@@ -155,3 +155,7 @@ git_installer.exe
 risk_test_*.txt
 output.txt
 requirements_v*.txt
+# scripts/ 下的工具脚本需提交（_*.py 规则会误伤）
+!scripts/
+!scripts/_make_shortcut.py
+!scripts/*.bat
