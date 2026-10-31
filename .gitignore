@@ -27,9 +27,8 @@ dist/
 
 # PyArmor
 
-# 临时脚本
+# 涓存椂鑴氭湰
 fix_*.py
-# pyarmor 加密运行时（卡密验证必需，必须提交）
 !pyarmor_runtime_000000/
 update_version*.py
 optimize_*.py
@@ -45,15 +44,14 @@ download_img*.py
 code_review.py
 check_*.py
 
-# 数据文件
+# 鏁版嵁鏂囦欢
 data/
 *.json
 !card-system/**/*.json
 
-# 日志
+# 鏃ュ織
 *.log
 
-# 压缩包
 *.zip
 
 # IDE
@@ -69,18 +67,8 @@ Thumbs.db
 # Local Netlify folder
 .netlify
 
-# 快捷方式生成脚本（打包流程必备，需提交）
 !_make_shortcut.py
 
-
-# ===== v6.7.13 仓库瘦身：以下文件不再纳入版本控制 =====
-# 说明：这些文件仍完整保留在本地磁盘，只是不提交到 git。
-#   ffmpeg.exe   早期试验「快捷投稿」功能下载的，当前代码零引用（83MB）
-#   spyder.*     WASM 逆向分析中间产物，当前代码零引用
-#   node_modules WASM 工具链（wabt/wasmer），当前代码零引用
-#   backup_*/    历史版本备份目录
-#   versions/    旧版单文件快照
-#   main_gui_pro_v*_backup.py  重构前的单文件存档
 ffmpeg.exe
 ffmpeg-*.exe
 spyder*.wat
@@ -91,18 +79,66 @@ backup_*/
 data_backup_*/
 main_gui_pro_v*_backup*.py
 archives/
-# 打包产物与构建缓存
 build/
 __pycache__/
-# 临时诊断脚本
+# 涓存椂璇婃柇鑴氭湰
 _*.py
 !_make_shortcut.py
 
-# pyarmor 加密运行时的具体文件（绕过 *.py[cod] 对 .pyd 的匹配）
 !pyarmor_runtime_000000/__init__.py
 !pyarmor_runtime_000000/pyarmor_runtime.pyd
 !pyarmor_runtime_000000/*.pyd
 
-# �༭��/�ű���ʱ�����ļ�
+# 编辑器/脚本临时备份文件
 *.bak
 *.bak_*
+
+# ============================================================
+# v6.7.15 历史脚本清理
+# 318 个历史补丁/测试脚本已移出 git（磁盘保留在本地）
+# 备份：archives/legacy_scripts_*/legacy_scripts.zip
+# ============================================================
+
+# 一次性开发脚本（按前缀匹配）
+patch_*.py
+add_*.py
+update_*.py
+verify_*.py
+analyze_*.py
+remove_*.py
+find_*.py
+generate_*.py
+extract_*.py
+debug_*.py
+probe_*.py
+modify_*.py
+move_*.py
+restore_*.py
+summarize_*.py
+restructure_*.py
+rollback_*.py
+implement_*.py
+format_*.py
+logging_*.py
+deep_*.py
+list_*.py
+get_*.py
+change_*.py
+show_*.py
+http_*.py
+build.py
+query2.py
+
+# 测试脚本（保留 tests/ 目录下的正式单测）
+test_*.py
+!tests/test_*.py
+
+# 杂项
+query
+uploaded_file
+# ---- 关键白名单：包文件不能被 _*.py 规则误伤 ----
+# __init__.py 以 _ 开头，会被上面的 _*.py 规则匹配到，必须显式排除
+!__init__.py
+!*/__init__.py
+!*/*/__init__.py
+!*/*/*/__init__.py
