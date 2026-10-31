@@ -26,10 +26,11 @@ build/
 dist/
 
 # PyArmor
-pyarmor_runtime_*/
 
 # 临时脚本
 fix_*.py
+# pyarmor 加密运行时（卡密验证必需，必须提交）
+!pyarmor_runtime_000000/
 update_version*.py
 optimize_*.py
 self_check*.py
@@ -70,3 +71,34 @@ Thumbs.db
 
 # 快捷方式生成脚本（打包流程必备，需提交）
 !_make_shortcut.py
+
+
+# ===== v6.7.13 仓库瘦身：以下文件不再纳入版本控制 =====
+# 说明：这些文件仍完整保留在本地磁盘，只是不提交到 git。
+#   ffmpeg.exe   早期试验「快捷投稿」功能下载的，当前代码零引用（83MB）
+#   spyder.*     WASM 逆向分析中间产物，当前代码零引用
+#   node_modules WASM 工具链（wabt/wasmer），当前代码零引用
+#   backup_*/    历史版本备份目录
+#   versions/    旧版单文件快照
+#   main_gui_pro_v*_backup.py  重构前的单文件存档
+ffmpeg.exe
+ffmpeg-*.exe
+spyder*.wat
+spyder*.wasm
+node_modules/
+versions/
+backup_*/
+data_backup_*/
+main_gui_pro_v*_backup*.py
+archives/
+# 打包产物与构建缓存
+build/
+__pycache__/
+# 临时诊断脚本
+_*.py
+!_make_shortcut.py
+
+# pyarmor 加密运行时的具体文件（绕过 *.py[cod] 对 .pyd 的匹配）
+!pyarmor_runtime_000000/__init__.py
+!pyarmor_runtime_000000/pyarmor_runtime.pyd
+!pyarmor_runtime_000000/*.pyd
