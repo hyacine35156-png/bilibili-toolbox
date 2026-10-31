@@ -123,7 +123,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         try:
             if show:
                 if not frame.winfo_ismapped():
-                    frame.pack(side=tk.LEFT, padx=(10, 0))
+                    frame.pack(fill=tk.X)
             else:
                 if frame.winfo_ismapped():
                     frame.pack_forget()
@@ -2806,21 +2806,24 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         self.nm_status_label.pack(side=tk.LEFT, padx=20)
 
         # v6.7.14: 新模式也可用「详细仪表盘」与「任务查询中心」（全局设置可开关）
-        # 需要确保 _tools_frame 已创建，供 nm_apply_tools_visibility() 控制显隐
-        self.nm_tools_frame = tk.Frame(ctrl_inner, bg=COLORS["bg_card"])
-        self.nm_tools_frame.pack(side=tk.LEFT, padx=(10, 0))
+        # 单独占用一行，避免和上面 5 个按钮挤在一行导致文字被压缩
+        self.nm_tools_frame = tk.Frame(ctrl_card, bg=COLORS["bg_card"])
+        self.nm_tools_inner = tk.Frame(self.nm_tools_frame, bg=COLORS["bg_card"])
+        self.nm_tools_inner.pack(fill=tk.X, padx=15, pady=(0, 6))
         self.nm_dashboard_btn = DarkButton(
-            self.nm_tools_frame, text="📈 详细仪表盘",
+            self.nm_tools_inner, text="📈 详细仪表盘",
             command=self.open_stats_dashboard,
-            height=44, width=150, bg_color="#8e44ad", text_color="#ffffff",
+            height=38, width=170, bg_color="#8e44ad", text_color="#ffffff",
             tip="打开详细统计仪表盘（18项指标、库存窗口、提前量分布等）")
-        self.nm_dashboard_btn.pack(side=tk.LEFT, padx=6)
+        self.nm_dashboard_btn.pack(side=tk.LEFT, padx=(0, 8))
         self.nm_query_center_btn = DarkButton(
-            self.nm_tools_frame, text="🔍 任务查询中心",
+            self.nm_tools_inner, text="🔍 任务查询中心",
             command=self.open_task_center,
-            height=44, width=170, bg_color="#2980b9", text_color="#ffffff",
+            height=38, width=190, bg_color="#2980b9", text_color="#ffffff",
             tip="批量查询任务状态，把已完成可抢的任务写入版本集合")
-        self.nm_query_center_btn.pack(side=tk.LEFT, padx=6)
+        self.nm_query_center_btn.pack(side=tk.LEFT)
+        # 默认显示；真正显隐由 nm_apply_tools_visibility() 按全局设置控制
+        self.nm_tools_frame.pack(fill=tk.X)
 
         # ===== 日志 =====
 
