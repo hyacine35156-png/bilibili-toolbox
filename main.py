@@ -1442,10 +1442,20 @@ class DanmakuApp:
         last = getattr(self, "_verify_all_logged", 0)
         if done > last:
             items = list(st.get("results", {}).items())
-            for nm, (ok, msg) in items[last:]:
-                self.log("  [%d/%d] %s: %s" % (
-                    done, total, nm,
-                    ("✓ 有效" if ok else "✗ " + msg[:30])))
+            # v6.7.19 修复: results 存的是 (ok, msg, kind) 三元组，
+            #              原来的 for nm, (ok, msg) 只解包 2 个 ->
+            #              ValueError: too many values to unpack (expected 2, got 3)
+            #              异常被外层吞掉，导致「全部验证」看起来完全没反应。
+            for nm, tup in items[last:]:
+                try:
+                    ok, msg = tup[0], tup[1]
+                    kind = tup[2] if len(tup) > 2 else ""
+                except Exception:
+                    continue
+                mark = "✓ 有效" if ok else "✗ " + str(msg)[:30]
+                if kind == "network" and not ok:
+                    mark = "⚠ 网络异常 " + str(msg)[:24]
+                self.log("  [%d/%d] %s: %s" % (done, total, nm, mark))
             self._verify_all_logged = done
 
         if finished:
@@ -1453,18 +1463,40 @@ class DanmakuApp:
             cache = getattr(self, "_account_verify_cache", {}) or {}
             stamp = _t.strftime("%m-%d %H:%M")
             ok_n = 0
-            for nm, (ok, msg) in results.items():
-                cache[nm] = "%s %s" % (stamp, "✓" if ok else "✗")
+            net_n = 0
+            # v6.7.19 修复: 同上，兼容 (ok, msg, kind) 三元组
+            for nm, tup in results.items():
+                try:
+                    ok = bool(tup[0])
+                    kind = tup[2] if len(tup) > 2 else ""
+                except Exception:
+                    continue
                 if ok:
+                    cache[nm] = "%s ✓" % stamp
                     ok_n += 1
+                elif kind == "network":
+                    # 网络异常不等于失效，缓存里标 ⚠ 避免误报
+                    cache[nm] = "%s ⚠" % stamp
+                    net_n += 1
+                else:
+                    cache[nm] = "%s ✗" % stamp
             self._account_verify_cache = cache
             self._save_account_verify_cache()
             self.refresh_account_manager_list()
-            self.log("批量验证完成: %d/%d 有效" % (ok_n, total))
-            messagebox.showinfo(
-                "批量验证完成",
-                "共 %d 个账户\n有效: %d\n失效: %d" % (total, ok_n, total - ok_n),
-                parent=self.root)
+            fail_n = total - ok_n - net_n
+            if net_n:
+                self.log("批量验证完成: %d/%d 有效, %d 个网络异常(未计入失效)"
+                         % (ok_n, total, net_n))
+            else:
+                self.log("批量验证完成: %d/%d 有效" % (ok_n, total))
+            if net_n:
+                msg_text = ("共 %d 个账户\n\n有效: %d\n失效: %d\n网络异常: %d"
+                            "\n\n⚠ 网络异常的账户不一定是失效，\n"
+                            "建议检查网络后单独点该账户的「验证登录」确认。"
+                            % (total, ok_n, fail_n, net_n))
+            else:
+                msg_text = "共 %d 个账户\n\n有效: %d\n失效: %d" % (total, ok_n, fail_n)
+            messagebox.showinfo("批量验证完成", msg_text, parent=self.root)
             self._verify_all_state = None
             self._verify_all_logged = 0
             return
