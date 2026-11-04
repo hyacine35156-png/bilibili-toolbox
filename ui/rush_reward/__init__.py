@@ -5116,8 +5116,8 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
     def build_task_info_from_task(self, task):
         """从任务列表数据构造task_info，根据版本设置正确的活动名称和act_id"""
         version = task.get("version", "")
-        if version == "原神7.1":
-            act_name = "原神7.1版本UP主激励计划"
+        if version == "原神7.2":
+            act_name = "原神7.2UP主激励计划"
         elif "原神" in version:
             act_name = "原神7.0版本创作激励计划"
         elif "崩坏" in version or "星穹" in version:

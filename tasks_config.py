@@ -48,27 +48,37 @@ ALL_TASKS = [
     {"version": "鸣潮3.7", "period": "全版本", "type": "新人开播", "name": "累计7天开播", "task_id": "18ERA1wloghvcue00", "award": "星声*180"},
     {"version": "鸣潮3.7", "period": "全版本", "type": "新人开播", "name": "累计14天开播", "task_id": "18ERA1wloghvvc700", "award": "唤声涡纹*2"},
 
-    # ===== 原神7.1 =====
-    # 直播任务
-    {"version": "原神7.1", "period": "全版本", "type": "直播", "name": "当日开播满60分钟", "task_id": "6ERAcwloghvatw00", "award": "精锻用魔矿*5"},
-    {"version": "原神7.1", "period": "全版本", "type": "直播里程碑", "name": "分区开播满60分钟且直播间发送弹幕2人", "task_id": "6ERAcwloghvofk00", "award": "原石*50"},
-    {"version": "原神7.1", "period": "全版本", "type": "直播", "name": "当日直播间累计收到≥10电池价值的礼物", "task_id": "6ERAcwloghvpil00", "award": "大英雄的经验*2"},
-    {"version": "原神7.1", "period": "全版本", "type": "直播", "name": "当日直播间弹幕数满6条", "task_id": "6ERAcwloghvofj00", "award": "冒险家的经验*6"},
-    {"version": "原神7.1", "period": "全版本", "type": "直播", "name": "当日直播间至少有1名用户观看满10分钟", "task_id": "6ERAcwloghvp7k00", "award": "摩拉*11111"},
-    # 直播里程碑任务
-    {"version": "原神7.1", "period": "全版本", "type": "直播里程碑", "name": "累积1天开播", "task_id": "18ERA1wloghvcxd00", "award": "原石*200"},
-    {"version": "原神7.1", "period": "全版本", "type": "直播里程碑", "name": "累积5天开播", "task_id": "18ERA1wloghvvzn00", "award": "原石*600"},
-    {"version": "原神7.1", "period": "全版本", "type": "直播里程碑", "name": "累积10天开播", "task_id": "18ERA1wloghvcdt00", "award": "原石*1000"},
-    {"version": "原神7.1", "period": "全版本", "type": "直播里程碑", "name": "累积20天开播", "task_id": "18ERA1wloghv1b900", "award": "原石*1000"},
-    {"version": "原神7.1", "period": "全版本", "type": "直播里程碑", "name": "累积30天开播", "task_id": "18ERA1wloghvcty00", "award": "原石*1000"},
-    {"version": "原神7.1", "period": "全版本", "type": "直播里程碑", "name": "累积40天开播", "task_id": "18ERA1wloghvckw00", "award": "原石*1000"},
-    # 看播里程碑任务
-    {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积1天看播", "task_id": "18ERA1wloghvcxf00", "award": "原石*50"},
-    {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积5天看播", "task_id": "18ERA1wloghvcv400", "award": "原石*50"},
-    {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积10天看播", "task_id": "18ERA1wloghvvcp00", "award": "原石*100"},
-    {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积20天看播", "task_id": "18ERA1wloghv12p00", "award": "原石*100"},
-    {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积30天看播", "task_id": "18ERA1wloghv1ng00", "award": "原石*200"},
-    {"version": "原神7.1", "period": "全版本", "type": "看播里程碑", "name": "累积40天看播", "task_id": "18ERA1wloghv1me00", "award": "原石*200"},
+    # ===== 原神7.2 =====
+    # act_id: 1ERAzwloghv3vb00（原神7.2UP主激励计划）
+    # 投稿任务（5 个）
+    {"version": "原神7.2", "period": "全版本", "type": "投稿", "name": "投稿3播放3", "task_id": "6ERAvwloghvylw00", "award": "投稿1：摩拉*20000"},
+    {"version": "原神7.2", "period": "全版本", "type": "投稿", "name": "投稿4播放400", "task_id": "6ERAvwloghvuu500", "award": "投稿2：原石*50"},
+    {"version": "原神7.2", "period": "全版本", "type": "投稿", "name": "投稿5播放500", "task_id": "6ERAvwloghvycw00", "award": "投稿3：相遇之缘*1"},
+    {"version": "原神7.2", "period": "全版本", "type": "投稿", "name": "累计播放15w", "task_id": "6ERAvwloghvyq200", "award": "投稿4：原石*1000"},
+    {"version": "原神7.2", "period": "全版本", "type": "投稿", "name": "累计播放70w", "task_id": "6ERAvwloghvy1m00", "award": "投稿5：相遇之缘*10"},
+    # 直播-限定任务（1 个）
+    {"version": "原神7.2", "period": "全版本", "type": "直播", "name": "分区开播满60分钟且直播间发送弹幕2人", "task_id": "6ERAvwloghvuum00", "award": "原石*50"},
+    # 直播-每日任务（4 个）
+    {"version": "原神7.2", "period": "每日", "type": "直播", "name": "当日开播满60分钟", "task_id": "6ERAvwloghvy9q00", "award": "精锻用魔矿*5"},
+    {"version": "原神7.2", "period": "每日", "type": "直播", "name": "当日直播间累计收到≥10电池价值的礼物", "task_id": "6ERAvwloghvuy800", "award": "大英雄的经验*2"},
+    {"version": "原神7.2", "period": "每日", "type": "直播", "name": "当日直播间弹幕数满6条", "task_id": "6ERAvwloghvuis00", "award": "冒险家的经验*6"},
+    {"version": "原神7.2", "period": "每日", "type": "直播", "name": "当日直播间至少有1名用户观看满10分钟", "task_id": "6ERAvwloghvuts00", "award": "摩拉*11111"},
+    # 直播里程碑任务（1 主体 + 6 分档）
+    {"version": "原神7.2", "period": "全版本", "type": "直播里程碑", "name": "直播里程碑（任务主体）", "task_id": "6ERAvwloghvy4600", "award": "6档累计：原石*200~原石*1000"},
+    {"version": "原神7.2", "period": "全版本", "type": "直播里程碑", "name": "累计1天开播", "task_id": "18ERA1wloghv1sm00", "award": "原石*200"},
+    {"version": "原神7.2", "period": "全版本", "type": "直播里程碑", "name": "累计5天开播", "task_id": "18ERA1wloghv1qf00", "award": "原石*600"},
+    {"version": "原神7.2", "period": "全版本", "type": "直播里程碑", "name": "累计10天开播", "task_id": "18ERA1wloghv1za00", "award": "原石*1000"},
+    {"version": "原神7.2", "period": "全版本", "type": "直播里程碑", "name": "累计20天开播", "task_id": "18ERA1wloghv1of00", "award": "原石*1000"},
+    {"version": "原神7.2", "period": "全版本", "type": "直播里程碑", "name": "累计30天开播", "task_id": "18ERA1wloghv1z900", "award": "原石*1000"},
+    {"version": "原神7.2", "period": "全版本", "type": "直播里程碑", "name": "累计40天开播", "task_id": "18ERA1wloghv1ke00", "award": "原石*1000"},
+    # 看播里程碑任务（1 主体 + 6 分档）
+    {"version": "原神7.2", "period": "全版本", "type": "看播里程碑", "name": "看播里程碑（任务主体）", "task_id": "6ERAvwloghvyzm00", "award": "6档累计：原石*50~原石*200"},
+    {"version": "原神7.2", "period": "全版本", "type": "看播里程碑", "name": "累计1天看播", "task_id": "18ERA1wloghv1s100", "award": "原石*50"},
+    {"version": "原神7.2", "period": "全版本", "type": "看播里程碑", "name": "累计5天看播", "task_id": "18ERA1wloghv1av00", "award": "原石*50"},
+    {"version": "原神7.2", "period": "全版本", "type": "看播里程碑", "name": "累计10天看播", "task_id": "18ERA1wloghv1sa00", "award": "原石*100"},
+    {"version": "原神7.2", "period": "全版本", "type": "看播里程碑", "name": "累计20天看播", "task_id": "18ERA1wloghv1og00", "award": "原石*100"},
+    {"version": "原神7.2", "period": "全版本", "type": "看播里程碑", "name": "累计30天看播", "task_id": "18ERA1wloghv1pe00", "award": "原石*200"},
+    {"version": "原神7.2", "period": "全版本", "type": "看播里程碑", "name": "累计40天看播", "task_id": "18ERA1wloghv1i900", "award": "原石*200"},
 
 
     # ===== 崩坏星穹铁道4.6（投稿任务）=====
@@ -317,7 +327,7 @@ def get_manual_task(task_id):
 # 版本默认act_id（同一版本的所有任务共享同一个act_id）
 VERSION_DEFAULT_ACT_ID = {
     "鸣潮3.7": "1ERAzwloghv32n00",
-    "原神7.1": "1ERA3wloghv6q200",
+    "原神7.2": "1ERAzwloghv3vb00",
     "崩坏星穹铁道4.6": "1ERAzwloghv3q100",
     "绝区零3.3": "1ERAzwloghv2ai00",
 }
