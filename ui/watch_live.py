@@ -11,6 +11,7 @@ import requests
 from config import (COLORS, BASE_DIR, HEADERS)
 from storage import atomic_write_json
 from widgets import DarkButton
+import watch_presets
 
 try:
     import websocket
@@ -76,6 +77,11 @@ class WatchLiveFrame(tk.Frame):
         self.refresh_account_list()
         self.apply_watch_config()
         self.apply_gift_config()
+        # v6.7.22: 初始化看播方案下拉框
+        try:
+            self.refresh_watch_preset_combo()
+        except Exception:
+            pass
         self.bind_auto_save()
         self.log("看播任务工具已启动，勾选账户和直播间后点击「开始看播」")
 
@@ -828,6 +834,231 @@ class WatchLiveFrame(tk.Frame):
                 pass
         self.save_watch_config()
 
+    # ========== v6.7.22 看播快捷方案 ==========
+    def _watch_preset_names(self):
+        """返回方案显示列表（带摘要）。"""
+        try:
+            presets = watch_presets.load_presets()
+        except Exception:
+            presets = []
+        return [watch_presets.summarize(p) for p in presets]
+
+    def refresh_watch_preset_combo(self):
+        """刷新方案下拉框。"""
+        try:
+            names = self._watch_preset_names()
+            self.watch_preset_combo.config(values=names)
+            cur = self.watch_preset_var.get()
+            if cur not in names:
+                self.watch_preset_var.set("")
+        except Exception:
+            pass
+
+    def _current_watch_selection(self):
+        """收集当前页面选择：账户/直播间/时长/心跳间隔。"""
+        try:
+            accs = [name for name, var in self.account_vars.items() if var.get()]
+        except Exception:
+            accs = []
+        try:
+            rooms = self._get_watch_room_ids()
+        except Exception:
+            rooms = []
+        try:
+            dur = int(self.duration_var.get())
+        except Exception:
+            dur = 10
+        try:
+            hb = int(self.interval_var.get())
+        except Exception:
+            hb = 60
+        return accs, rooms, dur, hb
+
+    def _on_watch_preset_selected(self):
+        """选到方案时，在提示里展示摘要。"""
+        try:
+            txt = self.watch_preset_var.get()
+            self.watch_preset_hint.config(text=("已选: " + txt) if txt else "")
+        except Exception:
+            pass
+
+    def _find_preset_by_summary(self, summary):
+        """按下拉框显示摘要反查方案对象。"""
+        if not summary:
+            return None
+        try:
+            presets = watch_presets.load_presets()
+        except Exception:
+            return None
+        for p in presets:
+            if watch_presets.summarize(p) == summary:
+                return p
+        return None
+
+    def _apply_watch_preset(self, preset):
+        """把方案套用到当前 UI。返回 (成功, 消息)。"""
+        if not preset:
+            return False, "方案不存在"
+        try:
+            accs = preset.get("accounts") or []
+            rooms = preset.get("rooms") or []
+            dur = int(preset.get("duration_minutes") or 10)
+            hb = int(preset.get("heartbeat_interval") or 60)
+
+            # 1) 账户勾选（不存在的账户跳过）
+            existing = set(self.account_vars.keys())
+            missing_acc = [a for a in accs if a not in existing]
+            for name, var in self.account_vars.items():
+                try:
+                    var.set(name in accs)
+                except Exception:
+                    pass
+
+            # 2) 直播间：按方案重建选择栏
+            # 注意：_add_watch_room_bar() 无返回值，需从 self.watch_room_bars 取
+            if rooms:
+                try:
+                    # 保留第一个栏，删除其余（_remove 拒绝删除最后一栏）
+                    while len(self.watch_room_bars) > 1:
+                        _bar0 = self.watch_room_bars[-1][0]
+                        self._remove_watch_room_bar(_bar0)
+                    # 确保正好 len(rooms) 个栏
+                    while len(self.watch_room_bars) < len(rooms):
+                        self._add_watch_room_bar()
+                    # 逐个填入房间号
+                    for idx, rid in enumerate(rooms):
+                        if idx >= len(self.watch_room_bars):
+                            break
+                        try:
+                            self.watch_room_bars[idx][1].set(str(rid))
+                        except Exception:
+                            pass
+                    self._refresh_room_combo_values()
+                except Exception as e:
+                    return False, "直播间设置失败: %s" % str(e)[:60]
+
+            # 3) 时长/心跳
+            try:
+                self.duration_var.set(dur)
+            except Exception:
+                pass
+            try:
+                self.interval_var.set(hb)
+            except Exception:
+                pass
+
+            msg = "已应用方案「%s」：%d账户 / %d房间 / %d分钟" % (
+                preset.get("name", ""), len(accs) - len(missing_acc),
+                len(rooms), dur)
+            if missing_acc:
+                msg += "（跳过已不存在的账户: %s）" % ", ".join(missing_acc)
+            return True, msg
+        except Exception as e:
+            return False, "应用失败: %s" % str(e)[:60]
+
+    def _apply_selected_watch_preset(self):
+        """按钮：应用选中方案。"""
+        preset = self._find_preset_by_summary(self.watch_preset_var.get())
+        ok, msg = self._apply_watch_preset(preset)
+        try:
+            self.log(("✓ " if ok else "✗ ") + msg)
+        except Exception:
+            pass
+        if not ok:
+            messagebox.showwarning("提示", msg, parent=self.winfo_toplevel())
+
+    def _save_current_as_watch_preset(self):
+        """按钮：把当前选择保存为方案。"""
+        try:
+            from widgets import ask_string
+        except Exception:
+            ask_string = None
+        try:
+            win = tk.Toplevel(self)
+            win.title("保存看播方案")
+            win.configure(bg=COLORS["bg_dark"])
+            win.transient(self.winfo_toplevel())
+            win.grab_set()
+            win.geometry("420x220")
+            body = tk.Frame(win, bg=COLORS["bg_card"])
+            body.pack(fill=tk.BOTH, expand=True, padx=16, pady=16)
+            tk.Label(body, text="方案名称:", bg=COLORS["bg_card"],
+                     fg=COLORS["text_secondary"], font=("微软雅黑", 10),
+                     anchor=tk.W).pack(fill=tk.X)
+            name_var = tk.StringVar(value="")
+            ent = tk.Entry(body, textvariable=name_var, font=("微软雅黑", 11))
+            ent.pack(fill=tk.X, pady=(4, 10))
+            ent.focus_set()
+            accs, rooms, dur, hb = self._current_watch_selection()
+            tk.Label(body,
+                     text=("将保存: %d账户 / %d房间 / %d分钟 / 心跳%d秒"
+                           % (len(accs), len(rooms), dur, hb)),
+                     bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                     font=("微软雅黑", 9)).pack(fill=tk.X)
+            btns = tk.Frame(body, bg=COLORS["bg_card"])
+            btns.pack(fill=tk.X, pady=(12, 0))
+
+            def _do_save():
+                nm = name_var.get().strip()
+                if not nm:
+                    messagebox.showwarning("提示", "请填写方案名称", parent=win)
+                    return
+                if not rooms:
+                    messagebox.showwarning("提示", "还没有选择直播间", parent=win)
+                    return
+                if not accs:
+                    messagebox.showwarning("提示", "还没有勾选账户", parent=win)
+                    return
+                p = watch_presets.make_preset(nm, accs, rooms, dur, hb)
+                presets = watch_presets.load_presets()
+                new_list, replaced = watch_presets.upsert_preset(presets, p)
+                ok = watch_presets.save_presets(new_list)
+                if not ok:
+                    messagebox.showerror("失败", "保存失败，请检查磁盘权限", parent=win)
+                    return
+                self.refresh_watch_preset_combo()
+                self.watch_preset_var.set(watch_presets.summarize(p))
+                self.watch_preset_hint.config(text="已保存: " + nm)
+                try:
+                    self.log(("✓ 方案「%s」已%d" % (nm, "覆盖" if replaced else "保存")))
+                except Exception:
+                    pass
+                win.destroy()
+
+            DarkButton(btns, text="保存", command=_do_save, height=34, width=110,
+                       bg_color="#27ae60", text_color="#ffffff").pack(side=tk.RIGHT)
+            DarkButton(btns, text="取消", command=win.destroy, height=34, width=90,
+                       bg_color="#7f8c8d", text_color="#ffffff").pack(side=tk.RIGHT, padx=(0, 8))
+        except Exception as e:
+            messagebox.showerror("错误", "打开保存对话框失败: %s" % str(e)[:80],
+                                 parent=self.winfo_toplevel())
+
+    def _delete_selected_watch_preset(self):
+        """按钮：删除选中方案。"""
+        preset = self._find_preset_by_summary(self.watch_preset_var.get())
+        if not preset:
+            messagebox.showwarning("提示", "请先选择一个方案",
+                                   parent=self.winfo_toplevel())
+            return
+        if not messagebox.askyesno("确认删除",
+                                   "确定删除方案「%s」？" % preset.get("name", ""),
+                                   parent=self.winfo_toplevel()):
+            return
+        try:
+            presets = watch_presets.load_presets()
+            new_list = watch_presets.delete_preset(presets, preset.get("name", ""))
+            watch_presets.save_presets(new_list)
+            self.refresh_watch_preset_combo()
+            self.watch_preset_var.set("")
+            self.watch_preset_hint.config(text="")
+            try:
+                self.log("✓ 已删除方案「%s」" % preset.get("name", ""))
+            except Exception:
+                pass
+        except Exception as e:
+            messagebox.showerror("错误", "删除失败: %s" % str(e)[:80],
+                                 parent=self.winfo_toplevel())
+
     def build_ui(self):
         main = tk.Frame(self, bg=COLORS["bg_dark"])
         main.pack(fill=tk.BOTH, expand=True)
@@ -861,6 +1092,35 @@ class WatchLiveFrame(tk.Frame):
         tk.Label(settings_card, text="看播设置", bg=COLORS["bg_card"], fg=COLORS["accent"], font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 8))
         settings_inner = tk.Frame(settings_card, bg=COLORS["bg_card"])
         settings_inner.pack(fill=tk.X, padx=15, pady=(0, 12))
+
+        # ---- v6.7.22 看播快捷方案：选择/保存/删除 ----
+        preset_row = tk.Frame(settings_inner, bg=COLORS["bg_card"])
+        preset_row.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(preset_row, text="快捷方案:", bg=COLORS["bg_card"],
+                 fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        self.watch_preset_var = tk.StringVar(value="")
+        self.watch_preset_combo = ttk.Combobox(
+            preset_row, textvariable=self.watch_preset_var, width=30,
+            state="readonly", font=("微软雅黑", 10))
+        self.watch_preset_combo.pack(side=tk.LEFT, padx=(8, 6))
+        self.watch_preset_combo.bind("<<ComboboxSelected>>",
+                                     lambda e: self._on_watch_preset_selected())
+        DarkButton(preset_row, text="▶ 应用方案",
+                   command=self._apply_selected_watch_preset,
+                   height=32, width=110, bg_color="#8e44ad", text_color="#ffffff",
+                   tip="把选中方案里的账户/直播间/时长/心跳间隔一键套用到当前设置").pack(side=tk.LEFT, padx=(0, 4))
+        DarkButton(preset_row, text="💾 保存为方案",
+                   command=self._save_current_as_watch_preset,
+                   height=32, width=130, bg_color="#27ae60", text_color="#ffffff",
+                   tip="把当前勾选的账户/直播间/时长保存成一个命名方案").pack(side=tk.LEFT, padx=(0, 4))
+        DarkButton(preset_row, text="🗑 删除方案",
+                   command=self._delete_selected_watch_preset,
+                   height=32, width=110, bg_color="#c0392b", text_color="#ffffff",
+                   tip="删除当前选中的方案").pack(side=tk.LEFT, padx=(0, 10))
+        self.watch_preset_hint = tk.Label(
+            preset_row, text="", bg=COLORS["bg_card"],
+            fg=COLORS["text_muted"], font=("微软雅黑", 8))
+        self.watch_preset_hint.pack(side=tk.LEFT)
 
         row1 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         row1.pack(fill=tk.X, pady=3)
@@ -1050,7 +1310,19 @@ class WatchLiveFrame(tk.Frame):
             var.set(False)
         self.save_watch_config()
 
-    def refresh_status_tree(self):
+    def refresh_status_tree(self, _from_worker=False):
+        """刷新账户状态表（v6.7.22 修复跨线程卡顿）。
+
+        原实现直接操作 Treeview，而 _watch_loop 等工作线程会直接调用它，
+        Tkinter 非线程安全，跨线程操作控件会与主线程争抢 Tcl 锁，
+        表现为点击「开始看播」后界面卡顿数秒。现在统一投递到主线程。
+        """
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.root.after(0, lambda: self.refresh_status_tree(False))
+            except Exception:
+                pass
+            return
         for item in self.status_tree.get_children():
             self.status_tree.delete(item)
         for acc in self.account_mgr.accounts:
@@ -1261,11 +1533,13 @@ class WatchLiveFrame(tk.Frame):
                     self.log(f"  [{name}] 弹幕心跳异常: {e}")
                 time.sleep(30)
 
-        # 初始连接
+                # 初始连接（v6.7.22 修复卡顿：do_connect 内含阻塞 HTTP 请求
+        # get_danmu_token，原为同步调用会让调用线程等 3~10 秒。
+        # 改到后台线程执行，立即返回 client。
         client["running"] = True
         client["heartbeat_thread"] = threading.Thread(target=heartbeat_loop, daemon=True)
         client["heartbeat_thread"].start()
-        do_connect()
+        threading.Thread(target=do_connect, daemon=True).start()
         return client
 
     def close_all_ws(self):

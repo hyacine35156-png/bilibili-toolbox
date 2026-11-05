@@ -45,12 +45,14 @@ CUSTOM_VERSION_TASKS_FILE = BASE_DIR / "custom_version_tasks.json"
 TASKS_FILE = BASE_DIR / "tasks_official.json"
 # 抢码预案（v6.2.0：整套任务组配置的一键切换方案）
 RUSH_PRESETS_FILE = BASE_DIR / "rush_presets.json"
+# v6.7.22: 看播快捷方案
+WATCH_PRESETS_FILE = BASE_DIR / "watch_presets.json"
 LOG_DIR = BASE_DIR / "logs"
 BACKUP_DIR = BASE_DIR / "backup"
 
 # ---------- 版本 ----------
 # 程序版本号
-APP_VERSION = "v6.7.21"
+APP_VERSION = "v6.7.22"
 
 # ---------- API 地址 ----------
 

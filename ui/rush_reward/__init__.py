@@ -3149,9 +3149,42 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             tk.Label(row, text=str(task.get("priority", i+1)), bg=COLORS["bg_card"],
                      fg=COLORS["accent"], font=("微软雅黑", 10, "bold"), anchor=tk.W
                      ).grid(row=0, column=1, sticky="w")
-            tk.Label(row, text=task.get("name", "")[:26], bg=COLORS["bg_card"],
-                     fg=COLORS["text_primary"], font=("微软雅黑", 10), anchor=tk.W
-                     ).grid(row=0, column=2, sticky="w")
+            # v6.7.22: 任务名过长 -> 省略号 + 悬停看全名 + 点击展开/收起
+            _full_name = str(task.get("name", "") or "")
+            _max_chars = 17  # 列宽 326px ≈ 17 汉字，超出用省略号
+            _exp_key = "_nm_name_exp_" + str(id(task))
+            _expanded = bool(getattr(self, _exp_key, False))
+            if _expanded or len(_full_name) <= _max_chars:
+                _shown = _full_name
+            else:
+                _shown = _full_name[:_max_chars - 1] + "…"
+            _name_lbl = tk.Label(row, text=_shown, bg=COLORS["bg_card"],
+                                 fg=COLORS["text_primary"], font=("微软雅黑", 10),
+                                 anchor=tk.W)
+            _name_lbl.grid(row=0, column=2, sticky="w")
+            if len(_full_name) > _max_chars:
+                try:
+                    _name_lbl.configure(cursor="hand2")
+                    ToolTip(_name_lbl, _full_name)
+                except Exception:
+                    pass
+
+                def _toggle_name(e, _t=task, _l=_name_lbl, _fn=_full_name, _k=_exp_key, _mx=_max_chars):
+                    try:
+                        cur = bool(getattr(self, _k, False))
+                        setattr(self, _k, not cur)
+                        if not cur:
+                            _l.configure(text=_fn)
+                        else:
+                            _l.configure(text=_fn[:_mx - 1] + "…")
+                        try:
+                            _l.update_idletasks()
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+
+                _name_lbl.bind("<Button-1>", _toggle_name)
             tk.Label(row, text=task.get("award", "")[:12], bg=COLORS["bg_card"],
                      fg=COLORS["success"], font=("微软雅黑", 10), anchor=tk.W
                      ).grid(row=0, column=3, sticky="w")

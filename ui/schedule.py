@@ -777,12 +777,26 @@ class ScheduleFrame(tk.Frame):
     # ---------- 模板 ----------
 
     def _refresh_template_combo(self, task_type=None):
-        """刷新模板下拉框（只显示当前类型的模板）。"""
+        """刷新模板下拉框（只显示当前类型的模板）。
+
+        v6.7.22: 当类型是「看播」时，额外把 data/watch_presets.json 里的
+        看播快捷方案合并进来（前缀 📺），选中后可一键填入账户/房间/时长。
+        """
         import schedule_params as sp
         if task_type is None:
             task_type = self.task_type_var.get()
         try:
             names = list(sp.templates_of_type(task_type))
+            # v6.7.22: 合并看播快捷方案
+            if task_type == "watch":
+                try:
+                    import watch_presets as wp2
+                    for p in wp2.load_presets():
+                        tag = "📺 " + wp2.summarize(p)
+                        if tag not in names:
+                            names.append(tag)
+                except Exception:
+                    pass
             self.tpl_load_combo["values"] = names
             if names and not self.tpl_load_var.get():
                 self.tpl_load_var.set(names[0])
@@ -824,6 +838,40 @@ class ScheduleFrame(tk.Frame):
         if not name:
             messagebox.showwarning("提示", "请先选择一个模板", parent=self.winfo_toplevel())
             return
+
+        # v6.7.22: 看播快捷方案（前缀 📺）分支
+        if name.startswith("📺 "):
+            try:
+                import watch_presets as wp2
+                target = name[3:].strip()
+                preset = None
+                for p in wp2.load_presets():
+                    if wp2.summarize(p) == target:
+                        preset = p
+                        break
+                if not preset:
+                    messagebox.showwarning("提示", "方案不存在或已被删除",
+                                           parent=self.winfo_toplevel())
+                    self._refresh_template_combo(self.task_type_var.get())
+                    return
+                params = {
+                    "accounts": list(preset.get("accounts") or []),
+                    "rooms": [str(r) for r in (preset.get("rooms") or [])],
+                    "duration_minutes": int(preset.get("duration_minutes") or 10),
+                    "heartbeat_interval": int(preset.get("heartbeat_interval") or 60),
+                }
+                self.task_type_var.set("watch")
+                self._select_type_card("watch")
+                self._set_param_values(params)
+                self.log("✓ 已载入看播方案「%s」：%d账户/%d房间/%d分钟"
+                         % (preset.get("name", ""), len(params["accounts"]),
+                            len(params["rooms"]), params["duration_minutes"]))
+                return
+            except Exception as e:
+                messagebox.showerror("错误", "载入看播方案失败: %s" % str(e)[:80],
+                                     parent=self.winfo_toplevel())
+                return
+
         tpls = sp.load_templates()
         t = tpls.get(name)
         if not t:

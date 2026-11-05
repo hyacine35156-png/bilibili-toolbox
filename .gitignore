@@ -160,3 +160,7 @@ requirements_v*.txt
 !scripts/*.bat
 # http_client.py 是正式核心模块（bili_api 依赖），不能被前缀规则误伤
 !http_client.py
+
+# 临时截图（调试用）
+v6*.png
+*.tmpbak*
