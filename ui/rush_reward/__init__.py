@@ -27,11 +27,13 @@ from .manual_task import ManualTaskMixin, task_label, available_versions
 NM_TASK_COLUMNS = [
     ("状态", 74),
     ("优先级", 74),
-    ("任务名称", 326),
+    ("任务名称", 316),
     ("奖励", 158),
     ("窗口期", 74),
     ("账户", 142),
     ("操作(↑↓✎🔍×)", 184),
+    # v6.7.23: 首发保护（勾选后该任务遇「未完成」不放弃，直到窗口期结束）
+    ("首发保护", 100),
 ]
 NM_TASK_CELL_PAD = 8   # 留白已包含在列宽中，不再用 grid padx（会撑宽列）
 
@@ -2791,9 +2793,13 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             # 注意：grid 的 padx 会额外撑大列宽，因此这里不加 padx，
             # 统一由 uniform 列宽常量决定位置，保证与数据行逐列对齐。
             list_header.grid_columnconfigure(col_idx, minsize=px, weight=0)
+            # v6.7.23: 「首发保护」列表头居中（勾选框也在该列居中）
+            _is_protect_col = (text == "首发保护")
             tk.Label(list_header, text=text, bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                     font=("微软雅黑", 10, "bold"), anchor=tk.W,
-                     ).grid(row=0, column=col_idx, sticky="w", pady=5)
+                     font=("微软雅黑", 10, "bold"),
+                     anchor=(tk.CENTER if _is_protect_col else tk.W),
+                     ).grid(row=0, column=col_idx,
+                           sticky=("" if _is_protect_col else "w"), pady=5)
 
         # 任务列表容器（可滚动）
         list_container = tk.Frame(list_card, bg=COLORS["bg_card"])
@@ -3213,6 +3219,36 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             DarkButton(btn_frame, text="×", command=lambda tid=task["task_id"]: self.nm_remove_task(tid),
                        height=24, width=30, bg_color="#c0392b", tip="从当前任务组中移除该任务",
                        text_color="#ffffff", compact=True).pack(side=tk.LEFT, padx=1)
+            # v6.7.23: 首发保护勾选框（第 8 列，默认不勾选）
+            _protect = bool(task.get("first_shot_protect", False))
+            _protect_var = tk.BooleanVar(value=_protect)
+
+            def _on_protect_toggle(*_a, _t=task, _v=_protect_var):
+                try:
+                    _t["first_shot_protect"] = bool(_v.get())
+                    self.save_rush_groups()
+                    _state = "开启" if _v.get() else "关闭"
+                    self.nm_log("[首发保护] 任务「%s」%s（未完成时%s）" % (
+                        _t.get("name", "")[:16], _state,
+                        "持续抢到窗口期结束" if _v.get() else "遇无资格将切换下一优先级"))
+                except Exception:
+                    pass
+
+            _protect_chk = tk.Checkbutton(
+                row, text="", variable=_protect_var, command=_on_protect_toggle,
+                bg=COLORS["bg_card"], activebackground=COLORS["bg_card"],
+                selectcolor=COLORS["bg_input"], bd=0, highlightthickness=0)
+            # v6.7.23: 勾选框在「首发保护」列居中（sticky="" = 水平垂直居中）
+            # v6.7.23: Tk 的 Checkbutton 指示器（小方块）默认靠控件最左侧，
+            # 即使 sticky="" 让控件本身居中，方块仍偏左。
+            # 实测偏差 13px，padx 从 26 调到 13 使方块精确落在列中心。
+            _protect_chk.grid(row=0, column=7, sticky="", padx=(13, 0))
+            try:
+                ToolTip(_protect_chk,
+                        "首发保护：勾选后，若检测到任务未完成（无资格）仍然继续抢码，"
+                        "不切换到下一个优先级，直到窗口期结束。默认关闭。")
+            except Exception:
+                pass
 
     def _do_query_task_status(self, task):
         """实际执行任务状态查询（在后台线程中调用）"""

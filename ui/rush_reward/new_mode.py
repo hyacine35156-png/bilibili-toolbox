@@ -628,14 +628,14 @@ class NewModeMixin:
         # 创建编辑对话框
         edit_win = tk.Toplevel(self)
         edit_win.title(f"编辑任务 - {task.get('name', '')[:20]}")
-        edit_win.geometry("520x420")
+        edit_win.geometry("560x470")
         edit_win.configure(bg=COLORS["bg_card"])
         edit_win.transient(self)
         edit_win.grab_set()
         # 居中显示
         edit_win.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() - 520) // 2
-        y = self.winfo_y() + (self.winfo_height() - 420) // 2
+        x = self.winfo_x() + (self.winfo_width() - 560) // 2
+        y = self.winfo_y() + (self.winfo_height() - 470) // 2
         edit_win.geometry(f"+{x}+{y}")
 
         # 任务信息显示
@@ -694,6 +694,20 @@ class NewModeMixin:
         tk.Label(row3, text="(风控后自动+1~5ms)", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
                  font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=5)
 
+        # v6.7.23: 首发保护勾选（编辑对话框）
+        row4 = tk.Frame(edit_frame, bg=COLORS["bg_card"])
+        row4.pack(fill=tk.X, pady=10)
+        tk.Label(row4, text="首发保护:", bg=COLORS["bg_card"],
+                 fg=COLORS["text_secondary"], font=("微软雅黑", 10),
+                 width=14, anchor=tk.W).pack(side=tk.LEFT)
+        protect_var = tk.BooleanVar(value=bool(task.get("first_shot_protect", False)))
+        tk.Checkbutton(
+            row4, text="开启（任务未完成时继续抢，直到窗口期结束）",
+            variable=protect_var, bg=COLORS["bg_card"],
+            activebackground=COLORS["bg_card"], selectcolor=COLORS["bg_input"],
+            fg=COLORS["text_primary"], font=("微软雅黑", 10),
+            anchor=tk.W, bd=0, highlightthickness=0
+        ).pack(side=tk.LEFT, padx=5)
         # 按钮区域
         btn_frame = tk.Frame(edit_win, bg=COLORS["bg_card"])
         btn_frame.pack(fill=tk.X, padx=15, pady=15)
@@ -718,6 +732,7 @@ class NewModeMixin:
                     t["window_seconds"] = window_val
                     t["account_name"] = account_var.get()
                     t["base_interval"] = interval_val
+                    t["first_shot_protect"] = bool(protect_var.get())
                     # 同时更新account_id（如果能找到）
                     try:
                         if hasattr(self, 'account_mgr') and self.account_mgr:
@@ -732,7 +747,7 @@ class NewModeMixin:
 
             self.save_rush_groups()
             self.refresh_new_mode_task_list()
-            self.nm_log(f"[编辑] 任务「{task.get('name', '')}」已更新: 窗口期={window_val}秒, 账户={account_var.get()}, 间隔={interval_ms}ms")
+            self.nm_log(f"[编辑] 任务「{task.get('name', '')}」已更新: 窗口期={window_val}秒, 账户={account_var.get()}, 间隔={interval_ms}ms, 首发保护={protect_var.get()}")
             edit_win.destroy()
             # 编辑后重新查询状态
             for t in group.get("tasks", []):
@@ -3254,24 +3269,26 @@ class NewModeMixin:
                     self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 奖励领取已结束，切下一个优先级")
                     break
                 elif "202032" in msg or "无资格领取" in msg or "暂无领取资格" in msg:
-                    # v6.2.2 新增：无资格领取奖励 -> 说明该任务本身没完成，重试毫无意义
-                    #
-                    # 实测教训（2026-10-26 18:00 那次）：
-                    #   任务 status=7（任务未完成），程序没有识别这个码，
-                    #   结果在窗口期内发了 82 次请求，其中 64 次都是 202032，
-                    #   既浪费请求次数、又白白累积风控(-705 x14)，
-                    #   还挡住了后面优先级2/3 的执行机会。
-                    #
-                    # 这类错误是"任务资格问题"，不是"抢的时机问题"，
-                    # 立刻切换到下一个优先级才有意义。
+                    # v6.7.23: 「首发保护」开关（任务级，默认关闭）
+                    #   勾选后：即便检测到任务未完成（202032 无资格），也不放弃，
+                    #          继续抢到窗口期结束（应对任务状态延迟更新的场景）；
+                    #   未勾选：保持 v6.2.2 原行为，立即切下一个优先级。
                     _no_qualify_count = stop_flag.get("no_qualify_count", 0) + 1
                     stop_flag["no_qualify_count"] = _no_qualify_count
-                    self.nm_log(
-                        f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: "
-                        f"⚠ 无资格领取（任务未完成/不满足条件），立即切换下一个优先级")
-                    if attempt >= 2:
-                        self.nm_log(f"     （累计{_no_qualify_count}次无资格，该优先级已放弃）")
-                    break
+
+                    if _first_shot_protect:
+                        self.nm_log(
+                            f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: "
+                            f"⚠ 无资格领取（任务未完成），但【首发保护】已开启，"
+                            f"继续抢码不放弃（累计{_no_qualify_count}次）")
+                        current_interval = max(current_interval, min(base_interval * 1.5, 2.0))
+                    else:
+                        self.nm_log(
+                            f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: "
+                            f"⚠ 无资格领取（任务未完成/不满足条件），立即切换下一个优先级")
+                        if attempt >= 2:
+                            self.nm_log(f"     （累计{_no_qualify_count}次无资格，该优先级已放弃）")
+                        break
                 elif "-705" in msg or "-509" in msg or "-702" in msg or "请求过于频繁" in msg or "请求频率过高" in msg:
                     # 风控，间隔保持基础间隔不变（靠±30ms波动）
                     consecutive_risk_control += 1
