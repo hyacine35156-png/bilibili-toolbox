@@ -3157,7 +3157,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                      ).grid(row=0, column=1, sticky="w")
             # v6.7.22: 任务名过长 -> 省略号 + 悬停看全名 + 点击展开/收起
             _full_name = str(task.get("name", "") or "")
-            _max_chars = 17  # 列宽 326px ≈ 17 汉字，超出用省略号
+            _max_chars = 13  # v6.7.24: 用户要求缩短，留出更多对齐余量
             _exp_key = "_nm_name_exp_" + str(id(task))
             _expanded = bool(getattr(self, _exp_key, False))
             if _expanded or len(_full_name) <= _max_chars:
@@ -3219,34 +3219,44 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             DarkButton(btn_frame, text="×", command=lambda tid=task["task_id"]: self.nm_remove_task(tid),
                        height=24, width=30, bg_color="#c0392b", tip="从当前任务组中移除该任务",
                        text_color="#ffffff", compact=True).pack(side=tk.LEFT, padx=1)
-            # v6.7.23: 首发保护勾选框（第 8 列，默认不勾选）
+            # v6.7.24: 改用醒目的文字符号（原 Checkbutton 小方块颜色太暗且偏左）
             _protect = bool(task.get("first_shot_protect", False))
-            _protect_var = tk.BooleanVar(value=_protect)
 
-            def _on_protect_toggle(*_a, _t=task, _v=_protect_var):
+            def _toggle_protect(_e=None, _t=task, _lbl=None):
+                """切换首发保护状态并刷新显示"""
                 try:
-                    _t["first_shot_protect"] = bool(_v.get())
+                    cur = bool(_t.get("first_shot_protect", False))
+                    new_val = not cur
+                    _t["first_shot_protect"] = new_val
                     self.save_rush_groups()
-                    _state = "开启" if _v.get() else "关闭"
+                    if _lbl is not None:
+                        _lbl.configure(
+                            text=("☑" if new_val else "☐"),
+                            fg=("#2ecc71" if new_val else COLORS["text_muted"]))
+                    _state = "开启" if new_val else "关闭"
                     self.nm_log("[首发保护] 任务「%s」%s（未完成时%s）" % (
                         _t.get("name", "")[:16], _state,
-                        "持续抢到窗口期结束" if _v.get() else "遇无资格将切换下一优先级"))
+                        "持续抢到窗口期结束" if new_val else "遇无资格将切换下一优先级"))
                 except Exception:
                     pass
 
-            _protect_chk = tk.Checkbutton(
-                row, text="", variable=_protect_var, command=_on_protect_toggle,
-                bg=COLORS["bg_card"], activebackground=COLORS["bg_card"],
-                selectcolor=COLORS["bg_input"], bd=0, highlightthickness=0)
-            # v6.7.23: 勾选框在「首发保护」列居中（sticky="" = 水平垂直居中）
-            # v6.7.23: Tk 的 Checkbutton 指示器（小方块）默认靠控件最左侧，
-            # 即使 sticky="" 让控件本身居中，方块仍偏左。
-            # 实测偏差 13px，padx 从 26 调到 13 使方块精确落在列中心。
-            _protect_chk.grid(row=0, column=7, sticky="", padx=(13, 0))
+            _protect_lbl = tk.Label(
+                row,
+                text=("☑" if _protect else "☐"),
+                bg=COLORS["bg_card"],
+                fg=("#2ecc71" if _protect else "#7f8c8d"),
+                font=("微软雅黑", 14, "bold"),
+                cursor="hand2",
+                anchor=tk.CENTER,
+                width=3)
+            _protect_lbl.grid(row=0, column=7, sticky="")
+            _protect_lbl.bind("<Button-1>", lambda e, l=_protect_lbl: _toggle_protect(e, _lbl=l))
             try:
-                ToolTip(_protect_chk,
-                        "首发保护：勾选后，若检测到任务未完成（无资格）仍然继续抢码，"
-                        "不切换到下一个优先级，直到窗口期结束。默认关闭。")
+                ToolTip(_protect_lbl,
+                        "首发保护（点击切换）：\n"
+                        "☑ 开启：任务未完成（无资格）时仍然继续抢码，"
+                        "不切换下一优先级，直到窗口期结束。\n"
+                        "☐ 关闭：遇无资格立即切换下一优先级（默认）")
             except Exception:
                 pass
 
