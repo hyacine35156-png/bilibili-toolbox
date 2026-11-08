@@ -3271,7 +3271,8 @@ class NewModeMixin:
                 elif "202032" in msg or "无资格领取" in msg or "暂无领取资格" in msg:
                     # v6.7.23: 「首发保护」开关（任务级，默认关闭）
                     #   勾选后：即便检测到任务未完成（202032 无资格），也不放弃，
-                    #          继续抢到窗口期结束（应对任务状态延迟更新的场景）；
+                    #          【保持原有基础间隔节奏】一直抢到窗口期结束，
+                    #          不主动放慢（用户明确要求「必须继续抢」）；
                     #   未勾选：保持 v6.2.2 原行为，立即切下一个优先级。
                     _no_qualify_count = stop_flag.get("no_qualify_count", 0) + 1
                     stop_flag["no_qualify_count"] = _no_qualify_count
@@ -3281,7 +3282,6 @@ class NewModeMixin:
                             f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: "
                             f"⚠ 无资格领取（任务未完成），但【首发保护】已开启，"
                             f"继续抢码不放弃（累计{_no_qualify_count}次）")
-                        current_interval = max(current_interval, min(base_interval * 1.5, 2.0))
                     else:
                         self.nm_log(
                             f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: "
