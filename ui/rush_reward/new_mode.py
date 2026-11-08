@@ -3204,6 +3204,9 @@ class NewModeMixin:
         attempt = 0
         success = False
         consecutive_risk_control = 0  # P1-3: 连续风控计数
+        # v6.7.26 修复: 首发保护标志（任务级，默认关闭）
+        # v6.7.23 曾漏加此定义，导致 NameError 抢码中断
+        _first_shot_protect = bool(task.get("first_shot_protect", False))
 
         while time.time() < deadline and not stop_flag["stop"]:
             attempt += 1
