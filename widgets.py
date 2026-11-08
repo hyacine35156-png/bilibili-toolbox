@@ -348,7 +348,7 @@ def _pick_bg(widget):
 # ========== 自定义美观组件 ==========
 class ToolTip:
     """简单的鼠标悬停提示框"""
-    def __init__(self, widget, text, delay=500):
+    def __init__(self, widget, text, delay=200):
         self.widget = widget
         self.text = text
         self.delay = delay
@@ -375,9 +375,11 @@ class ToolTip:
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
         tw.attributes("-topmost", True)
+        # v6.7.28: 加大字号与对比度，用户反映看不清
         tk.Label(tw, text=self.text, justify=tk.LEFT,
-                 background="#ffffe0", relief=tk.SOLID, borderwidth=1,
-                 font=("微软雅黑", 9), wraplength=300).pack(ipadx=5, ipady=3)
+                 background="#ffffcc", foreground="#1a1a1a",
+                 relief=tk.SOLID, borderwidth=2,
+                 font=("微软雅黑", 10), wraplength=420).pack(ipadx=8, ipady=6)
 
     def _hide_tip(self):
         if self.tip_window:

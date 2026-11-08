@@ -1584,7 +1584,8 @@ class DanmakuApp:
         toc_card.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
         toc_card.pack_propagate(False)
         # v6.6.5: 目录加宽 250->360，并加横向滚动条防条目截断
-        toc_card.configure(width=360)
+        # v6.7.28: 三栏布局，目录 360->290 给名词解释腾空间
+        toc_card.configure(width=290)
 
         tk.Label(toc_card, text="目录", bg=COLORS["bg_card"], fg=COLORS["accent"],
                  font=theme.font(12, bold=True)).pack(anchor=tk.W, padx=14, pady=(12, 6))
@@ -1608,6 +1609,40 @@ class DanmakuApp:
         toc_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         toc_hsb.config(command=toc_list.xview)
         toc_hsb.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 6))
+
+        # ---------- 中间：名词解释（v6.7.28 与目录并列，不再塞进正文）----------
+        term_card = tk.Frame(body, bg=COLORS["bg_card"], bd=0,
+                             highlightthickness=1, highlightbackground=COLORS["border"])
+        term_card.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
+        term_card.pack_propagate(False)
+        term_card.configure(width=430)
+
+        tk.Label(term_card, text="📚 名词解释", bg=COLORS["bg_card"],
+                 fg=COLORS["accent"], font=theme.font(12, bold=True)
+                 ).pack(anchor=tk.W, padx=14, pady=(12, 2))
+        tk.Label(term_card, text="（抢码/账户/看播等术语）", bg=COLORS["bg_card"],
+                 fg=COLORS["text_muted"], font=theme.font(8)
+                 ).pack(anchor=tk.W, padx=14, pady=(0, 6))
+
+        term_frame = tk.Frame(term_card, bg=COLORS["bg_card"])
+        term_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+
+        term_scroll = tk.Scrollbar(term_frame, orient=tk.VERTICAL)
+        term_text = tk.Text(term_frame, bg=COLORS["bg_input"],
+                            fg=COLORS["text_primary"], font=theme.font(10),
+                            bd=0, highlightthickness=0, wrap=tk.WORD,
+                            padx=12, pady=10, yscrollcommand=term_scroll.set,
+                            cursor="arrow")
+        term_scroll.config(command=term_text.yview)
+        term_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        term_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # 填充术语表内容
+        try:
+            _fill_term_panel(term_text)
+        except Exception as e:
+            term_text.insert(tk.END, "名词解释加载失败: %s" % e)
+        term_text.config(state=tk.DISABLED)
 
         # ---------- 右侧：内容 ----------
         card = tk.Frame(body, bg=COLORS["bg_card"], bd=0,
@@ -3591,6 +3626,49 @@ def _cleanup_stale_mei_dirs():
     except Exception:
         pass
     return freed
+
+
+
+
+def _fill_term_panel(text_widget):
+    """v6.7.28: 把 TERM_GLOSSARY 填充到使用说明页的「名词解释」栏。
+
+    与目录并列展示，不混入正文；按三组分类渲染。
+    """
+    import config as _cfg
+    gloss = getattr(_cfg, "TERM_GLOSSARY", {}) or {}
+    if not gloss:
+        text_widget.insert(tk.END, "暂无名词解释数据")
+        return
+    groups = [
+        ("抢码相关", ["目标时间", "窗口期", "基础间隔", "提前量", "RTT", "NTP",
+                      "预热", "首发保护", "精准抢码", "旧模式", "风控",
+                      "任务组", "优先级", "毫秒"]),
+        ("任务与账户", ["task_id", "act_id", "SESSDATA", "bili_jct",
+                        "卡片/兑换码", "兑换码"]),
+        ("其他功能", ["看播", "心跳", "弹幕", "方案/预案", "数据自愈",
+                      "备份快照", "卡密", "设备码/机器码"]),
+    ]
+    text_widget.tag_configure("term_title",
+                              font=theme.font(10, bold=True),
+                              foreground=COLORS["accent"],
+                              spacing1=8, spacing3=3)
+    text_widget.tag_configure("term_name",
+                              font=theme.font(9, bold=True),
+                              foreground="#58a6ff",
+                              spacing1=6)
+    text_widget.tag_configure("term_desc",
+                              font=theme.font(9),
+                              foreground=COLORS["text_secondary"],
+                              lmargin1=10, lmargin2=10, spacing1=1, spacing3=4)
+    for title, terms in groups:
+        text_widget.insert(tk.END, "【%s】\n" % title, "term_title")
+        for t in terms:
+            desc = gloss.get(t)
+            if not desc:
+                continue
+            text_widget.insert(tk.END, "· %s\n" % t, "term_name")
+            text_widget.insert(tk.END, "%s\n" % desc, "term_desc")
 
 
 if __name__ == "__main__":
