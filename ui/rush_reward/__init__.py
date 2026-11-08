@@ -37,6 +37,16 @@ NM_TASK_COLUMNS = [
 ]
 NM_TASK_CELL_PAD = 8   # 留白已包含在列宽中，不再用 grid padx（会撑宽列）
 
+def _term_tip(term):
+    """v6.7.27: 返回术语解释的 ToolTip 文本。"""
+    try:
+        from config import term_tip
+        return term_tip(term)
+    except Exception:
+        return str(term or "")
+
+
+
 
 class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
     """抢码页面。逻辑分布在：
@@ -2735,21 +2745,43 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         # 第三行：窗口期+基础间隔+添加按钮
         row3 = tk.Frame(add_inner, bg=COLORS["bg_card"])
         row3.pack(fill=tk.X, pady=3)
-        tk.Label(row3, text="窗口期", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        # v6.7.27: 窗口期名词悬停解释
+        _win_lbl = tk.Label(row3, text="窗口期", bg=COLORS["bg_card"],
+                            fg=COLORS["text_secondary"], font=("微软雅黑", 11),
+                            cursor="hand2")
+        _win_lbl.pack(side=tk.LEFT)
+        try:
+            ToolTip(_win_lbl, _term_tip("窗口期"))
+        except Exception:
+            pass
         self.nm_window_var = tk.StringVar(value="15")
         self.nm_window_entry = DarkEntry(row3, width=5)
         self.nm_window_entry.insert(0, "15")
         self.nm_window_entry.pack(side=tk.LEFT, padx=(8, 4))
+        try:
+            ToolTip(self.nm_window_entry, _term_tip("窗口期"))
+        except Exception:
+            pass
         tk.Label(row3, text="秒", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
                  font=("微软雅黑", 11)).pack(side=tk.LEFT, padx=(0, 15))
 
-        tk.Label(row3, text="基础间隔", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        # v6.7.27: 基础间隔名词悬停解释
+        _iv_lbl = tk.Label(row3, text="基础间隔", bg=COLORS["bg_card"],
+                           fg=COLORS["text_secondary"], font=("微软雅黑", 11),
+                           cursor="hand2")
+        _iv_lbl.pack(side=tk.LEFT)
+        try:
+            ToolTip(_iv_lbl, _term_tip("基础间隔"))
+        except Exception:
+            pass
         self.nm_base_interval_var = tk.StringVar(value="900")
         self.nm_base_interval_entry = DarkEntry(row3, width=6)
         self.nm_base_interval_entry.insert(0, "900")
         self.nm_base_interval_entry.pack(side=tk.LEFT, padx=(8, 4))
+        try:
+            ToolTip(self.nm_base_interval_entry, _term_tip("基础间隔"))
+        except Exception:
+            pass
         tk.Label(row3, text="ms（风控后自动+20~40ms，上限1000ms）", bg=COLORS["bg_card"],
                  fg=COLORS["text_muted"], font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=(0, 15))
 
@@ -2795,11 +2827,18 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             list_header.grid_columnconfigure(col_idx, minsize=px, weight=0)
             # v6.7.23: 「首发保护」列表头居中（勾选框也在该列居中）
             _is_protect_col = (text == "首发保护")
-            tk.Label(list_header, text=text, bg=COLORS["bg_input"], fg=COLORS["text_secondary"],
-                     font=("微软雅黑", 10, "bold"),
-                     anchor=(tk.CENTER if _is_protect_col else tk.W),
-                     ).grid(row=0, column=col_idx,
-                           sticky=("" if _is_protect_col else "w"), pady=5)
+            _hdr_lbl = tk.Label(list_header, text=text, bg=COLORS["bg_input"],
+                                fg=COLORS["text_secondary"],
+                                font=("微软雅黑", 10, "bold"),
+                                anchor=(tk.CENTER if _is_protect_col else tk.W),
+                                cursor=("hand2" if _is_protect_col else ""))
+            _hdr_lbl.grid(row=0, column=col_idx,
+                          sticky=("" if _is_protect_col else "w"), pady=5)
+            if _is_protect_col:
+                try:
+                    ToolTip(_hdr_lbl, _term_tip("首发保护"))
+                except Exception:
+                    pass
 
         # 任务列表容器（可滚动）
         list_container = tk.Frame(list_card, bg=COLORS["bg_card"])
