@@ -576,3 +576,114 @@ def cookies_from_account(acc):
     if acc.get("DedeUserID"):
         cookies["DedeUserID"] = acc["DedeUserID"]
     return cookies
+
+
+# ---------- 直播间状态查询（v6.7.33 新增）----------
+
+# B站直播间信息接口。room_id 传直播间号（真实房间号）。
+LIVE_ROOM_INFO_API = "https://api.live.bilibili.com/room/v1/Room/get_info"
+# 主播信息接口（可取主播名、头像等）
+LIVE_USER_INFO_API = "https://api.live.bilibili.com/live_user/v1/Master/info"
+
+
+def get_live_status(room_id, timeout=8):
+    """查询直播间当前是否在直播。
+
+    v6.7.33 新增。无需登录（游客可查）。
+
+    参数：
+        room_id: 直播间号（真实房间号，整数或字符串均可不带前缀）
+        timeout: 请求超时秒数
+
+    返回 dict：
+        {
+          "ok": True,                      # 请求本身是否成功
+          "live_status": 1,                # 0=未开播 1=直播中 2=轮播
+          "is_living": True,               # 是否正在直播（live_status==1）
+          "status_text": "直播中",          # 中文状态
+          "room_id": 1791983148,
+          "title": "直播间标题",
+          "uid": 12345,                    # 主播 UID
+          "online": 1234,                  # 当前人气值
+          "live_time": "2026-11-09 22:00:00",  # 开播时间（未开播为空）
+          "area_name": "网游",             # 分区
+          "error": "",                     # 失败时的原因
+        }
+    """
+    result = {
+        "ok": False,
+        "live_status": -1,
+        "is_living": False,
+        "status_text": "查询失败",
+        "room_id": 0,
+        "title": "",
+        "uid": 0,
+        "online": 0,
+        "live_time": "",
+        "area_name": "",
+        "error": "",
+    }
+    # 房间号清洗：支持 URL 形式 https://live.bilibili.com/1791983148
+    rid = str(room_id or "").strip()
+    if not rid:
+        result["error"] = "房间号为空"
+        return result
+    if "live.bilibili.com/" in rid:
+        rid = rid.split("live.bilibili.com/")[-1].split("?")[0].split("/")[0]
+    rid = rid.replace(" ", "")
+    try:
+        rid_int = int(rid)
+    except Exception:
+        result["error"] = "房间号格式不对: %s" % rid[:20]
+        return result
+
+    url = LIVE_ROOM_INFO_API
+    params = {"room_id": rid_int}
+    try:
+        resp = requests.get(url, params=params, headers=HEADERS, timeout=timeout)
+        data = resp.json()
+    except Exception as e:
+        result["error"] = "网络异常: %s" % str(e)[:60]
+        return result
+
+    if data.get("code") != 0:
+        result["error"] = "[%s] %s" % (data.get("code"), data.get("message", "接口返回错误"))
+        return result
+
+    info = data.get("data") or {}
+    try:
+        status = int(info.get("live_status", 0))
+    except Exception:
+        status = 0
+    status_map = {0: "未开播", 1: "直播中", 2: "轮播中"}
+    result.update({
+        "ok": True,
+        "live_status": status,
+        "is_living": (status == 1),
+        "status_text": status_map.get(status, "未知状态(%s)" % status),
+        "room_id": int(info.get("room_id") or rid_int),
+        "title": str(info.get("title") or ""),
+        "uid": int(info.get("uid") or 0),
+        "online": int(info.get("online") or 0),
+        "live_time": str(info.get("live_time") or ""),
+        "area_name": str(info.get("area_name") or ""),
+    })
+    return result
+
+
+def get_live_status_batch(room_ids, timeout=8, max_workers=5):
+    """批量查询多个直播间状态（并发，提速）。
+
+    返回列表，顺序与入参一致：[{...get_live_status 结果...}, ...]
+    """
+    ids = list(room_ids or [])
+    if not ids:
+        return []
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(ids))) as ex:
+            return list(ex.map(lambda r: get_live_status(r, timeout), ids))
+    except Exception:
+        # 并发失败则退化为串行
+        return [get_live_status(r, timeout) for r in ids]
+

@@ -732,6 +732,247 @@ class WatchLiveFrame(tk.Frame):
         except Exception:
             pass
 
+    def query_live_status(self):
+        """查询当前选中直播间是否正在直播（v6.7.33 新增）。
+
+        查询对象：页面上所有直播间选择框里已选中的房间。
+        实现：后台线程查询 -> 结果存 self._live_query_result -> 主线程轮询取出展示。
+        这样即使 after(0) 不可用也能正常出结果。
+        """
+        # 1) 收集当前选中的房间
+        targets = []
+        try:
+            for _bar, _combo, _del in getattr(self, "watch_room_bars", []):
+                _nm = str(_combo.get() or "").strip()
+                if not _nm:
+                    continue
+                _rid = None
+                for _r in getattr(self.room_mgr, "rooms", []) or []:
+                    if str(_r.get("name") or "") == _nm:
+                        _rid = _r.get("id")
+                        break
+                if _rid:
+                    targets.append((_nm, str(_rid)))
+        except Exception as e:
+            messagebox.showerror("错误", "收集直播间失败: %s" % str(e)[:60],
+                                 parent=self.winfo_toplevel())
+            return
+
+        if not targets:
+            messagebox.showwarning(
+                "提示",
+                "还没有选择直播间。\n请先在上方「直播间」下拉框中选择，再点「📡 查询开播」。",
+                parent=self.winfo_toplevel())
+            return
+
+        # 2) 防重复点击
+        if getattr(self, "_live_query_running", False):
+            try:
+                self.log("上一次查询还没结束，请稍候...")
+            except Exception:
+                pass
+            return
+        self._live_query_running = True
+        self._live_query_result = None
+
+        try:
+            self.live_status_btn.config(state=tk.DISABLED, text="📡 查询中...")
+        except Exception:
+            pass
+        try:
+            self.log("正在查询 %d 个直播间的开播状态..." % len(targets))
+        except Exception:
+            pass
+
+        def _worker():
+            """后台线程：查询并保存结果，不碰任何控件。"""
+            results = []
+            try:
+                import bili_api
+                for _nm, _rid in targets:
+                    try:
+                        _r = bili_api.get_live_status(_rid)
+                    except Exception as _e:
+                        _r = {
+                            "ok": False, "error": str(_e)[:60],
+                            "status_text": "查询失败", "room_id": _rid,
+                            "is_living": False, "title": "", "online": 0,
+                            "live_time": "", "area_name": "",
+                        }
+                    _r["_name"] = _nm
+                    results.append(_r)
+            except Exception as _e:
+                results.append({
+                    "ok": False, "error": "查询异常: %s" % str(_e)[:50],
+                    "_name": "未知", "is_living": False,
+                    "status_text": "查询失败", "title": "", "online": 0,
+                    "live_time": "", "area_name": "",
+                })
+            finally:
+                self._live_query_result = results
+
+        threading.Thread(target=_worker, daemon=True).start()
+        # 主线程轮询（不依赖 after，用 after 也一样，但轮询更稳）
+        self._live_query_poll(0)
+
+    def _live_query_poll(self, tick):
+        """轮询后台查询结果并展示（v6.7.33）。"""
+        try:
+            res = getattr(self, "_live_query_result", None)
+            if res is None:
+                if tick > 300:  # 约 30 秒超时
+                    self._live_query_running = False
+                    self._live_query_result = None
+                    try:
+                        self.live_status_btn.config(state=tk.NORMAL, text="📡 查询开播")
+                    except Exception:
+                        pass
+                    try:
+                        self.log("查询超时，请检查网络后重试")
+                    except Exception:
+                        pass
+                    return
+                try:
+                    self.after(100, lambda: self._live_query_poll(tick + 1))
+                except Exception:
+                    pass
+                return
+            # 拿到结果
+            self._live_query_running = False
+            self._live_query_result = None
+            try:
+                self.live_status_btn.config(state=tk.NORMAL, text="📡 查询开播")
+            except Exception:
+                pass
+            self._render_live_results(res)
+        except Exception as e:
+            self._live_query_running = False
+            self._live_query_result = None
+            try:
+                self.log("展示查询结果失败: %s" % str(e)[:80])
+            except Exception:
+                pass
+
+    def _render_live_results(self, results):
+        """把查询结果写入日志并弹窗展示（v6.7.33）。"""
+        living = 0
+        for r in results:
+            _nm = r.get("_name", "")
+            if not r.get("ok"):
+                try:
+                    self.log("  ✗ %s: %s" % (_nm, r.get("error", "查询失败")))
+                except Exception:
+                    pass
+                continue
+            if r.get("is_living"):
+                living += 1
+                try:
+                    _lt = (r.get("live_time") or "")
+                    _lt_short = _lt[11:16] if len(_lt) >= 16 and not _lt.startswith("0000") else "未知"
+                    self.log(
+                        "  ● %s: 直播中（%s，人气 %s，开播 %s）"
+                        % (_nm, (r.get("title") or "")[:24], r.get("online", 0), _lt_short))
+                except Exception:
+                    pass
+            else:
+                try:
+                    self.log("  ○ %s: %s" % (_nm, r.get("status_text", "未开播")))
+                except Exception:
+                    pass
+        try:
+            self.log("查询完成：%d 个直播间中 %d 个正在直播" % (len(results), living))
+        except Exception:
+            pass
+
+        # 弹窗
+        try:
+            win = tk.Toplevel(self)
+            win.title("直播间开播状态")
+            win.configure(bg=COLORS["bg_dark"])
+            win.transient(self.winfo_toplevel())
+            win.geometry("640x460")
+            win.update_idletasks()
+            try:
+                _x = self.winfo_toplevel().winfo_x() + 120
+                _y = self.winfo_toplevel().winfo_y() + 100
+                win.geometry("+%d+%d" % (_x, _y))
+            except Exception:
+                pass
+
+            _head = tk.Frame(win, bg=COLORS["bg_card"])
+            _head.pack(fill=tk.X)
+            tk.Label(
+                _head,
+                text="📡 直播状态   共 %d 个，%d 个正在直播" % (len(results), living),
+                bg=COLORS["bg_card"],
+                fg=(COLORS["success"] if living else COLORS["text_secondary"]),
+                font=("微软雅黑", 12, "bold"),
+            ).pack(anchor=tk.W, padx=16, pady=(12, 8))
+
+            _body = tk.Frame(win, bg=COLORS["bg_dark"])
+            _body.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 8))
+            _sb = tk.Scrollbar(_body)
+            _sb.pack(side=tk.RIGHT, fill=tk.Y)
+            _txt = tk.Text(_body, bg=COLORS["bg_input"],
+                           fg=COLORS["text_primary"],
+                           font=("微软雅黑", 10), bd=0, highlightthickness=0,
+                           wrap=tk.WORD, padx=16, pady=12,
+                           yscrollcommand=_sb.set)
+            _sb.config(command=_txt.yview)
+            _txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+            _txt.tag_configure("living", foreground="#2ecc71",
+                               font=("微软雅黑", 11, "bold"))
+            _txt.tag_configure("offline", foreground=COLORS["text_muted"],
+                               font=("微软雅黑", 11, "bold"))
+            _txt.tag_configure("fail", foreground="#e74c3c",
+                               font=("微软雅黑", 11, "bold"))
+            _txt.tag_configure("name", foreground=COLORS["text_primary"],
+                               font=("微软雅黑", 10, "bold"))
+            _txt.tag_configure("detail", foreground=COLORS["text_secondary"],
+                               font=("微软雅黑", 9))
+
+            for r in results:
+                _nm = r.get("_name", "")
+                if not r.get("ok"):
+                    _txt.insert(tk.END, "✗ ", "fail")
+                    _txt.insert(tk.END, "%s\n" % _nm, "name")
+                    _txt.insert(tk.END, "    %s\n\n" % r.get("error", "查询失败"), "detail")
+                    continue
+                if r.get("is_living"):
+                    _txt.insert(tk.END, "● 直播中  ", "living")
+                else:
+                    _txt.insert(tk.END, "○ %s  " % r.get("status_text", ""), "offline")
+                _txt.insert(tk.END, "%s\n" % _nm, "name")
+                _d = []
+                if r.get("title"):
+                    _d.append("标题: " + str(r["title"])[:40])
+                if r.get("area_name"):
+                    _d.append("分区: " + str(r["area_name"]))
+                if r.get("is_living"):
+                    _d.append("人气: %s" % r.get("online", 0))
+                    _lt = str(r.get("live_time") or "").strip()
+                    if _lt and not _lt.startswith("0000"):
+                        _d.append("开播: " + _lt)
+                if _d:
+                    _txt.insert(tk.END, "    " + " | ".join(_d) + "\n\n", "detail")
+                else:
+                    _txt.insert(tk.END, "\n")
+            _txt.config(state=tk.DISABLED)
+
+            _foot = tk.Frame(win, bg=COLORS["bg_card"])
+            _foot.pack(fill=tk.X)
+            DarkButton(
+                _foot, text="关闭", command=win.destroy,
+                height=34, width=100, bg_color=COLORS["bg_input"],
+                text_color=COLORS["text_primary"],
+            ).pack(side=tk.RIGHT, padx=16, pady=10)
+        except Exception as e:
+            try:
+                self.log("弹窗展示失败: %s" % str(e)[:80])
+            except Exception:
+                pass
+
     def _refresh_room_combo_values(self):
         """刷新所有直播间栏的下拉框选项"""
         values = [room["name"] for room in self.room_mgr.rooms]
@@ -959,14 +1200,50 @@ class WatchLiveFrame(tk.Frame):
                         self._remove_watch_room_bar(_bar0)
                     while len(self.watch_room_bars) < len(rooms):
                         self._add_watch_room_bar()
-                    for idx, rid in enumerate(rooms):
-                        if idx >= len(self.watch_room_bars):
-                            break
-                        try:
-                            self.watch_room_bars[idx][1].set(str(rid))
-                        except Exception:
-                            pass
+                    # v6.7.33 修复：方案存的是 room_id，但下拉框显示的是 room_name。
+                    # 原实现直接 set(id) 会导致不在候选值里 -> 被清空 -> 直播间为空。
+                    # 这里先把 id 转成对应房间名，再 set 到下拉框。
+                    def _id_to_name(_rid):
+                        """把房间号转成下拉框里显示的房间名。"""
+                        _rid = str(_rid).strip()
+                        # 1) 按 id 精确匹配
+                        for _r in getattr(self.room_mgr, "rooms", []) or []:
+                            if str(_r.get("id", "")) == _rid:
+                                return str(_r.get("name", ""))
+                        # 2) 已经是房间名（旧数据）直接用
+                        _names = [str(_r.get("name", ""))
+                                  for _r in getattr(self.room_mgr, "rooms", []) or []]
+                        if _rid in _names:
+                            return _rid
+                        return ""
+
+                    _resolved = []
+                    for _rid in rooms:
+                        _nm = _id_to_name(_rid)
+                        if _nm:
+                            _resolved.append(_nm)
+                    # 确保栏数量够
+                    while len(self.watch_room_bars) < len(_resolved):
+                        self._add_watch_room_bar()
+                    for idx in range(len(self.watch_room_bars)):
+                        if idx < len(_resolved):
+                            try:
+                                self.watch_room_bars[idx][1].set(_resolved[idx])
+                            except Exception:
+                                pass
+                        else:
+                            try:
+                                self.watch_room_bars[idx][1].set("")
+                            except Exception:
+                                pass
                     self._refresh_room_combo_values()
+                    # _refresh 会把不在候选值里的项清空，故 set 后重新确认一次
+                    for idx in range(len(self.watch_room_bars)):
+                        if idx < len(_resolved):
+                            try:
+                                self.watch_room_bars[idx][1].set(_resolved[idx])
+                            except Exception:
+                                pass
                 except Exception as e:
                     return False, "直播间设置失败: %s" % str(e)[:60]
 
@@ -1224,7 +1501,13 @@ class WatchLiveFrame(tk.Frame):
         self.add_room_bar_btn.pack(side=tk.LEFT, padx=(8, 4))
         # 刷新直播间下拉框按钮
         self.refresh_room_btn = DarkButton(row1, text="↻ 刷新", command=self._refresh_room_combo_values, bg_color=COLORS["bg_input"], text_color=COLORS["text_primary"], height=32)
-        self.refresh_room_btn.pack(side=tk.LEFT, padx=(0, 20))
+        self.refresh_room_btn.pack(side=tk.LEFT, padx=(0, 4))
+        # v6.7.33: 查询直播间是否正在直播
+        self.live_status_btn = DarkButton(
+            row1, text="📡 查询开播", command=self.query_live_status,
+            bg_color="#8e44ad", text_color="#ffffff", height=32,
+            tip="查询当前选中直播间是否正在直播。会显示直播中/未开播、直播间标题、人气值和开播时间。")
+        self.live_status_btn.pack(side=tk.LEFT, padx=(0, 20))
         tk.Label(row1, text="每日时长(分):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
         self.duration_var = tk.IntVar(value=10)
         # v6.2.0: 新增 3 分钟选项（用户需求）
