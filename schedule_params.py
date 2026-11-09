@@ -20,7 +20,7 @@ TEMPLATES_FILE = BASE_DIR / "schedule_templates.json"
 # 各任务类型的参数定义（用于 UI 动态渲染 + 校验）
 TASK_PARAM_SPEC = {
     "watch": {
-        "label": "看播参数",
+        "label": "看播参数（含送礼）",
         "icon": "📺",
         "fields": [
             {"key": "accounts", "label": "观看账户", "type": "accounts", "default": []},
@@ -29,6 +29,17 @@ TASK_PARAM_SPEC = {
              "default": 3, "min": 1, "max": 1440},
             {"key": "heartbeat_interval", "label": "心跳间隔(秒)", "type": "int",
              "default": 60, "min": 10, "max": 600},
+            # v6.7.32: 送礼参数（方案全量保存/还原）
+            {"key": "gift_account", "label": "送礼账户", "type": "account",
+             "default": ""},
+            {"key": "gift_room", "label": "送礼直播间", "type": "room",
+             "default": ""},
+            {"key": "gift_num", "label": "礼物数量", "type": "choice",
+             "choices": [(1, "1 个"), (10, "10 个")], "default": 1},
+            {"key": "gift_interval", "label": "送礼间隔(秒)", "type": "int",
+             "default": 10, "min": 1, "max": 3600},
+            {"key": "gift_count", "label": "送礼次数(0=不送)", "type": "int",
+             "default": 0, "min": 0, "max": 9999},
         ],
     },
     "danmaku": {

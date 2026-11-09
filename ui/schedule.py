@@ -854,11 +854,17 @@ class ScheduleFrame(tk.Frame):
                                            parent=self.winfo_toplevel())
                     self._refresh_template_combo(self.task_type_var.get())
                     return
+                # v6.7.32: 方案已含送礼全参数，一并载入
                 params = {
                     "accounts": list(preset.get("accounts") or []),
                     "rooms": [str(r) for r in (preset.get("rooms") or [])],
                     "duration_minutes": int(preset.get("duration_minutes") or 10),
                     "heartbeat_interval": int(preset.get("heartbeat_interval") or 60),
+                    "gift_account": str(preset.get("gift_account") or ""),
+                    "gift_room": str(preset.get("gift_room") or ""),
+                    "gift_num": int(preset.get("gift_num") or 1),
+                    "gift_interval": int(preset.get("gift_interval") or 10),
+                    "gift_count": int(preset.get("gift_count") or 0),
                 }
                 self.task_type_var.set("watch")
                 self._select_type_card("watch")
@@ -1660,6 +1666,37 @@ class ScheduleFrame(tk.Frame):
                     wp.interval_var.set(int(hb))
                 except Exception:
                     pass
+
+            # 5) 送礼参数（v6.7.32 新增）
+            try:
+                _ga = str(params.get("gift_account") or "")
+                if _ga:
+                    _vals = list(wp.gift_account_combo.cget("values") or [])
+                    if _ga in _vals:
+                        wp.gift_account_combo.set(_ga)
+            except Exception:
+                pass
+            try:
+                _gr = str(params.get("gift_room") or "")
+                if _gr:
+                    _vals = list(wp.gift_room_combo.cget("values") or [])
+                    if _gr in _vals:
+                        wp.gift_room_combo.set(_gr)
+            except Exception:
+                pass
+            for _attr, _key in [("gift_num_var", "gift_num"),
+                                ("gift_interval_var", "gift_interval"),
+                                ("gift_count_var", "gift_count")]:
+                try:
+                    _v = params.get(_key)
+                    if _v is not None:
+                        getattr(wp, _attr).set(int(_v))
+                except Exception:
+                    pass
+            try:
+                wp.save_gift_config()
+            except Exception:
+                pass
 
             self.log("  已注入参数: %d账户 / %d房间 / %s分钟 / %s秒心跳"
                      % (len(accounts), len(rooms), duration, hb))

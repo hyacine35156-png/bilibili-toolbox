@@ -855,15 +855,20 @@ class WatchLiveFrame(tk.Frame):
             pass
 
     def _current_watch_selection(self):
-        """收集当前页面选择：账户/直播间/时长/心跳间隔。"""
+        """收集当前页面全部设置（v6.7.32 扩展为 9 项）。
+
+        返回 dict，键与 watch_presets.make_preset 的参数一致。
+        """
+        accs = []
         try:
             accs = [name for name, var in self.account_vars.items() if var.get()]
         except Exception:
-            accs = []
+            pass
+        rooms = []
         try:
             rooms = self._get_watch_room_ids()
         except Exception:
-            rooms = []
+            pass
         try:
             dur = int(self.duration_var.get())
         except Exception:
@@ -872,7 +877,39 @@ class WatchLiveFrame(tk.Frame):
             hb = int(self.interval_var.get())
         except Exception:
             hb = 60
-        return accs, rooms, dur, hb
+        gift_account = ""
+        try:
+            gift_account = str(self.gift_account_combo.get() or "")
+        except Exception:
+            pass
+        gift_room = ""
+        try:
+            gift_room = str(self.gift_room_combo.get() or "")
+        except Exception:
+            pass
+        try:
+            gift_num = int(self.gift_num_var.get())
+        except Exception:
+            gift_num = 1
+        try:
+            gift_interval = int(self.gift_interval_var.get())
+        except Exception:
+            gift_interval = 10
+        try:
+            gift_count = int(self.gift_count_var.get())
+        except Exception:
+            gift_count = 0
+        return {
+            "accounts": accs,
+            "rooms": rooms,
+            "duration_minutes": dur,
+            "heartbeat_interval": hb,
+            "gift_account": gift_account,
+            "gift_room": gift_room,
+            "gift_num": gift_num,
+            "gift_interval": gift_interval,
+            "gift_count": gift_count,
+        }
 
     def _on_watch_preset_selected(self):
         """选到方案时，在提示里展示摘要。"""
@@ -896,7 +933,7 @@ class WatchLiveFrame(tk.Frame):
         return None
 
     def _apply_watch_preset(self, preset):
-        """把方案套用到当前 UI。返回 (成功, 消息)。"""
+        """把方案的全部参数套用到当前 UI（v6.7.32 扩展）。返回 (成功, 消息)。"""
         if not preset:
             return False, "方案不存在"
         try:
@@ -915,17 +952,13 @@ class WatchLiveFrame(tk.Frame):
                     pass
 
             # 2) 直播间：按方案重建选择栏
-            # 注意：_add_watch_room_bar() 无返回值，需从 self.watch_room_bars 取
             if rooms:
                 try:
-                    # 保留第一个栏，删除其余（_remove 拒绝删除最后一栏）
                     while len(self.watch_room_bars) > 1:
                         _bar0 = self.watch_room_bars[-1][0]
                         self._remove_watch_room_bar(_bar0)
-                    # 确保正好 len(rooms) 个栏
                     while len(self.watch_room_bars) < len(rooms):
                         self._add_watch_room_bar()
-                    # 逐个填入房间号
                     for idx, rid in enumerate(rooms):
                         if idx >= len(self.watch_room_bars):
                             break
@@ -937,7 +970,7 @@ class WatchLiveFrame(tk.Frame):
                 except Exception as e:
                     return False, "直播间设置失败: %s" % str(e)[:60]
 
-            # 3) 时长/心跳
+            # 3) 时长 / 心跳
             try:
                 self.duration_var.set(dur)
             except Exception:
@@ -947,9 +980,49 @@ class WatchLiveFrame(tk.Frame):
             except Exception:
                 pass
 
-            msg = "已应用方案「%s」：%d账户 / %d房间 / %d分钟" % (
+            # 4) 送礼设置（v6.7.32 新增还原）
+            _gift_applied = []
+            try:
+                _ga = str(preset.get("gift_account") or "")
+                if _ga:
+                    _vals = list(self.gift_account_combo.cget("values") or [])
+                    if _ga in _vals:
+                        self.gift_account_combo.set(_ga)
+                        _gift_applied.append("账户=" + _ga)
+            except Exception:
+                pass
+            try:
+                _gr = str(preset.get("gift_room") or "")
+                if _gr:
+                    _vals = list(self.gift_room_combo.cget("values") or [])
+                    if _gr in _vals:
+                        self.gift_room_combo.set(_gr)
+                        _gift_applied.append("直播间=" + _gr)
+            except Exception:
+                pass
+            for _var, _key, _label in [
+                ("gift_num_var", "gift_num", "数量"),
+                ("gift_interval_var", "gift_interval", "间隔"),
+                ("gift_count_var", "gift_count", "次数"),
+            ]:
+                try:
+                    _v = preset.get(_key)
+                    if _v is not None:
+                        getattr(self, _var).set(int(_v))
+                        _gift_applied.append("%s=%s" % (_label, _v))
+                except Exception:
+                    pass
+            # 送礼参数变化后保存送礼配置
+            try:
+                self.save_gift_config()
+            except Exception:
+                pass
+
+            msg = "已应用方案「%s」：%d账户 / %d房间 / %d分钟 / 心跳%d秒" % (
                 preset.get("name", ""), len(accs) - len(missing_acc),
-                len(rooms), dur)
+                len(rooms), dur, hb)
+            if _gift_applied:
+                msg += " / 送礼 " + ", ".join(_gift_applied)
             if missing_acc:
                 msg += "（跳过已不存在的账户: %s）" % ", ".join(missing_acc)
             return True, msg
@@ -979,7 +1052,7 @@ class WatchLiveFrame(tk.Frame):
             win.configure(bg=COLORS["bg_dark"])
             win.transient(self.winfo_toplevel())
             win.grab_set()
-            win.geometry("420x220")
+            win.geometry("460x280")
             body = tk.Frame(win, bg=COLORS["bg_card"])
             body.pack(fill=tk.BOTH, expand=True, padx=16, pady=16)
             tk.Label(body, text="方案名称:", bg=COLORS["bg_card"],
@@ -989,10 +1062,18 @@ class WatchLiveFrame(tk.Frame):
             ent = tk.Entry(body, textvariable=name_var, font=("微软雅黑", 11))
             ent.pack(fill=tk.X, pady=(4, 10))
             ent.focus_set()
-            accs, rooms, dur, hb = self._current_watch_selection()
-            tk.Label(body,
-                     text=("将保存: %d账户 / %d房间 / %d分钟 / 心跳%d秒"
-                           % (len(accs), len(rooms), dur, hb)),
+            _sel = self._current_watch_selection()
+            accs = _sel["accounts"]
+            rooms = _sel["rooms"]
+            dur = _sel["duration_minutes"]
+            hb = _sel["heartbeat_interval"]
+            _gifts = int(_sel.get("gift_count") or 0)
+            _summary = ("将保存: %d账户 / %d房间 / %d分钟 / 心跳%d秒"
+                        % (len(accs), len(rooms), dur, hb))
+            if _gifts > 0:
+                _summary += " / 送礼%d次(间隔%d秒)" % (
+                    _gifts, int(_sel.get("gift_interval") or 0))
+            tk.Label(body, text=_summary,
                      bg=COLORS["bg_card"], fg=COLORS["text_muted"],
                      font=("微软雅黑", 9)).pack(fill=tk.X)
             btns = tk.Frame(body, bg=COLORS["bg_card"])
@@ -1009,7 +1090,15 @@ class WatchLiveFrame(tk.Frame):
                 if not accs:
                     messagebox.showwarning("提示", "还没有勾选账户", parent=win)
                     return
-                p = watch_presets.make_preset(nm, accs, rooms, dur, hb)
+                p = watch_presets.make_preset(
+                    nm, _sel["accounts"], _sel["rooms"],
+                    _sel["duration_minutes"], _sel["heartbeat_interval"],
+                    gift_account=_sel.get("gift_account", ""),
+                    gift_room=_sel.get("gift_room", ""),
+                    gift_num=_sel.get("gift_num", 1),
+                    gift_interval=_sel.get("gift_interval", 10),
+                    gift_count=_sel.get("gift_count", 0),
+                )
                 presets = watch_presets.load_presets()
                 new_list, replaced = watch_presets.upsert_preset(presets, p)
                 ok = watch_presets.save_presets(new_list)

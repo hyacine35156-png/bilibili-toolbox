@@ -689,22 +689,22 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         left_frame = tk.Frame(btn_row, bg=COLORS["bg_card"])
         left_frame.pack(side=tk.LEFT)
         self.query_btn = DarkButton(left_frame, "🔍 查询状态", command=self.query_status,
-                                     width=160, height=44, bg_color="#444466", text_color="#ffffff")
+                                     width=160, height=44, bg_color="#444466", text_color="#ffffff", tip="查询当前任务的三项状态：库存是否充足、本账号是否有领取资格、任务是否已完成。结果会显示在按钮上方的状态标签里。")
         self.query_btn.pack(side=tk.LEFT)
         self.manual_receive_btn = DarkButton(left_frame, "🎯 手动领取", command=self.manual_receive,
-                                              width=160, height=44, bg_color="#ff6b35", text_color="#ffffff")
+                                              width=160, height=44, bg_color="#ff6b35", text_color="#ffffff", tip="立即手动发起一次领取请求（只试一次，不循环）。适合想亲手确认一次的场景。建议先点「查询状态」确认有资格。")
         self.manual_receive_btn.pack(side=tk.LEFT, padx=(8, 0))
         self.start_receive_now_btn = DarkButton(left_frame, "🚀 开始领取", command=self.start_receive_now,
-                                                 width=160, height=44, bg_color="#e74c3c", text_color="#ffffff")
+                                                 width=160, height=44, bg_color="#e74c3c", text_color="#ffffff", tip="按「领取时长」和「间隔模式」持续循环抢领，抢到立即停止，时长用完也停止。这是自动点击抢码的核心按钮。")
         self.start_receive_now_btn.pack(side=tk.LEFT, padx=(8, 0))
         self.schedule_receive_btn = DarkButton(left_frame, "⏰ 定时领取", command=self.schedule_receive,
-                                                width=160, height=44, bg_color="#9b59b6", text_color="#ffffff")
+                                                width=160, height=44, bg_color="#9b59b6", text_color="#ffffff", tip="把当前设置加入下方的「定时任务列表」，到「定时时间」自动开始领取。可添加多个定时任务，多线程独立运行。")
         self.schedule_receive_btn.pack(side=tk.LEFT, padx=(8, 0))
         self.start_rush_btn = DarkButton(left_frame, "▶ 开始监控", command=self.start_rush,
-                                          width=160, height=44, bg_color=COLORS["success"], text_color="#ffffff")
+                                          width=160, height=44, bg_color=COLORS["success"], text_color="#ffffff", tip="按「查询间隔」持续轮询任务状态，一旦变成「可领取」就自动领取。适合不知道确切发放时间、需要长时间蹲守的场景。")
         self.start_rush_btn.pack(side=tk.LEFT, padx=(8, 0))
         self.stop_rush_btn = DarkButton(left_frame, "■ 停止", command=self.stop_rush,
-                                         width=160, height=42, bg_color=COLORS["danger"], text_color="#ffffff")
+                                         width=160, height=42, bg_color=COLORS["danger"], text_color="#ffffff", tip="停止当前正在进行的监控或领取循环。已经领到的奖励不会退回。")
         self.stop_rush_btn.pack(side=tk.LEFT, padx=(8, 0))
         self.stop_rush_btn.set_state("disabled")
         # 右侧按钮组（查询全部完成、查询可领取、一键全部领取）
