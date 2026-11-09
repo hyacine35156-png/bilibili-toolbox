@@ -1113,7 +1113,7 @@ class DanmakuApp:
         self.rush_new_mode_var = tk.BooleanVar(value=bool(_rush_new_first))
         tk.Checkbutton(
             body4,
-            text="抢码页默认显示「✨ 新模式·精准抢码」（关闭则旧模式在前）",
+            text="抢码页默认显示「🎯 精准抢码」（关闭则自动点击抢码在前）",
             variable=self.rush_new_mode_var,
             command=self.on_toggle_rush_default_mode,
             bg=COLORS["bg_card"], fg=COLORS["text_primary"],
@@ -1130,7 +1130,7 @@ class DanmakuApp:
         self.rush_show_tools_var = tk.BooleanVar(value=bool(_show_tools))
         tk.Checkbutton(
             body4,
-            text="新模式显示「📈 详细仪表盘」与「🔍 任务查询中心」按钮",
+            text="精准抢码显示「📈 详细仪表盘」与「🔍 任务查询中心」按钮",
             variable=self.rush_show_tools_var,
             command=self.on_toggle_rush_show_tools,
             bg=COLORS["bg_card"], fg=COLORS["text_primary"],
@@ -1515,9 +1515,9 @@ class DanmakuApp:
             val = bool(self.rush_show_tools_var.get())
             _appset.set_setting("rush_new_mode_show_tools", val)
             if val:
-                self.log("⚙ 已开启：新模式显示仪表盘/查询中心按钮")
+                self.log("⚙ 已开启：精准抢码显示仪表盘/查询中心按钮")
             else:
-                self.log("⚙ 已关闭：新模式不显示仪表盘/查询中心按钮")
+                self.log("⚙ 已关闭：精准抢码不显示仪表盘/查询中心按钮")
             # 立即刷新新模式界面（若已构建）
             try:
                 rp = getattr(self, "rush_page", None)
@@ -1539,9 +1539,9 @@ class DanmakuApp:
             val = bool(self.rush_new_mode_var.get())
             _appset.set_setting("rush_new_mode_first", val)
             if val:
-                self.log("⚙ 已设置：抢码页默认显示「✨ 新模式·精准抢码」")
+                self.log("⚙ 已设置：抢码页默认显示「🎯 精准抢码」")
             else:
-                self.log("⚙ 已设置：抢码页默认显示「旧模式」")
+                self.log("⚙ 已设置：抢码页默认显示「自动点击抢码」")
             self.log("   下次启动程序或重新进入抢码页时生效")
         except Exception as e:
             try:

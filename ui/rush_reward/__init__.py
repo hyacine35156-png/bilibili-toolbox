@@ -43,7 +43,7 @@ def _term_tip(term):
         from config import term_tip
         return term_tip(term)
     except Exception:
-        return str(term or "")
+        return ""
 
 
 
@@ -160,7 +160,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 return
             self.switch_rush_mode("new")
             try:
-                self.log("⚙ 已按全局设置默认显示「✨ 新模式·精准抢码」")
+                self.log("⚙ 已按全局设置默认显示「🎯 精准抢码」")
             except Exception:
                 pass
         except Exception as e:
@@ -442,14 +442,14 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         _off_font = ("微软雅黑", 11)
 
         self.old_mode_btn = tk.Label(
-            mode_bar, text="  旧模式  ",
+            mode_bar, text="  自动点击抢码  ",
             bg=(_off_bg if _new_first else _on_bg),
             fg=(_off_fg if _new_first else _on_fg),
             font=(_off_font if _new_first else _on_font),
             padx=20, pady=6, cursor="hand2")
 
         self.new_mode_btn = tk.Label(
-            mode_bar, text="  ✨ 新模式·精准抢码  ",
+            mode_bar, text="  🎯 精准抢码  ",
             bg=(_on_bg if _new_first else _off_bg),
             fg=(_on_fg if _new_first else _off_fg),
             font=(_on_font if _new_first else _off_font),
@@ -465,6 +465,15 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
 
         self.old_mode_btn.bind("<Button-1>", lambda e: self.switch_rush_mode("old"))
         self.new_mode_btn.bind("<Button-1>", lambda e: self.switch_rush_mode("new"))
+        # v6.7.30: 两个模式按钮加名词解释悬停提示
+        try:
+            ToolTip(self.old_mode_btn, _term_tip("自动点击抢码"))
+        except Exception:
+            pass
+        try:
+            ToolTip(self.new_mode_btn, _term_tip("精准抢码"))
+        except Exception:
+            pass
 
         # 旧模式内容区
         self.old_mode_frame = tk.Frame(self, bg=COLORS["bg_dark"])
@@ -2590,8 +2599,16 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         # ===== 第一步：任务组管理（最顶部）=====
         group_card = tk.Frame(frame, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
         group_card.pack(fill=tk.X, pady=(0, 8))
-        tk.Label(group_card, text="① 任务组管理（选择/创建任务组，设置目标时间，自动保存）", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 8))
+        # v6.7.30: 任务组管理标题可悬停查看「任务组」概念解释
+        _grp_title = tk.Label(group_card,
+                              text="① 任务组管理（选择/创建任务组，设置目标时间，自动保存）",
+                              bg=COLORS["bg_card"], fg=COLORS["accent"],
+                              font=("微软雅黑", 11, "bold"), cursor="hand2")
+        _grp_title.pack(anchor=tk.W, padx=15, pady=(10, 8))
+        try:
+            ToolTip(_grp_title, _term_tip("任务组"))
+        except Exception:
+            pass
         group_inner = tk.Frame(group_card, bg=COLORS["bg_card"])
         group_inner.pack(fill=tk.X, padx=15, pady=(0, 12))
 
@@ -2815,8 +2832,16 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                                            height=28, width=150, bg_color="#f39c12",
                                            text_color="#ffffff", tip="批量查询组内所有任务的库存与领取状态（圆点颜色随之变化）")
         self.nm_query_all_btn.pack(side=tk.RIGHT)
-        tk.Label(list_title_frame, text="●=可抢  ●=已领取  ●=不可抢  ●=未查询", bg=COLORS["bg_card"],
-                 fg=COLORS["text_muted"], font=("微软雅黑", 9)).pack(side=tk.RIGHT, padx=10)
+        # v6.7.30: 图例圆点分别用状态色（原来整行同一个灰色，看不出区别）
+        _legend = tk.Frame(list_title_frame, bg=COLORS["bg_card"])
+        _legend.pack(side=tk.RIGHT, padx=10)
+        for _c, _t in [("#2ecc71", "可抢"), ("#3498db", "已领取"),
+                       ("#e74c3c", "不可抢"), ("#7f8c8d", "未查询")]:
+            tk.Label(_legend, text="●", bg=COLORS["bg_card"], fg=_c,
+                     font=("微软雅黑", 11, "bold")).pack(side=tk.LEFT)
+            tk.Label(_legend, text="=" + _t + "  ", bg=COLORS["bg_card"],
+                     fg=COLORS["text_muted"], font=("微软雅黑", 9)
+                     ).pack(side=tk.LEFT)
 
         # 表头（用 grid + 固定像素宽度，与数据行严格共用同一套列宽常量）
         list_header = tk.Frame(list_card, bg=COLORS["bg_input"])
@@ -2889,8 +2914,12 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         scheduler_card = tk.Frame(left_container, bg=COLORS["bg_card"], highlightthickness=1, highlightbackground=COLORS["border"])
         scheduler_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8), pady=(0, 0))
         scheduler_card.config(width=450)
-        tk.Label(scheduler_card, text="📋 任务组调度器（实时更新，双击启动/停止）", bg=COLORS["bg_card"], fg=COLORS["accent"],
+        _sch_title = tk.Label(scheduler_card, text="📋 任务组调度器（实时更新，双击启动/停止）", bg=COLORS["bg_card"], fg=COLORS["accent"],
                  font=("微软雅黑", 11, "bold")).pack(anchor=tk.W, padx=15, pady=(10, 5))
+        try:
+            ToolTip(_sch_title, _term_tip("任务组调度器"))
+        except Exception:
+            pass
         
         scheduler_inner = tk.Frame(scheduler_card, bg=COLORS["bg_card"])
         scheduler_inner.pack(fill=tk.X, padx=15, pady=(0, 10))
