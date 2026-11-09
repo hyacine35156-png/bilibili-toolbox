@@ -1578,28 +1578,42 @@ class DanmakuApp:
         body = tk.Frame(main, bg=COLORS["bg_dark"])
         body.pack(fill=tk.BOTH, expand=True)
 
-        # ---------- 左侧：目录树 ----------
+        # ---------- 左侧：目录 / 名词解释（可切换，v6.7.29）----------
         toc_card = tk.Frame(body, bg=COLORS["bg_card"], bd=0,
                             highlightthickness=1, highlightbackground=COLORS["border"])
         toc_card.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
         toc_card.pack_propagate(False)
-        # v6.6.5: 目录加宽 250->360，并加横向滚动条防条目截断
-        # v6.7.28: 三栏布局，目录 360->290 给名词解释腾空间
-        toc_card.configure(width=290)
+        toc_card.configure(width=460)  # v6.7.29: 切换式布局，单栏可放宽
 
-        tk.Label(toc_card, text="目录", bg=COLORS["bg_card"], fg=COLORS["accent"],
-                 font=theme.font(12, bold=True)).pack(anchor=tk.W, padx=14, pady=(12, 6))
+        # 切换按钮行：目录 / 名词解释
+        switch_row = tk.Frame(toc_card, bg=COLORS["bg_card"])
+        switch_row.pack(fill=tk.X, padx=10, pady=(10, 6))
 
-        toc_frame = tk.Frame(toc_card, bg=COLORS["bg_card"])
-        toc_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        toc_btn = tk.Label(switch_row, text="📑 目录", bg=COLORS["accent"],
+                           fg="#000000", font=theme.font(10, bold=True),
+                           cursor="hand2", padx=10, pady=4)
+        toc_btn.pack(side=tk.LEFT)
+        term_btn = tk.Label(switch_row, text="📚 名词解释", bg=COLORS["bg_input"],
+                            fg=COLORS["text_secondary"], font=theme.font(10),
+                            cursor="hand2", padx=10, pady=4)
+        term_btn.pack(side=tk.LEFT, padx=(6, 0))
 
-        # v6.6.5: 横向滚动条（目录条目长，防截断）
-        toc_hsb = tk.Scrollbar(toc_card, orient=tk.HORIZONTAL)
+        # 容器：两个页面叠加，用 pack/pack_forget 切换
+        stack = tk.Frame(toc_card, bg=COLORS["bg_card"])
+        stack.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+
+        # ---- 页面1：目录 ----
+        toc_page = tk.Frame(stack, bg=COLORS["bg_card"])
+        toc_page.pack(fill=tk.BOTH, expand=True)
+
+        toc_frame = tk.Frame(toc_page, bg=COLORS["bg_card"])
+        toc_frame.pack(fill=tk.BOTH, expand=True)
+
+        toc_hsb = tk.Scrollbar(toc_page, orient=tk.HORIZONTAL)
         toc_scroll = tk.Scrollbar(toc_frame, orient=tk.VERTICAL)
         toc_list = tk.Listbox(
             toc_frame, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
             selectbackground=COLORS["accent"], selectforeground="#000000",
-            # v6.6.5: 目录字号 10->9（用户要求"整体字号稍微缩小一点"）
             font=theme.font(9), bd=0, highlightthickness=0,
             activestyle="none", exportselection=False,
             yscrollcommand=toc_scroll.set, xscrollcommand=toc_hsb.set,
@@ -1608,28 +1622,17 @@ class DanmakuApp:
         toc_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         toc_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         toc_hsb.config(command=toc_list.xview)
-        toc_hsb.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 6))
+        toc_hsb.pack(side=tk.BOTTOM, fill=tk.X)
 
-        # ---------- 中间：名词解释（v6.7.28 与目录并列，不再塞进正文）----------
-        term_card = tk.Frame(body, bg=COLORS["bg_card"], bd=0,
-                             highlightthickness=1, highlightbackground=COLORS["border"])
-        term_card.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
-        term_card.pack_propagate(False)
-        term_card.configure(width=430)
+        # ---- 页面2：名词解释（初始隐藏）----
+        term_page = tk.Frame(stack, bg=COLORS["bg_card"])
 
-        tk.Label(term_card, text="📚 名词解释", bg=COLORS["bg_card"],
-                 fg=COLORS["accent"], font=theme.font(12, bold=True)
-                 ).pack(anchor=tk.W, padx=14, pady=(12, 2))
-        tk.Label(term_card, text="（抢码/账户/看播等术语）", bg=COLORS["bg_card"],
-                 fg=COLORS["text_muted"], font=theme.font(8)
-                 ).pack(anchor=tk.W, padx=14, pady=(0, 6))
-
-        term_frame = tk.Frame(term_card, bg=COLORS["bg_card"])
-        term_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        term_frame = tk.Frame(term_page, bg=COLORS["bg_card"])
+        term_frame.pack(fill=tk.BOTH, expand=True)
 
         term_scroll = tk.Scrollbar(term_frame, orient=tk.VERTICAL)
         term_text = tk.Text(term_frame, bg=COLORS["bg_input"],
-                            fg=COLORS["text_primary"], font=theme.font(10),
+                            fg=COLORS["text_primary"], font=theme.font(11),
                             bd=0, highlightthickness=0, wrap=tk.WORD,
                             padx=12, pady=10, yscrollcommand=term_scroll.set,
                             cursor="arrow")
@@ -1637,13 +1640,31 @@ class DanmakuApp:
         term_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         term_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # 填充术语表内容
         try:
             _fill_term_panel(term_text)
-        except Exception as e:
-            term_text.insert(tk.END, "名词解释加载失败: %s" % e)
+        except Exception as _e:
+            term_text.insert(tk.END, "名词解释加载失败: %s" % _e)
         term_text.config(state=tk.DISABLED)
 
+        # 切换逻辑
+        def _show_toc(*_a):
+            term_page.pack_forget()
+            toc_page.pack(fill=tk.BOTH, expand=True)
+            toc_btn.configure(bg=COLORS["accent"], fg="#000000",
+                              font=theme.font(10, bold=True))
+            term_btn.configure(bg=COLORS["bg_input"],
+                               fg=COLORS["text_secondary"], font=theme.font(10))
+
+        def _show_terms(*_a):
+            toc_page.pack_forget()
+            term_page.pack(fill=tk.BOTH, expand=True)
+            term_btn.configure(bg=COLORS["accent"], fg="#000000",
+                               font=theme.font(10, bold=True))
+            toc_btn.configure(bg=COLORS["bg_input"],
+                              fg=COLORS["text_secondary"], font=theme.font(10))
+
+        toc_btn.bind("<Button-1>", _show_toc)
+        term_btn.bind("<Button-1>", _show_terms)
         # ---------- 右侧：内容 ----------
         card = tk.Frame(body, bg=COLORS["bg_card"], bd=0,
                         highlightthickness=1, highlightbackground=COLORS["border"])

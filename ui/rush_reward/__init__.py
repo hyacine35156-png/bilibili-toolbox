@@ -2826,17 +2826,27 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             # 统一由 uniform 列宽常量决定位置，保证与数据行逐列对齐。
             list_header.grid_columnconfigure(col_idx, minsize=px, weight=0)
             # v6.7.23: 「首发保护」列表头居中（勾选框也在该列居中）
+            # v6.7.29: 表头多列支持名词悬停解释
             _is_protect_col = (text == "首发保护")
+            _HDR_TERM_MAP = {
+                "窗口期": "窗口期",
+                "首发保护": "首发保护",
+                "优先级": "优先级",
+                "账户": "账户",
+                "状态": "状态",
+                "奖励": "卡片/兑换码",
+            }
+            _term_name = _HDR_TERM_MAP.get(text)
             _hdr_lbl = tk.Label(list_header, text=text, bg=COLORS["bg_input"],
                                 fg=COLORS["text_secondary"],
                                 font=("微软雅黑", 10, "bold"),
                                 anchor=(tk.CENTER if _is_protect_col else tk.W),
-                                cursor=("hand2" if _is_protect_col else ""))
+                                cursor=("hand2" if _term_name else ""))
             _hdr_lbl.grid(row=0, column=col_idx,
                           sticky=("" if _is_protect_col else "w"), pady=5)
-            if _is_protect_col:
+            if _term_name:
                 try:
-                    ToolTip(_hdr_lbl, _term_tip("首发保护"))
+                    ToolTip(_hdr_lbl, _term_tip(_term_name))
                 except Exception:
                     pass
 
