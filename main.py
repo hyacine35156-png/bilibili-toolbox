@@ -1624,40 +1624,86 @@ class DanmakuApp:
         toc_hsb.config(command=toc_list.xview)
         toc_hsb.pack(side=tk.BOTTOM, fill=tk.X)
 
-        # ---- 页面2：名词解释（初始隐藏）----
+        # ---- 页面2：名词解释（左术语列表，v6.7.31 改为与目录一样的两级格式）----
         term_page = tk.Frame(stack, bg=COLORS["bg_card"])
 
-        term_frame = tk.Frame(term_page, bg=COLORS["bg_card"])
-        term_frame.pack(fill=tk.BOTH, expand=True)
+        term_lb_frame = tk.Frame(term_page, bg=COLORS["bg_card"])
+        term_lb_frame.pack(fill=tk.BOTH, expand=True)
 
-        term_scroll = tk.Scrollbar(term_frame, orient=tk.VERTICAL)
-        term_text = tk.Text(term_frame, bg=COLORS["bg_input"],
-                            fg=COLORS["text_primary"], font=theme.font(11),
-                            bd=0, highlightthickness=0, wrap=tk.WORD,
-                            padx=12, pady=10, yscrollcommand=term_scroll.set,
-                            cursor="arrow")
-        term_scroll.config(command=term_text.yview)
+        term_scroll = tk.Scrollbar(term_lb_frame, orient=tk.VERTICAL)
+        term_list = tk.Listbox(
+            term_lb_frame, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+            selectbackground=COLORS["accent"], selectforeground="#000000",
+            font=theme.font(9), bd=0, highlightthickness=0,
+            activestyle="none", exportselection=False,
+            yscrollcommand=term_scroll.set,
+        )
+        term_scroll.config(command=term_list.yview)
         term_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        term_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        term_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
+        # 填充术语名（分组标题 + 缩进词条），与目录同一视觉规则
+        _term_entries = []   # [(词, 完整解释, 层级)]
         try:
-            _fill_term_panel(term_text)
+            import config as _cfg
+            _gloss = getattr(_cfg, "TERM_GLOSSARY", {}) or {}
+            _groups = [
+                ("【抢码相关】", ["目标时间", "窗口期", "基础间隔", "首发保护", "提前量",
+                                "RTT", "NTP", "预热", "风控", "精准抢码",
+                                "自动点击抢码", "查询间隔", "领取时长", "间隔模式",
+                                "定时时间", "毫秒"]),
+                ("【任务与状态】", ["任务组", "任务组调度器", "优先级", "状态",
+                                  "奖励", "库存状态", "领取资格", "任务完成",
+                                  "卡片/兑换码", "兑换码"]),
+                ("【账户与凭证】", ["账户", "SESSDATA", "bili_jct",
+                                  "task_id", "act_id"]),
+                ("【其他功能】", ["看播", "心跳", "弹幕", "方案/预案", "数据自愈",
+                                "备份快照", "设备码/机器码", "卡密"]),
+            ]
+            for _gname, _words in _groups:
+                _term_entries.append((_gname, "", 0))
+                for _w in _words:
+                    if _w in _gloss:
+                        _term_entries.append((_w, _gloss[_w], 1))
+            for _i, (_name, _desc, _lv) in enumerate(_term_entries):
+                _prefix = "    " if _lv else ""
+                term_list.insert(tk.END, _prefix + _name)
         except Exception as _e:
-            term_text.insert(tk.END, "名词解释加载失败: %s" % _e)
-        term_text.config(state=tk.DISABLED)
+            term_list.insert(tk.END, "加载失败: %s" % _e)
 
         # 切换逻辑
         def _show_toc(*_a):
+            """切到目录：左显示目录树，右显示正文说明。"""
             term_page.pack_forget()
             toc_page.pack(fill=tk.BOTH, expand=True)
+            try:
+                term_card.pack_forget()
+                card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            except Exception:
+                pass
             toc_btn.configure(bg=COLORS["accent"], fg="#000000",
                               font=theme.font(10, bold=True))
             term_btn.configure(bg=COLORS["bg_input"],
                                fg=COLORS["text_secondary"], font=theme.font(10))
 
         def _show_terms(*_a):
+            """切到名词解释：左显示术语列表，右显示选中词解释。"""
             toc_page.pack_forget()
             term_page.pack(fill=tk.BOTH, expand=True)
+            try:
+                card.pack_forget()
+                term_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+                term_c_text.config(state=tk.NORMAL)
+                term_c_text.delete("1.0", tk.END)
+                _sel = term_list.curselection()
+                if _sel:
+                    _show_term_detail(_sel[0])
+                else:
+                    _first = next((i for i, e in enumerate(_term_entries) if e[2] == 1), 0)
+                    _show_term_detail(_first)
+                term_c_text.config(state=tk.DISABLED)
+            except Exception:
+                pass
             term_btn.configure(bg=COLORS["accent"], fg="#000000",
                                font=theme.font(10, bold=True))
             toc_btn.configure(bg=COLORS["bg_input"],
@@ -1693,6 +1739,82 @@ class DanmakuApp:
             print(f"富文本渲染失败，回退纯文本: {e}")
             text.insert(tk.END, TASK_GUIDE_TEXT)
         text.config(state=tk.DISABLED)
+        # ---------- 右侧：名词解释内容（与正文同一位置，按需切换）----------
+        term_card = tk.Frame(body, bg=COLORS["bg_card"], bd=0,
+                             highlightthickness=1, highlightbackground=COLORS["border"])
+        term_card.pack_propagate(False)
+
+        term_c_scroll = tk.Scrollbar(term_card)
+        term_c_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        term_c_text = tk.Text(term_card, bg=COLORS["bg_input"],
+                              fg=COLORS["text_primary"], font=theme.font(10),
+                              bd=0, highlightthickness=0, wrap=tk.WORD,
+                              padx=26, pady=22, yscrollcommand=term_c_scroll.set)
+        try:
+            term_c_text.configure(spacing1=5, spacing2=3, spacing3=6)
+        except Exception:
+            pass
+        term_c_text.pack(fill=tk.BOTH, expand=True)
+        term_c_scroll.config(command=term_c_text.yview)
+
+        term_c_text.tag_configure("t_title",
+                                  font=theme.font(14, bold=True),
+                                  foreground=COLORS["accent"],
+                                  spacing1=6, spacing3=14)
+        term_c_text.tag_configure("t_body",
+                                  font=theme.font(10),
+                                  foreground=COLORS["text_primary"],
+                                  spacing1=4, spacing2=3, spacing3=6)
+        term_c_text.tag_configure("t_hint",
+                                  font=theme.font(9),
+                                  foreground=COLORS["text_muted"])
+
+        def _show_term_detail(idx):
+            """显示第 idx 个术语的详情到右侧。"""
+            try:
+                if idx < 0 or idx >= len(_term_entries):
+                    return
+                _name, _desc, _lv = _term_entries[idx]
+                term_c_text.config(state=tk.NORMAL)
+                term_c_text.delete("1.0", tk.END)
+                if _lv == 0:
+                    # 分组标题：显示该组说明
+                    term_c_text.insert(tk.END, _name.strip("【】") + "\n", "t_title")
+                    term_c_text.insert(
+                        tk.END,
+                        "左侧列出本分类下的全部术语，点击任一条目即可查看解释。\n",
+                        "t_hint")
+                else:
+                    term_c_text.insert(tk.END, _name + "\n", "t_title")
+                    term_c_text.insert(tk.END, _desc + "\n", "t_body")
+                    term_c_text.insert(
+                        tk.END,
+                        "\n（提示：界面上的术语标签也可直接鼠标悬停查看）",
+                        "t_hint")
+                term_c_text.config(state=tk.DISABLED)
+                term_c_text.yview_moveto(0)
+                term_list.selection_clear(0, tk.END)
+                term_list.selection_set(idx)
+                term_list.see(idx)
+            except Exception:
+                pass
+
+        def _on_term_select(event=None):
+            _sel = term_list.curselection()
+            if _sel:
+                _show_term_detail(_sel[0])
+
+        term_list.bind("<<ListboxSelect>>", _on_term_select)
+        term_list.bind("<ButtonRelease-1>", _on_term_select)
+
+        # 默认选中第一个真实词条
+        try:
+            _first = next((i for i, e in enumerate(_term_entries) if e[2] == 1), 0)
+            _show_term_detail(_first)
+        except Exception:
+            pass
+
 
         # ---------- 建立目录索引并绑定跳转 ----------
         # 用 Text 的 mark 精确定位每个章节标题所在行

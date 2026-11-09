@@ -530,8 +530,15 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         self.type_combo.pack(side=tk.LEFT, padx=(8, 15))
         self.type_combo.bind("<<ComboboxSelected>>", lambda e: self.update_task_list())
 
-        tk.Label(row1, text="查询间隔", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        # v6.7.31: 名词悬停解释
+        _lbl = tk.Label(row1, text="查询间隔", bg=COLORS["bg_card"],
+                        fg=COLORS["text_secondary"], font=("微软雅黑", 11),
+                        cursor="hand2")
+        _lbl.pack(side=tk.LEFT)
+        try:
+            ToolTip(_lbl, _term_tip("查询间隔"))
+        except Exception:
+            pass
         self.interval_entry = DarkEntry(row1, width=6)
         self.interval_entry.insert(0, "3")
         self.interval_entry.pack(side=tk.LEFT, padx=(8, 4))
@@ -559,8 +566,14 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         # 第二行：账户选择（下拉框）
         row2 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         row2.pack(fill=tk.X, pady=3)
-        tk.Label(row2, text="抢码账户", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        _lbl5 = tk.Label(row2, text="抢码账户", bg=COLORS["bg_card"],
+                         fg=COLORS["text_secondary"], font=("微软雅黑", 11),
+                         cursor="hand2")
+        _lbl5.pack(side=tk.LEFT)
+        try:
+            ToolTip(_lbl5, _term_tip("账户"))
+        except Exception:
+            pass
 
         self.rush_account_var = tk.StringVar()
         self.rush_account_combo = ttk.Combobox(row2, textvariable=self.rush_account_var,
@@ -584,16 +597,28 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         # 第四行：领取设置（时长、间隔）
         row4 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         row4.pack(fill=tk.X, pady=(8, 0))
-        tk.Label(row4, text="领取时长", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        _lbl2 = tk.Label(row4, text="领取时长", bg=COLORS["bg_card"],
+                         fg=COLORS["text_secondary"], font=("微软雅黑", 11),
+                         cursor="hand2")
+        _lbl2.pack(side=tk.LEFT)
+        try:
+            ToolTip(_lbl2, _term_tip("领取时长"))
+        except Exception:
+            pass
         self.duration_entry = DarkEntry(row4, width=6)
         self.duration_entry.insert(0, "20")
         self.duration_entry.pack(side=tk.LEFT, padx=(8, 4))
         tk.Label(row4, text="秒", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
                  font=("微软雅黑", 11)).pack(side=tk.LEFT)
 
-        tk.Label(row4, text="间隔模式", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 11)).pack(side=tk.LEFT, padx=(20, 0))
+        _lbl3 = tk.Label(row4, text="间隔模式", bg=COLORS["bg_card"],
+                         fg=COLORS["text_secondary"], font=("微软雅黑", 11),
+                         cursor="hand2")
+        _lbl3.pack(side=tk.LEFT, padx=(20, 0))
+        try:
+            ToolTip(_lbl3, _term_tip("间隔模式"))
+        except Exception:
+            pass
         self.interval_mode = tk.StringVar(value="random")
         ttk.Radiobutton(row4, text="固定", variable=self.interval_mode, value="fixed",
                         style="Dark.TRadiobutton", command=self.toggle_interval_mode).pack(side=tk.LEFT, padx=(8, 4))
@@ -621,8 +646,14 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         # 第五行：定时时间（时、分、秒三个独立输入框）
         row5 = tk.Frame(settings_inner, bg=COLORS["bg_card"])
         row5.pack(fill=tk.X, pady=(6, 0))
-        tk.Label(row5, text="定时时间", bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
-                 font=("微软雅黑", 11)).pack(side=tk.LEFT)
+        _lbl4 = tk.Label(row5, text="定时时间", bg=COLORS["bg_card"],
+                         fg=COLORS["text_secondary"], font=("微软雅黑", 11),
+                         cursor="hand2")
+        _lbl4.pack(side=tk.LEFT)
+        try:
+            ToolTip(_lbl4, _term_tip("定时时间"))
+        except Exception:
+            pass
         # 时：00-23
         hour_values = [f"{h:02d}" for h in range(24)]
         self.schedule_hour_var = tk.StringVar(value="00")
