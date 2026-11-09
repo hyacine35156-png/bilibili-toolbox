@@ -739,19 +739,13 @@ class WatchLiveFrame(tk.Frame):
         实现：后台线程查询 -> 结果存 self._live_query_result -> 主线程轮询取出展示。
         这样即使 after(0) 不可用也能正常出结果。
         """
-        # 1) 收集当前选中的房间
+        # 1) 收集【所有已导入的直播间】（v6.7.34 改为全量查询，不再只查选中的）
         targets = []
         try:
-            for _bar, _combo, _del in getattr(self, "watch_room_bars", []):
-                _nm = str(_combo.get() or "").strip()
-                if not _nm:
-                    continue
-                _rid = None
-                for _r in getattr(self.room_mgr, "rooms", []) or []:
-                    if str(_r.get("name") or "") == _nm:
-                        _rid = _r.get("id")
-                        break
-                if _rid:
+            for _r in getattr(self.room_mgr, "rooms", []) or []:
+                _rid = _r.get("id")
+                _nm = str(_r.get("name") or "").strip()
+                if _rid and _nm:
                     targets.append((_nm, str(_rid)))
         except Exception as e:
             messagebox.showerror("错误", "收集直播间失败: %s" % str(e)[:60],
@@ -761,7 +755,7 @@ class WatchLiveFrame(tk.Frame):
         if not targets:
             messagebox.showwarning(
                 "提示",
-                "还没有选择直播间。\n请先在上方「直播间」下拉框中选择，再点「📡 查询开播」。",
+                "还没有导入任何直播间。\n请先到「⚙ 设置 → ② 直播间管理」添加直播间。",
                 parent=self.winfo_toplevel())
             return
 
@@ -780,7 +774,7 @@ class WatchLiveFrame(tk.Frame):
         except Exception:
             pass
         try:
-            self.log("正在查询 %d 个直播间的开播状态..." % len(targets))
+            self.log("正在查询全部 %d 个已导入直播间的开播状态..." % len(targets))
         except Exception:
             pass
 
@@ -824,7 +818,7 @@ class WatchLiveFrame(tk.Frame):
                     self._live_query_running = False
                     self._live_query_result = None
                     try:
-                        self.live_status_btn.config(state=tk.NORMAL, text="📡 查询开播")
+                        self.live_status_btn.config(state=tk.NORMAL, text="📡 查询全部开播")
                     except Exception:
                         pass
                     try:
@@ -841,7 +835,7 @@ class WatchLiveFrame(tk.Frame):
             self._live_query_running = False
             self._live_query_result = None
             try:
-                self.live_status_btn.config(state=tk.NORMAL, text="📡 查询开播")
+                self.live_status_btn.config(state=tk.NORMAL, text="📡 查询全部开播")
             except Exception:
                 pass
             self._render_live_results(res)
@@ -887,7 +881,7 @@ class WatchLiveFrame(tk.Frame):
         # 弹窗
         try:
             win = tk.Toplevel(self)
-            win.title("直播间开播状态")
+            win.title("全部直播间开播状态")
             win.configure(bg=COLORS["bg_dark"])
             win.transient(self.winfo_toplevel())
             win.geometry("640x460")
@@ -1504,9 +1498,9 @@ class WatchLiveFrame(tk.Frame):
         self.refresh_room_btn.pack(side=tk.LEFT, padx=(0, 4))
         # v6.7.33: 查询直播间是否正在直播
         self.live_status_btn = DarkButton(
-            row1, text="📡 查询开播", command=self.query_live_status,
+            row1, text="📡 查询全部开播", command=self.query_live_status,
             bg_color="#8e44ad", text_color="#ffffff", height=32,
-            tip="查询当前选中直播间是否正在直播。会显示直播中/未开播、直播间标题、人气值和开播时间。")
+            tip="一键查询【所有已导入的直播间】开播状态。会显示每个房间是直播中还是未开播，以及在播房间的标题、分区、人气和开播时间。")
         self.live_status_btn.pack(side=tk.LEFT, padx=(0, 20))
         tk.Label(row1, text="每日时长(分):", bg=COLORS["bg_card"], fg=COLORS["text_secondary"], font=("微软雅黑", 10)).pack(side=tk.LEFT)
         self.duration_var = tk.IntVar(value=10)
