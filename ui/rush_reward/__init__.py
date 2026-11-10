@@ -845,6 +845,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 "account": self.nm_account_var.get(),
                 "window": self.nm_window_entry.get(),
                 "base_interval": self.nm_base_interval_entry.get(),
+                "retry_after": self.nm_retry_after_entry.get(),
                 "group": self.nm_group_var.get(),
                 "target_hour": self.nm_hour_var.get(),
                 "target_minute": self.nm_minute_var.get(),
@@ -978,6 +979,9 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
                 if ui.get("base_interval"):
                     self.nm_base_interval_entry.delete(0, tk.END)
                     self.nm_base_interval_entry.insert(0, ui["base_interval"])
+                    if "retry_after" in ui and hasattr(self, "nm_retry_after_entry"):
+                        self.nm_retry_after_entry.delete(0, tk.END)
+                        self.nm_retry_after_entry.insert(0, ui["retry_after"])
                 for key, var in (("target_hour", self.nm_hour_var),
                                  ("target_minute", self.nm_minute_var),
                                  ("target_second", self.nm_second_var)):
@@ -2832,6 +2836,25 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             pass
         tk.Label(row3, text="ms（风控后自动+20~40ms，上限1000ms）", bg=COLORS["bg_card"],
                  fg=COLORS["text_muted"], font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=(0, 15))
+        # v6.7.35: 库存重试秒数（目标后仍收到「库存已使用完」时，继续重试的时长）
+        _retry_lbl = tk.Label(row3, text="防提前重试秒数", bg=COLORS["bg_card"],
+                              fg=COLORS["text_secondary"], font=("微软雅黑", 11),
+                              cursor="hand2")
+        _retry_lbl.pack(side=tk.LEFT)
+        try:
+            ToolTip(_retry_lbl, _term_tip("防提前重试秒数"))
+        except Exception:
+            pass
+        self.nm_retry_after_var = tk.StringVar(value="5")
+        self.nm_retry_after_entry = DarkEntry(row3, width=4)
+        self.nm_retry_after_entry.insert(0, "5")
+        self.nm_retry_after_entry.pack(side=tk.LEFT, padx=(8, 4))
+        try:
+            ToolTip(self.nm_retry_after_entry, _term_tip("防提前重试秒数"))
+        except Exception:
+            pass
+        tk.Label(row3, text="秒", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                 font=("微软雅黑", 11)).pack(side=tk.LEFT, padx=(0, 15))
 
         self.nm_add_task_btn = DarkButton(row3, text="+ 添加到当前组", command=self.nm_add_task,
                                           height=36, width=180, bg_color=COLORS["accent"],

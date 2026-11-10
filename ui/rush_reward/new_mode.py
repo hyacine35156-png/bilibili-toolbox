@@ -509,6 +509,15 @@ class NewModeMixin:
                 base_interval = 2.0
         except ValueError:
             base_interval = 0.9
+        # v6.7.35: 库存重试秒数（默认 5 秒）
+        try:
+            _retry_after = float(self.nm_retry_after_entry.get())
+            if _retry_after < 0:
+                _retry_after = 0
+            if _retry_after > 120:
+                _retry_after = 120
+        except Exception:
+            _retry_after = 5.0
         group = next((g for g in self.rush_groups if g["group_id"] == self.current_group_id), None)
         if group:
             # 检查是否已存在
@@ -555,6 +564,7 @@ class NewModeMixin:
                 "priority": priority,
                 "window_seconds": window_seconds,
                 "base_interval": base_interval,
+                "retry_after_seconds": _retry_after,
                 "act_id": act_id,
                 "status_color": "gray",
                 "status_text": "查询中...",
@@ -565,7 +575,7 @@ class NewModeMixin:
             self.save_rush_groups()
             self.nm_save_ui_settings()
             self.refresh_new_mode_task_list()
-            self.nm_log(f"添加任务: {task['name']} (优先级{priority}, 窗口期{window_seconds}秒, 基础间隔{int(base_interval*1000)}ms)")
+            self.nm_log(f"添加任务: {task['name']} (优先级{priority}, 窗口期{window_seconds}秒, 基础间隔{int(base_interval*1000)}ms, 防提前重试{_retry_after:.0f}秒)")
             # 刷新调度器显示
             if hasattr(self, 'nm_update_scheduler'):
                 self.nm_update_scheduler()
@@ -628,14 +638,14 @@ class NewModeMixin:
         # 创建编辑对话框
         edit_win = tk.Toplevel(self)
         edit_win.title(f"编辑任务 - {task.get('name', '')[:20]}")
-        edit_win.geometry("560x470")
+        edit_win.geometry("600x520")
         edit_win.configure(bg=COLORS["bg_card"])
         edit_win.transient(self)
         edit_win.grab_set()
         # 居中显示
         edit_win.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() - 560) // 2
-        y = self.winfo_y() + (self.winfo_height() - 470) // 2
+        x = self.winfo_x() + (self.winfo_width() - 600) // 2
+        y = self.winfo_y() + (self.winfo_height() - 520) // 2
         edit_win.geometry(f"+{x}+{y}")
 
         # 任务信息显示
@@ -694,6 +704,22 @@ class NewModeMixin:
         tk.Label(row3, text="(风控后自动+1~5ms)", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
                  font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=5)
 
+        # v6.7.35: 库存重试秒数（目标后继续重试的时长）
+        row3b = tk.Frame(edit_frame, bg=COLORS["bg_card"])
+        row3b.pack(fill=tk.X, pady=10)
+        tk.Label(row3b, text="防提前重试(秒):", bg=COLORS["bg_card"],
+                 fg=COLORS["text_secondary"], font=("微软雅黑", 10),
+                 width=14, anchor=tk.W).pack(side=tk.LEFT)
+        retry_var = tk.StringVar(value=str(task.get("retry_after_seconds", 5)))
+        _retry_entry = tk.Entry(row3b, textvariable=retry_var, width=12,
+                                font=("微软雅黑", 10), bg=COLORS["bg_input"],
+                                fg=COLORS["text_primary"],
+                                insertbackground=COLORS["text_primary"])
+        _retry_entry.pack(side=tk.LEFT, padx=5)
+        tk.Label(row3b, text="(目标后仍无库存时的继续重试时长，默认5秒)",
+                 bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+                 font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=5)
+
         # v6.7.23: 首发保护勾选（编辑对话框）
         row4 = tk.Frame(edit_frame, bg=COLORS["bg_card"])
         row4.pack(fill=tk.X, pady=10)
@@ -732,6 +758,10 @@ class NewModeMixin:
                     t["window_seconds"] = window_val
                     t["account_name"] = account_var.get()
                     t["base_interval"] = interval_val
+                    try:
+                        t["retry_after_seconds"] = float(retry_var.get())
+                    except Exception:
+                        pass
                     t["first_shot_protect"] = bool(protect_var.get())
                     # 同时更新account_id（如果能找到）
                     try:
@@ -3260,13 +3290,22 @@ class NewModeMixin:
                     _ntp_off_s = self._nm_ntp_offset_seconds(stop_flag)
                     _elapsed_after_target = ((time.time() - target_time)
                                              + _ntp_off_s)
-                    _over_5s = _elapsed_after_target > 5
-                    if not _over_5s:
-                        # 目标后5秒内：库存可能正在刷新，放慢间隔持续重试（不限时段）
-                        current_interval = max(current_interval, 2.0)
-                        self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 库存已使用完（目标后{_elapsed_after_target:.1f}s<5s，持续重试）")
+                    # v6.7.35: 重试秒数改为任务级参数（默认 5 秒，用户可改）
+                    # 含义：目标时间过后，若仍收到「库存已使用完」，
+                    #       在这 N 秒内继续重试（库存可能在刷新），超过则切下一优先级。
+                    _retry_after_sec = float(task.get("retry_after_seconds", 5))
+                    _over_retry_window = _elapsed_after_target > _retry_after_sec
+                    if not _over_retry_window:
+                        # 重试窗口内：库存可能正在刷新，放慢间隔持续重试
+                        _slow_interval = float(task.get("retry_slow_interval", 2.0))
+                        current_interval = max(current_interval, _slow_interval)
+                        self.nm_log(
+                            f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: "
+                            f"库存已使用完（目标后{_elapsed_after_target:.1f}s<{_retry_after_sec:.0f}s，持续重试）")
                     else:
-                        self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 库存已使用完（目标后{_elapsed_after_target:.1f}s），切下一个优先级")
+                        self.nm_log(
+                            f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: "
+                            f"库存已使用完（目标后{_elapsed_after_target:.1f}s>{_retry_after_sec:.0f}s），切下一个优先级")
                         break
                 elif "202129" in msg or "奖励领取已结束" in msg:
                     self.nm_log(f"  [{send_str}->{recv_str}, {rtt_ms:.0f}ms] 第{attempt}次: 奖励领取已结束，切下一个优先级")
