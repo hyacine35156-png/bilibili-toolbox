@@ -88,27 +88,81 @@ class NewModeMixin:
             pass
 
     def nm_log(self, msg):
-        """新模式日志输出（毫秒级时间戳）- 线程安全"""
+        """新模式日志输出（毫秒级时间戳）。
+
+        v6.7.38 关键修复（第二版）：
+        实测从抢码工作线程调用 nm_log 单次阻塞 2.1 秒 → 首发被推迟 10 秒。
+        根因不是 flush（实测只有 0.03ms），而是 self.log() 里的
+        root.after(0, ...)：工作线程调用 after 需争抢 Tcl 解释器锁，
+        主线程正忙于 update/渲染时会长时间阻塞。
+
+        本实现：
+          1) append 到线程安全队列（微秒级）→ 主线程定时批量渲染
+          2) 文件日志直接写（自带锁，已批量 flush）
+          3) 完全不调用 self.log()，彻底避开 root.after
+        """
         now = time.time()
         timestamp = time.strftime("%H:%M:%S", time.localtime(now)) + f".{int((now % 1) * 1000):03d}"
         line = f"[{timestamp}] {msg}\n"
-        # UI操作必须在主线程执行
-        def _append_log():
+        # 1) 入队（微秒级）
+        try:
+            self._nm_log_queue.append(line)
+        except Exception:
+            pass
+        # 2) 直接写文件日志（不经过 self.log，避免 after 阻塞）
+        try:
+            _h = getattr(self, "_log_file_handle", None)
+            if _h:
+                _t = time.strftime("%H:%M:%S")
+                with self._log_lock:
+                    _h.write(f"[{_t}] {msg}\n")
+                    _buf = getattr(self, "_log_buf_count", 0) + 1
+                    self._log_buf_count = _buf
+                    if _buf >= 50:
+                        _h.flush()
+                        self._log_buf_count = 0
+        except Exception:
+            pass
+    def _nm_flush_log_queue(self):
+        """主线程定时器：把队列里的日志批量渲染到 UI。
+
+        v6.7.38 新增。只在主线程执行，不阻塞抢码线程。
+        一次最多取 80 条，避免单次渲染过久。
+
+        关键：无论队列是否为空，都必须重新调度自己 ——
+        否则第一次空队列 return 后就永久停止刷新了。
+        """
+        try:
+            # 1) 批量取出并渲染
+            if self._nm_log_queue:
+                batch = []
+                while self._nm_log_queue and len(batch) < 80:
+                    try:
+                        batch.append(self._nm_log_queue.popleft())
+                    except Exception:
+                        break
+                if batch:
+                    try:
+                        self.nm_log_text.config(state=tk.NORMAL)
+                        self.nm_log_text.insert(tk.END, "".join(batch))
+                        self.nm_log_text.see(tk.END)
+                        # 限制文本长度，避免长时间运行后卡顿
+                        try:
+                            if int(self.nm_log_text.index("end-1c").split(".")[0]) > 3000:
+                                self.nm_log_text.delete("1.0", "500.0")
+                        except Exception:
+                            pass
+                        self.nm_log_text.config(state=tk.DISABLED)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        finally:
+            # 2) 无论如何都重新调度（这是修复点）
             try:
-                self.nm_log_text.insert(tk.END, line)
-                self.nm_log_text.see(tk.END)
+                self.after(100, self._nm_flush_log_queue)
             except Exception:
                 pass
-        try:
-            self.after(0, _append_log)
-        except Exception:
-            pass
-        # 同时写主日志文件（文件IO是线程安全的）
-        try:
-            self.log(msg)
-        except Exception:
-            pass
-
     def nm_on_version_change(self):
         """版本切换：动态更新期数下拉框"""
         version = self.nm_version_var.get()
@@ -2197,7 +2251,14 @@ class NewModeMixin:
             #   T-1.0s : 探针完成，进入自旋（留 1 秒余量）
             # 这样即使 RTT 慢，最坏也有 500ms 自旋空间；
             # 且探针离目标时刻仅 1 秒，测得的 RTT 更贴近首发真实网络。
-            PREWARM_LEAD = 4.0
+            # v6.7.38 修复：预热提前量 4.0 -> 8.0 秒。
+            # 实测建连耗时可达 4.4 秒（多任务排队），4 秒窗口不够，
+            # 导致建连完成时已过目标时间，首发晚到 4.5 秒。
+            # v6.7.38 二次修复：8.0 秒会导致快连接场景空闲 7.6 秒，
+            #   · 服务端可能回收空闲连接 → 首发又要重新握手，白预热
+            #   · 原设计注释也警告过「空闲 6 秒可能被断开」
+            # 改为 5.0 秒（够 4.4 秒慢建连用），并在空闲期间做【连接保活】。
+            PREWARM_LEAD = 5.0
             PROBE_AT = target_timestamp - 2.3   # 探针启动时刻
             prewarm_time = target_timestamp - PREWARM_LEAD
             while time.time() < prewarm_time and not stop_flag["stop"]:
@@ -2260,7 +2321,10 @@ class NewModeMixin:
                 t.start()
             # v6.4.2: 建连最长等 1.4 秒（T-3.0s 开始，到 T-1.6s 必须完成）
             # 这样留出 0.1s 给探针启动，探针在 T-1.5s 开始
-            _prewarm_join_deadline = time.time() + 1.6
+            # v6.7.38 修复：join 超时改为【绝对截止】= min(此刻+1.6s, 目标-3.5s)
+            # 原实现「从此刻起等 1.6 秒」无目标时间保护，建连慢了会直接冲过目标
+            _prewarm_join_deadline = min(time.time() + 1.6,
+                                         target_timestamp - 3.5)
             for t in prewarm_threads:
                 _remain = _prewarm_join_deadline - time.time()
                 if _remain <= 0:
@@ -2323,8 +2387,38 @@ class NewModeMixin:
             if _now < PROBE_AT:
                 _wait_s = PROBE_AT - _now
                 self.nm_log(f"[预热阶段] 建连完成，等待 {_wait_s:.2f}s 后测RTT...")
+                # v6.7.38 关键修复：【连接保活】
+                # 问题：若建连很快（0.3s），到首发前会空闲 5 秒以上，
+                #       空闲连接可能被服务端回收，首发又要重新握手 → 白预热。
+                # 原设计注释明确警告过「空闲 6 秒可能被断开」。
+                # 方案：空闲超过 2 秒时，用轻量只读接口刷新一次连接，
+                #       保持 TCP/TLS 会话活跃，且不会触发风控（nav 接口最轻量）。
+                _KEEPALIVE_GAP = 2.0      # 每空闲 2 秒保活一次
+                _last_keepalive = time.time()
+                _keepalive_count = 0
                 while time.time() < PROBE_AT and not stop_flag["stop"]:
-                    time.sleep(0.01)
+                    time.sleep(0.02)
+                    # 距上次活动超过 2 秒 → 做一次保活
+                    if (time.time() - _last_keepalive) >= _KEEPALIVE_GAP:
+                        _remain_to_probe = PROBE_AT - time.time()
+                        if _remain_to_probe > 0.45:   # 留足保活耗时，不挤占探针
+                            try:
+                                _ka_sess = None
+                                for _t in prewarm_tasks:
+                                    _ka_sess = sessions.get(_t["task_id"])
+                                    if _ka_sess is not None:
+                                        break
+                                if _ka_sess is not None:
+                                    _ka_sess.get(
+                                        "https://api.bilibili.com/x/web-interface/nav",
+                                        headers=HEADERS, timeout=2)
+                                    _ka_sess.cookies.clear()
+                                    _keepalive_count += 1
+                                    _last_keepalive = time.time()
+                            except Exception:
+                                _last_keepalive = time.time()
+                if _keepalive_count > 0:
+                    self.nm_log(f"  ✓ 连接保活 {_keepalive_count} 次（防空闲断开）")
 
             # --- 1) 用只读查询接口测当前 RTT（不消耗领取机会）---
             # v6.4.2: 先检查剩余时间，不够就跳过探针（用兜底值），
@@ -2336,6 +2430,21 @@ class NewModeMixin:
             probe_valid = 0
             probe_total = 0
             _probe_samples = []
+            # ===== v6.7.38 关键修复：【时间保护】=====
+            # 实测故障（2026-11-12 01:00 那场）：
+            #   预热窗口不够（建连耗时 4.4s），建连完成时已过目标 945ms，
+            #   但代码仍继续走探针检查、提前量计算、日志输出，
+            #   最终在 T+4.2s 才发出首发 → 真实到达 T+4.6s，完全错过库存。
+            # 修复：预热一结束就检查剩余时间；
+            #      若剩余 < 300ms（含已超时），标记 _skip_all_prep，
+            #      后续跳过探针、跳过提前量重算，用现值立即发送。
+            _time_left_now_ms = (target_timestamp - time.time()) * 1000.0
+            _skip_all_prep = _time_left_now_ms < 300.0
+            if _skip_all_prep:
+                self.nm_log(
+                    f"[时间保护] 剩余{_time_left_now_ms:.0f}ms<300ms，"
+                    f"跳过探针与提前量重算，立即首发")
+
             _time_left_ms = (target_timestamp - time.time()) * 1000.0
             # v6.6.9 修复: 原来只判断 "剩余 > 1100ms 就做探针"，
             # 但探针实际耗时约 1300ms（2次采样×0.8s间隔+RTT），
@@ -2350,7 +2459,8 @@ class NewModeMixin:
             if _est_advance < 10.0:
                 _est_advance = 10.0
             _needed_ms = _probe_cost_ms + _est_advance + 100.0
-            _skip_probe = _time_left_ms < _needed_ms
+            # v6.7.38: 时间保护触发时强制跳过探针
+            _skip_probe = _skip_all_prep or (_time_left_ms < _needed_ms)
             if _skip_probe:
                 self.nm_log(
                     f"[RTT探针] 剩余{_time_left_ms:.0f}ms < 需要{_needed_ms:.0f}ms"
@@ -2486,6 +2596,13 @@ class NewModeMixin:
                 self.nm_log(f"[时钟偏差] {ntp_correction:+.0f}ms，已补偿，精度正常")
 
             # ===== 阶段3: 精准首发（自旋等待到目标时间-动态提前量）=====
+            # ===== v6.7.38 时间保护：立即首发，不做自旋等待 =====
+            # 触发条件：预热完成后剩余 < 300ms（含已超时）。
+            # 这种情况下 fire_time 早已过去，不应再算自旋、不应再等，
+            # 直接发送才可能抢到残余库存。
+            if _skip_all_prep:
+                self.nm_log("[时间保护] 直接发送首发请求（跳过自旋）")
+                dynamic_advance = 0.0
             fire_time = target_timestamp - dynamic_advance / 1000.0
             now_time = time.time()
 

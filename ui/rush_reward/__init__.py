@@ -91,9 +91,20 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         self.log_file = None
         self._log_file_handle = None
         self._log_lock = threading.Lock()
+        # v6.7.38: 抢码日志改为队列投递（避免工作线程调 after 阻塞 2.1 秒）
+        try:
+            from collections import deque as _deque
+            self._nm_log_queue = _deque(maxlen=5000)
+        except Exception:
+            self._nm_log_queue = []
         self.init_log_file()
 
         self.build_ui()
+        # v6.7.38: 启动日志队列刷新器（主线程，每 100ms 批量渲染）
+        try:
+            self.after(100, self._nm_flush_log_queue)
+        except Exception:
+            pass
         self.refresh_account_list()
         self.apply_rush_config()
         self.bind_auto_save()
@@ -3620,11 +3631,21 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
         timestamp = time.strftime("%H:%M:%S")
         line = f"[{timestamp}] {msg}\n"
         # P1-13: 用锁保护写入，使用常开句柄，避免每次open/close
+        # v6.7.38 关键修复：不再每次 flush。
+        # 实测发现 flush 在 Windows 上耗时 100-400ms，而抢码自旋结束后
+        # 有 5-6 次日志调用，累计导致首发延迟 2.6 秒（01:00:04.5 → 01:00:07.1）。
+        # 日志不需要毫秒级落盘，改为：write 后不 flush，
+        # 由 Python 缓冲 + 退出时/定时 flush 保证不丢。
         if self._log_file_handle:
             try:
                 with self._log_lock:
                     self._log_file_handle.write(line)
-                    self._log_file_handle.flush()
+                    # 只在缓冲区较大时才 flush，避免频繁磁盘同步
+                    _buf = getattr(self, "_log_buf_count", 0) + 1
+                    self._log_buf_count = _buf
+                    if _buf >= 50:
+                        self._log_file_handle.flush()
+                        self._log_buf_count = 0
             except Exception:
                 pass
         # 通过主线程更新UI，避免Tkinter线程安全问题
