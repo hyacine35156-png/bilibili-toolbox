@@ -2834,7 +2834,7 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             ToolTip(self.nm_base_interval_entry, _term_tip("基础间隔"))
         except Exception:
             pass
-        tk.Label(row3, text="ms（风控后自动+20~40ms，上限1000ms）", bg=COLORS["bg_card"],
+        tk.Label(row3, text="ms（范围300~2000，靠±30ms随机波动，风控时不加间隔）", bg=COLORS["bg_card"],
                  fg=COLORS["text_muted"], font=("微软雅黑", 10)).pack(side=tk.LEFT, padx=(0, 15))
         # v6.7.35: 库存重试秒数（目标后仍收到「库存已使用完」时，继续重试的时长）
         _retry_lbl = tk.Label(row3, text="防提前重试秒数", bg=COLORS["bg_card"],

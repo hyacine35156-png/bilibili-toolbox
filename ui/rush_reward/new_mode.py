@@ -701,7 +701,7 @@ class NewModeMixin:
         interval_entry = tk.Entry(row3, textvariable=interval_var, width=12, font=("微软雅黑", 10),
                                   bg=COLORS["bg_input"], fg=COLORS["text_primary"], insertbackground=COLORS["text_primary"])
         interval_entry.pack(side=tk.LEFT, padx=5)
-        tk.Label(row3, text="(风控后自动+1~5ms)", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
+        tk.Label(row3, text="(范围300~2000ms)", bg=COLORS["bg_card"], fg=COLORS["text_muted"],
                  font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=5)
 
         # v6.7.35: 库存重试秒数（目标后继续重试的时长）
