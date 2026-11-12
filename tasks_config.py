@@ -10,43 +10,49 @@ from storage import atomic_write_json, safe_load_json
 
 # 活动任务列表（按版本+期数+类型分类）
 ALL_TASKS = [
-    # ===== 鸣潮3.7 =====
-    # 上半（第一期）- 投稿任务
-    {"version": "鸣潮3.7", "period": "上半", "type": "投稿", "name": "累计1天投稿≥100播放", "task_id": "6ERAcwloghvp8b00", "award": "60星声"},
-    {"version": "鸣潮3.7", "period": "上半", "type": "投稿", "name": "累计2天投稿≥300播放≥3币", "task_id": "6ERAcwloghvpff00", "award": "120星声"},
-    {"version": "鸣潮3.7", "period": "上半", "type": "投稿", "name": "累计3天投稿≥1000播放≥10币", "task_id": "6ERAcwloghvpvq00", "award": "180星声"},
-    {"version": "鸣潮3.7", "period": "上半", "type": "投稿", "name": "累计7天投稿≥2000播放≥20币", "task_id": "6ERAcwloghvpb400", "award": "300星声"},
-    {"version": "鸣潮3.7", "period": "上半", "type": "投稿", "name": "累计14天投稿≥3000播放≥40币", "task_id": "6ERAcwloghvoao00", "award": "500星声"},
-    # 上半 - 直播任务
-    {"version": "鸣潮3.7", "period": "上半", "type": "直播", "name": "开播时长60min", "task_id": "6ERAcwloghvod500", "award": "中级共鸣促剂*2"},
-    {"version": "鸣潮3.7", "period": "上半", "type": "直播", "name": "开播时长120min", "task_id": "6ERAcwloghvp1h00", "award": "中级能源核心*2"},
-    {"version": "鸣潮3.7", "period": "上半", "type": "直播", "name": "直播间弹幕20条", "task_id": "6ERAcwloghvpo100", "award": "贝币*10000"},
-    {"version": "鸣潮3.7", "period": "上半", "type": "直播", "name": "观看人数≥5人", "task_id": "6ERAcwloghvoxr00", "award": "中级复苏吸雾*2"},
-    # 上半 - 直播里程碑
-    {"version": "鸣潮3.7", "period": "上半", "type": "直播里程碑", "name": "完成全部每日任务3天", "task_id": "18ERA1wloghvcsm00", "award": "星声*180"},
-    {"version": "鸣潮3.7", "period": "上半", "type": "直播里程碑", "name": "完成全部每日任务5天", "task_id": "18ERA1wloghv1nf00", "award": "星声*300"},
-    {"version": "鸣潮3.7", "period": "上半", "type": "直播里程碑", "name": "完成全部每日任务10天", "task_id": "18ERA1wloghvcvs00", "award": "唤声涡纹*3"},
-    # 下半（第二期）- 投稿任务
-    {"version": "鸣潮3.7", "period": "下半", "type": "投稿", "name": "累计1天投稿≥100播放", "task_id": "6ERAcwloghvpah00", "award": "60星声"},
-    {"version": "鸣潮3.7", "period": "下半", "type": "投稿", "name": "累计2天投稿≥300播放≥3币", "task_id": "6ERAcwloghvoll00", "award": "120星声"},
-    {"version": "鸣潮3.7", "period": "下半", "type": "投稿", "name": "累计3天投稿≥1000播放≥10币", "task_id": "6ERAcwloghvpg700", "award": "180星声"},
-    {"version": "鸣潮3.7", "period": "下半", "type": "投稿", "name": "累计7天投稿≥2000播放≥20币", "task_id": "6ERAcwloghvpic00", "award": "300星声"},
-    {"version": "鸣潮3.7", "period": "下半", "type": "投稿", "name": "累计14天投稿≥3000播放≥40币", "task_id": "6ERAcwloghvazd00", "award": "500星声"},
-    # 下半 - 直播任务
-    {"version": "鸣潮3.7", "period": "下半", "type": "直播", "name": "开播时长60min", "task_id": "6ERAcwloghvoxc00", "award": "中级共鸣促剂*2"},
-    {"version": "鸣潮3.7", "period": "下半", "type": "直播", "name": "开播时长120min", "task_id": "6ERAcwloghvawq00", "award": "中级能源核心*2"},
-    {"version": "鸣潮3.7", "period": "下半", "type": "直播", "name": "直播间弹幕20条", "task_id": "6ERAcwloghvppd00", "award": "贝币*10000"},
-    {"version": "鸣潮3.7", "period": "下半", "type": "直播", "name": "观看人数≥5人", "task_id": "6ERAcwloghvazv00", "award": "中级复苏吸雾*2"},
-    # 下半 - 直播里程碑
-    {"version": "鸣潮3.7", "period": "下半", "type": "直播里程碑", "name": "完成全部每日任务3天", "task_id": "18ERA1wloghvcl800", "award": "星声*180"},
-    {"version": "鸣潮3.7", "period": "下半", "type": "直播里程碑", "name": "完成全部每日任务5天", "task_id": "18ERA1wloghv17v00", "award": "星声*300"},
-    {"version": "鸣潮3.7", "period": "下半", "type": "直播里程碑", "name": "完成全部每日任务10天", "task_id": "18ERA1wloghvcpj00", "award": "唤声涡纹*3"},
-    # 全版本（新人开播奖励等）
-    {"version": "鸣潮3.7", "period": "全版本", "type": "新人开播", "name": "累计1天开播", "task_id": "18ERA1wloghvcrq00", "award": "星声*50"},
-    {"version": "鸣潮3.7", "period": "全版本", "type": "新人开播", "name": "累计2天开播", "task_id": "18ERA1wloghvcl700", "award": "星声*80"},
-    {"version": "鸣潮3.7", "period": "全版本", "type": "新人开播", "name": "累计3天开播", "task_id": "18ERA1wloghvcje00", "award": "星声*120"},
-    {"version": "鸣潮3.7", "period": "全版本", "type": "新人开播", "name": "累计7天开播", "task_id": "18ERA1wloghvcue00", "award": "星声*180"},
-    {"version": "鸣潮3.7", "period": "全版本", "type": "新人开播", "name": "累计14天开播", "task_id": "18ERA1wloghvvc700", "award": "唤声涡纹*2"},
+    # ===== 鸣潮3.8（30 个可用码：视频10 + 通用1 + 直播19）=====
+    # 来源：官方激励计划页 9rAamKbtgtpKvFWv，activity_id 1ERAzwloghv5wv00
+    # 说明：里程碑/累计型按档拆开（新人限定5档 + 累计每日任务6档），每档独立码；
+    #       抽奖类任务（每日看视频/投稿/观看直播/开播/关注官号×3）已按要求剔除。
+    # 校验：30 个码全部经 x/task/mission/info 实测 code=0，任务名与文档一致。
+    # ========== 视频赛道·第一期 ==========
+    {"version": "鸣潮3.8", "period": "上半", "type": "投稿", "name": "【第一期】累计1天投稿≥100播放", "task_id": "6ERAvwloghvy3t00", "award": "60星声"},
+    {"version": "鸣潮3.8", "period": "上半", "type": "投稿", "name": "【第一期】累计2天投稿≥300播放≥3币", "task_id": "6ERAvwloghvt1l00", "award": "120星声"},
+    {"version": "鸣潮3.8", "period": "上半", "type": "投稿", "name": "【第一期】累计3天投稿≥1000播放≥10币", "task_id": "6ERAvwloghvyns00", "award": "180星声"},
+    {"version": "鸣潮3.8", "period": "上半", "type": "投稿", "name": "【第一期】累计7天投稿≥2000播放≥20币", "task_id": "6ERAvwloghvu5z00", "award": "300星声"},
+    {"version": "鸣潮3.8", "period": "上半", "type": "投稿", "name": "【第一期】累计14天投稿≥3000播放≥40币", "task_id": "6ERAvwloghvutd00", "award": "500星声"},
+    # ========== 视频赛道·第二期 ==========
+    {"version": "鸣潮3.8", "period": "下半", "type": "投稿", "name": "【第二期】累计1天投稿≥100播放", "task_id": "6ERAvwloghvy9h00", "award": "60星声"},
+    {"version": "鸣潮3.8", "period": "下半", "type": "投稿", "name": "【第二期】累计2天投稿≥300播放≥3币", "task_id": "6ERAvwloghvtbj00", "award": "120星声"},
+    {"version": "鸣潮3.8", "period": "下半", "type": "投稿", "name": "【第二期】累计3天投稿≥1000播放≥10币", "task_id": "6ERAvwloghvy6h00", "award": "180星声"},
+    {"version": "鸣潮3.8", "period": "下半", "type": "投稿", "name": "【第二期】累计7天投稿≥2000播放≥20币", "task_id": "6ERAvwloghvtbi00", "award": "300星声"},
+    {"version": "鸣潮3.8", "period": "下半", "type": "投稿", "name": "【第二期】累计14天投稿≥3000播放≥40币", "task_id": "6ERAvwloghviqd00", "award": "500星声"},
+    # ========== 通用 ==========
+    {"version": "鸣潮3.8", "period": "全版本", "type": "投稿", "name": "关注官号", "task_id": "6ERAvwloghvu5l00", "award": "20星声"},
+    # ========== 新人限定（5 档分档码）==========
+    {"version": "鸣潮3.8", "period": "新人限定", "type": "新人开播", "name": "累计1天开播", "task_id": "18ERA1wloghvmbe00", "award": "50星声"},
+    {"version": "鸣潮3.8", "period": "新人限定", "type": "新人开播", "name": "累计2天开播", "task_id": "18ERA1wloghv1gd00", "award": "80星声"},
+    {"version": "鸣潮3.8", "period": "新人限定", "type": "新人开播", "name": "累计3天开播", "task_id": "18ERA1wloghvmb100", "award": "120星声"},
+    {"version": "鸣潮3.8", "period": "新人限定", "type": "新人开播", "name": "累计7天开播", "task_id": "18ERA1wloghvmpn00", "award": "180星声"},
+    {"version": "鸣潮3.8", "period": "新人限定", "type": "新人开播", "name": "累计14天开播", "task_id": "18ERA1wloghv1i700", "award": "唤声涡纹*2"},
+    # ========== 每日任务·第一期 ==========
+    {"version": "鸣潮3.8", "period": "上半", "type": "直播", "name": "【第一期】开播时长60min", "task_id": "6ERAvwloghvt6y00", "award": "中级共鸣促剂*2"},
+    {"version": "鸣潮3.8", "period": "上半", "type": "直播", "name": "【第一期】开播时长120min", "task_id": "6ERAvwloghvylq00", "award": "中级能源核心*2"},
+    {"version": "鸣潮3.8", "period": "上半", "type": "直播", "name": "【第一期】直播间弹幕20条", "task_id": "6ERAvwloghvuu300", "award": "贝币*10000"},
+    {"version": "鸣潮3.8", "period": "上半", "type": "直播", "name": "【第一期】观看人数≥5人", "task_id": "6ERAvwloghvy1300", "award": "中级复苏吸雾*2"},
+    # ========== 每日任务·第二期 ==========
+    {"version": "鸣潮3.8", "period": "下半", "type": "直播", "name": "【第二期】开播时长60min", "task_id": "6ERAvwloghvt4g00", "award": "中级共鸣促剂*2"},
+    {"version": "鸣潮3.8", "period": "下半", "type": "直播", "name": "【第二期】开播时长120min", "task_id": "6ERAvwloghvt6t00", "award": "中级能源核心*2"},
+    {"version": "鸣潮3.8", "period": "下半", "type": "直播", "name": "【第二期】直播间弹幕20条", "task_id": "6ERAvwloghvyvz00", "award": "贝币*10000"},
+    {"version": "鸣潮3.8", "period": "下半", "type": "直播", "name": "【第二期】观看人数≥5人", "task_id": "6ERAvwloghvylv00", "award": "中级复苏吸雾*2"},
+    # ========== 累计每日任务·第一期（3 档分档码）==========
+    {"version": "鸣潮3.8", "period": "上半", "type": "直播里程碑", "name": "【第一期】累计完成每日任务3天", "task_id": "18ERA1wloghvm1f00", "award": "180星声"},
+    {"version": "鸣潮3.8", "period": "上半", "type": "直播里程碑", "name": "【第一期】累计完成每日任务5天", "task_id": "18ERA1wloghvmma00", "award": "300星声"},
+    {"version": "鸣潮3.8", "period": "上半", "type": "直播里程碑", "name": "【第一期】累计完成每日任务10天", "task_id": "18ERA1wloghvmtd00", "award": "唤声涡纹*3"},
+    # ========== 累计每日任务·第二期（3 档分档码）==========
+    {"version": "鸣潮3.8", "period": "下半", "type": "直播里程碑", "name": "【第二期】累计完成每日任务3天", "task_id": "18ERA1wloghvmfw00", "award": "180星声"},
+    {"version": "鸣潮3.8", "period": "下半", "type": "直播里程碑", "name": "【第二期】累计完成每日任务5天", "task_id": "18ERA1wloghvmhw00", "award": "300星声"},
+    {"version": "鸣潮3.8", "period": "下半", "type": "直播里程碑", "name": "【第二期】累计完成每日任务10天", "task_id": "18ERA1wloghvmm900", "award": "唤声涡纹*3"},
 
     # ===== 原神7.2 =====
     # act_id: 1ERAzwloghv3vb00（原神7.2UP主激励计划）
@@ -327,7 +333,7 @@ def get_manual_task(task_id):
 
 # 版本默认act_id（同一版本的所有任务共享同一个act_id）
 VERSION_DEFAULT_ACT_ID = {
-    "鸣潮3.7": "1ERAzwloghv32n00",
+    "鸣潮3.8": "1ERAzwloghv5wv00",
     "原神7.2": "1ERAzwloghv3vb00",
     "崩坏星穹铁道4.7": "1ERAxwloghvmpq00",
     "绝区零3.3": "1ERAzwloghv2ai00",
