@@ -1516,9 +1516,69 @@ class RushRewardFrame(NewModeMixin, ScheduledMixin, ManualTaskMixin, tk.Frame):
             except Exception:
                 nb2 = None
 
+            # v6.7.40 修复：所有标签页统一包一层可滚动容器。
+            # 用户反馈「库存窗口分析栏内数据无法拖动」——
+            # 原实现把 f5 直接塞进 Notebook，内容超出后无法滚动查看后面部分。
+            # 这里在 add_tab 内部自动包 Canvas+Scrollbar，5 个标签页全部受益。
+            def _wrap_scrollable(outer):
+                """把一个 Frame 包成可垂直滚动的容器，返回内部实际可放的 Frame。"""
+                _canvas = tk.Canvas(outer, bg=COLORS["bg_card"],
+                                    highlightthickness=0, bd=0)
+                _vsb = ttk.Scrollbar(outer, orient="vertical", command=_canvas.yview)
+                _canvas.configure(yscrollcommand=_vsb.set)
+                _vsb.pack(side=tk.RIGHT, fill=tk.Y)
+                _canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+                _inner = tk.Frame(_canvas, bg=COLORS["bg_card"])
+                _win = _canvas.create_window((0, 0), window=_inner, anchor="nw")
+
+                def _on_inner_config(_e=None):
+                    try:
+                        _canvas.configure(scrollregion=_canvas.bbox("all"))
+                    except Exception:
+                        pass
+
+                def _on_canvas_config(_e):
+                    try:
+                        _canvas.itemconfigure(_win, width=_e.width)
+                    except Exception:
+                        pass
+
+                _inner.bind("<Configure>", _on_inner_config)
+                _canvas.bind("<Configure>", _on_canvas_config)
+
+                # 鼠标滚轮支持（Windows）
+                def _on_wheel(event):
+                    try:
+                        _canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                    except Exception:
+                        pass
+
+                def _bind_wheel(_e=None):
+                    try:
+                        _canvas.bind_all("<MouseWheel>", _on_wheel)
+                    except Exception:
+                        pass
+
+                def _unbind_wheel(_e=None):
+                    try:
+                        _canvas.unbind_all("<MouseWheel>")
+                    except Exception:
+                        pass
+
+                _canvas.bind("<Enter>", _bind_wheel)
+                _canvas.bind("<Leave>", _unbind_wheel)
+                return _inner
+
             def add_tab(frame, text):
+                """添加标签页（v6.7.40：自动包滚动容器）。"""
                 if nb2 is not None:
-                    nb2.add(frame, text=text)
+                    _holder = tk.Frame(nb2, bg=COLORS["bg_card"])
+                    _target = _wrap_scrollable(_holder)
+                    # 把原 frame 的内容搬进可滚动区
+                    frame.master = _target   # 兼容旧引用
+                    frame.pack(in_=_target, fill=tk.BOTH, expand=True)
+                    nb2.add(_holder, text=text)
                 else:
                     frame.pack(fill=tk.BOTH, expand=True)
 

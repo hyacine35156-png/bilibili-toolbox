@@ -2261,10 +2261,31 @@ class NewModeMixin:
             PREWARM_LEAD = 5.0
             PROBE_AT = target_timestamp - 2.3   # 探针启动时刻
             prewarm_time = target_timestamp - PREWARM_LEAD
+            # v6.7.40 修复：简化倒计时日志，避免每 10 秒刷屏。
+            # 用户反馈：「不管还剩多少秒，他都会每 10 秒报一次」。
+            # 原实现：int(remaining) % 10 == 0 → 全程每 10 秒一次，
+            #         距目标 5 分钟时报 30 次，日志被淹没。
+            # 新策略（按「距目标远近」分档，越近越密）：
+            #   剩余 > 300 秒  : 每 60 秒一次（5 分钟才 5 条）
+            #   剩余 60~300 秒 : 每 30 秒一次
+            #   剩余 < 60 秒   : 每 10 秒一次（关键期，需要精确感）
+            _last_countdown_bucket = None
             while time.time() < prewarm_time and not stop_flag["stop"]:
                 remaining = target_timestamp - time.time()
-                if int(remaining) % 10 == 0 and int(remaining) > 0:
-                    self.nm_log(f"  还剩 {int(remaining)} 秒...")
+                if remaining > 0:
+                    if remaining > 300:
+                        _step = 60
+                    elif remaining > 60:
+                        _step = 30
+                    else:
+                        _step = 10
+                    _bucket = int(remaining) // _step
+                    if _bucket != _last_countdown_bucket:
+                        _last_countdown_bucket = _bucket
+                        # 只在整档边界输出（避免同一档重复打印）
+                        _show = _bucket * _step + _step
+                        if _show <= 600:   # 超过 10 分钟不再逐个报，只在开始时提示
+                            self.nm_log(f"  还剩 {_show} 秒...")
                 time.sleep(0.5)
 
             if stop_flag["stop"]:
@@ -2886,8 +2907,11 @@ class NewModeMixin:
         rtt, valid, total, _psamples = self.nm_probe_rtt_with_samples(
             task, session, samples=2,
             deadline_ts=target_timestamp - 0.5)
-        # v6.5.6: 记录原始样本供 RTT抖动 指标使用
-        _psamples = []  # 缓存/历史路径没有原始样本
+        # v6.7.40 修复：原代码在这里加了一行 `_psamples = []`，
+        # 把 nm_probe_rtt_with_samples 刚返回的样本清空了，
+        # 导致 probe_samples 永远是空字符串、RTT抖动指标永远「未采集」。
+        # 缓存/历史路径在上面已经各自 return 了空列表，不会走到这里，
+        # 所以这行是错误的，必须删除。
         if rtt and rtt > 20:
             self._RTT_CACHE["rtt"] = rtt
             self._RTT_CACHE["ts"] = now
