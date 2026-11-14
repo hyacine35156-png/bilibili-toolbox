@@ -1263,15 +1263,27 @@ def grade_spin(err_ms):
 
 
 def grade_probe(valid, total):
-    """探针有效性分级。"""
+    """探针有效性分级（v6.7.41 修复：改为按【有效率】而非绝对数量）。
+
+    原实现用绝对数量判定（valid>=4 才满分），但探针固定只采样 2 次
+    （_nm_probe_smart 里 samples=2），导致 2/2（100%成功）永远只得 45 分
+    「偏低」、1/1 永远 0 分「失效」——满分成不可能。
+
+    现改为按有效率判定，与采样次数解耦：
+      ≥90% → 100 分
+      ≥70% → 75 分
+      ≥50% → 45 分
+      <50% → 0 分
+    """
     if not total:
         return 0, "无数据", "muted"
     ratio = valid / total
-    if valid >= 4:
+    pct = ratio * 100.0
+    if ratio >= 0.9:
         return 100, f"{valid}/{total} 良好", "ok"
-    if valid == 3:
+    if ratio >= 0.7:
         return 75, f"{valid}/{total} 偏低", "mid"
-    if valid == 2:
+    if ratio >= 0.5:
         return 45, f"{valid}/{total} 偏低", "bad"
     return 0, f"{valid}/{total} 失效", "bad"
 
@@ -1697,7 +1709,14 @@ def metrics_all(d):
     else:
         add("B.网络质量", "首发RTT", "无数据", None, "未采集", "muted", "需抢码一次")
 
-    # B2 预热成效（首发RTT / 探针RTT，应<=1.3 说明连接复用了）
+    # B2 预热成效（v6.7.41 改为【纯展示，不评分】）
+    # 原实现用「首发RTT / 探针RTT」比值判定预热好坏，但两者口径不同：
+    #   首发RTT = latency_ms    = 完整领取请求往返（含服务端执行领奖逻辑）
+    #   探针RTT = probe_rtt_med = 只读查询接口的网络RTT
+    # 领取接口本身就比查询接口慢，所以比值 >1 是正常的。
+    # 实测同一程序：11-14 比值 2.00x（判"预热失效"），
+    #              11-15 比值 0.77x（判"复用成功"），预热逻辑根本没变。
+    # 该比值无法区分「网络波动」和「预热好坏」，故改为仅供参考、不参与评分。
     prm = [float(r.get("probe_rtt_med") or 0) for r in firsts
            if r.get("probe_rtt_med")]
     if frt and prm:
@@ -1705,40 +1724,35 @@ def metrics_all(d):
         p = _median(prm)
         if p > 0:
             ratio = f / p
-            if ratio <= 1.3:
-                sc, cl, nm = 100, "ok", "复用成功"
-            elif ratio <= 2.0:
-                sc, cl, nm = 60, "mid", "部分复用"
-            else:
-                sc, cl, nm = 20, "bad", "预热失效"
-            add("B.网络质量", "预热成效", f"{ratio:.2f}x", sc, nm, cl,
-                f"首发{f:.0f}ms / 探针{p:.0f}ms，≤1.3 说明连接已复用")
+            add("B.网络质量", "预热成效", f"{ratio:.2f}x", None, "仅供参考", "muted",
+                f"首发{f:.0f}ms / 探针{p:.0f}ms。两者口径不同（领取含服务端处理），"
+                f"比值仅作参考，不用于判断预热质量")
         else:
             add("B.网络质量", "预热成效", "无数据", None, "未采集", "muted",
                 "探针RTT为0")
     else:
         add("B.网络质量", "预热成效", "无数据", None, "未采集", "muted", "需抢码一次")
 
-    # B3 RTT 抖动（探针样本 P75-P25）
+    # B3 RTT 抖动（v6.7.41 改为【平均数 + 纯展示，不评分】）
+    # 原实现要求「探针样本≥3个」才计算 P75-P25，但探针固定只采样 2 次
+    # （_nm_probe_smart 里 samples=2），条件永远不满足 → 指标永远「无数据」。
+    # 且 2 个样本算 P75-P25 数学上等于极差，没有统计意义。
+    # 现改为：用两次采样的绝对差（|RTT1-RTT2|）作为抖动幅度，取各场中位数。
+    # 仅供参考，不参与评分（2 个样本确实算不出可靠的分位数）。
     jit = []
     for r in recs:
         s = _parse_probe_samples(r.get("probe_samples"))
-        if len(s) >= 3:
-            s.sort()
-            jit.append(s[int(len(s) * 0.75)] - s[int(len(s) * 0.25)])
+        if len(s) >= 2:
+            # 2 个样本：绝对差作为抖动；≥3 个：仍可用极差
+            jit.append(max(s) - min(s))
     if jit:
         m = _median(jit)
-        if m < 50:
-            sc, cl, nm = 100, "ok", "稳定"
-        elif m < 150:
-            sc, cl, nm = 70, "mid", "一般"
-        else:
-            sc, cl, nm = 30, "bad", "波动大"
-        add("B.网络质量", "RTT抖动", f"{m:.0f}ms", sc, nm, cl,
-            "P75-P25，波动越小说明网络越稳")
+        add("B.网络质量", "RTT抖动", f"{m:.0f}ms", None, "仅供参考", "muted",
+            f"两次探针采样的最大差值（中位）。样本数 {len(jit)} 场。"
+            "仅作网络稳定性参考，样本少误差大，不用于评分")
     else:
         add("B.网络质量", "RTT抖动", "无数据", None, "未采集", "muted",
-            "需探针样本≥3个")
+            "需至少 2 个探针样本")
 
     # B4 探针有效性（参与评分 12）
     pv = [r for r in recs if r.get("probe_total")]
@@ -1771,7 +1785,8 @@ def metrics_all(d):
         fn = sum(1 for s in sessions.values() if s["first_ok"])
         an = sum(1 for s in sessions.values() if s["any_ok"])
         rate = fn / n * 100
-        sc = min(100, rate / 30 * 100)
+        # v6.7.41 修复：原代码没取整，导致显示 21.276 / 66.666 这种小数
+        sc = round(min(100.0, rate / 30 * 100))
         nm = ("优秀" if rate >= 30 else "良好" if rate >= 10
               else "偏低" if rate > 0 else "未命中")
         add("C.请求效率", "首发命中率", f"{rate:.0f}% ({fn}/{n}场)", sc, nm,
