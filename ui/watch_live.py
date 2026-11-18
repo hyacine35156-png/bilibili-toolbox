@@ -2760,6 +2760,49 @@ class WatchLiveFrame(tk.Frame):
         except Exception:
             return {}
 
+
+    def _check_gift_api(self, account):
+        """探测送礼接口是否仍然可用（v6.7.42 新增）。
+
+        背景：B站 2026-11 已下线 /gift/v2/live/send，任何参数都固定返回
+        {"code":-400,"msg":"当前版本不支持送礼，请升级到最新版本"}。
+
+        本方法用「极小代价」的探测判断接口是否还能用：
+          · 发一个必然失败的请求（gift_id=0），不会产生任何真实消费
+          · 若返回 -400 → 接口已废弃，返回 False
+          · 若返回其他错误码（如 200014 参数错误 / 200013 余额不足）
+            说明接口本身work，返回 True
+
+        返回 True=接口可用 / False=接口已废弃或网络异常。
+        """
+        try:
+            cookies = {
+                "SESSDATA": account.get("SESSDATA", ""),
+                "bili_jct": account.get("bili_jct", ""),
+            }
+            headers = {
+                "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                               "AppleWebKit/537.36"),
+                "Referer": "https://live.bilibili.com/",
+                "Origin": "https://live.bilibili.com",
+            }
+            # gift_id=0 必然被服务端拒绝，不会产生真实送礼
+            resp = requests.post(
+                "https://api.live.bilibili.com/gift/v2/live/send",
+                data={"gift_id": 0, "csrf": account.get("bili_jct", "")},
+                cookies=cookies, headers=headers, timeout=8)
+            j = resp.json()
+            code = j.get("code")
+            msg = str(j.get("msg") or j.get("message") or "")
+            if code == -400 or "当前版本不支持" in msg:
+                self.log("  [探测] 送礼接口已废弃（B站返回 -400 版本不支持）")
+                return False
+            self.log(f"  [探测] 送礼接口可用（返回码 {code}，说明接口本身正常）")
+            return True
+        except Exception as e:
+            self.log(f"  [探测] 送礼接口探测异常: {e}")
+            return False
+
     def send_gift(self, account, room_id, gift_id, gift_num):
         """发送礼物（直接用电池购买送出）"""
         try:
@@ -2798,7 +2841,7 @@ class WatchLiveFrame(tk.Frame):
             result = resp.json()
             code = result.get("code", -1)
             msg = result.get("message", "") or result.get("msg", "")
-            # 错误码中文说明
+            # 错误码中文说明（v6.7.42：补齐 -400 等致命错误码）
             error_map = {
                 200007: "该房间不支持投喂该礼物",
                 200010: "该礼物仅限从包裹中送出",
@@ -2807,6 +2850,10 @@ class WatchLiveFrame(tk.Frame):
                 200036: "该道具不能在这个房间投喂",
                 75255: "库存已经使用完",
                 -401: "请先登录（cookies失效）",
+                # v6.7.42: B站已废弃 /gift/v2/live/send 接口
+                -400: ("❌ B站已下线该送礼接口（v2 已废弃）—— 这不是本程序的 bug，"
+                       "需要 B站重新开放或改用新的送礼通道"),
+                65530: "请求被拒绝（接口参数不匹配，可能接口已变更）",
             }
             if code == 0:
                 return True, "送礼成功"
@@ -2817,7 +2864,7 @@ class WatchLiveFrame(tk.Frame):
             return False, f"网络异常: {e}"
 
     def start_gift(self):
-        """开始送礼"""
+        """开始送礼（v6.7.42：启动前先检查接口是否可用）"""
         # 防重复调用
         if self.gift_running:
             self.log("⚠ 送礼任务已在运行中，请勿重复点击")
@@ -2857,6 +2904,24 @@ class WatchLiveFrame(tk.Frame):
         if not confirm:
             self.log("⏹ 已取消送礼操作")
             return
+
+        # v6.7.42: 送礼前先探测接口是否可用（结果缓存，只查一次）
+        # B站 2026-11 已下线 /gift/v2/live/send，实测固定返回 -400。
+        # 与其让用户等到提示才发现不可用，不如点击时就明确告知。
+        if getattr(self, "_gift_api_ok", None) is None:
+            self._gift_api_ok = self._check_gift_api(selected_accounts[0])
+        if not self._gift_api_ok:
+            messagebox.showwarning(
+                "送礼功能不可用",
+                "B站已下线当前的送礼接口（/gift/v2/live/send 固定返回 -400）。\n\n"
+                "这不是本程序的问题，也不是账户/余额/礼物的问题——\n"
+                "是 B站服务端不再接受这个接口。\n\n"
+                "在 B站重新开放或程序适配新接口之前，送礼功能无法使用。\n"
+                "看播、抢码、弹幕等功能不受影响。",
+                parent=self.winfo_toplevel())
+            self.log("✗ 送礼接口不可用（B站已下线 v2 接口），已取消本次操作")
+            return
+
         self.save_gift_config()
         self.gift_running = True
         self.gift_start_btn.config(state=tk.DISABLED)
@@ -2892,6 +2957,12 @@ class WatchLiveFrame(tk.Frame):
                     # P1-D/P1-10: 余额不足时立即停止该账户送礼，避免无效重试
                     if "余额不足" in msg or "200013" in msg or "电池不够" in msg:
                         self.log(f"  [{name}] ⚠ 电池余额不足，停止该账户送礼")
+                        break
+                    # v6.7.42: 致命错误立即停止，不再无意义重试
+                    # -400 = 接口已废弃；65530 = 接口参数变更；-401 = 未登录
+                    # 这三类错误重试多少次都一样，继续重试只会刷屏 + 消耗风控额度
+                    if "-400" in msg or "65530" in msg or "-401" in msg:
+                        self.log(f"  [{name}] ⚠ 遇到不可恢复错误，停止该账户送礼（重试无意义）")
                         break
                 # 等待间隔
                 for _ in range(int(interval * 10)):
