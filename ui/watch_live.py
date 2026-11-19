@@ -2794,28 +2794,23 @@ class WatchLiveFrame(tk.Frame):
             j = resp.json()
             code = j.get("code")
             msg = str(j.get("msg") or j.get("message") or "")
-            self.log(f"  [探测] HTTP={resp.status_code} code={code} msg={msg[:60]}")
-            self.log(f"  [探测] 原始响应: {resp.text[:300]}")
-            # v6.7.44: 新接口下，-400=参数错误（正常，因为我们只传了 gift_id=0），
-            # -111=csrf失败（异常），404/405=接口不存在（异常）
             if code in (404, 405):
-                self.log("  [探测] ✗ 送礼接口不存在（404/405）")
+                self.log("  [探测] ✗ 送礼接口不存在")
                 return False
             if code == -111:
                 self.log("  [探测] ✗ csrf 校验失败，bili_jct 可能无效")
                 return False
-            self.log(f"  [探测] ✓ 送礼接口可用（返回码 {code}，接口本身正常）")
             return True
         except Exception as e:
             self.log(f"  [探测] 送礼接口探测异常: {e}")
             return False
 
     def send_gift(self, account, room_id, gift_id, gift_num):
-        """发送礼物（直接用电池购买送出）
+        """发送礼物（直接用电池购买送出）。
 
-        v6.7.43：加入完整请求/响应日志，便于实测排查。
-        日志包含：完整请求参数、响应状态码、原始响应体、耗时。
-        隐私处理：SESSDATA/bili_jct 只打印前6位+长度，不泄露完整凭证。
+        v6.7.46：日志简化。
+        成功：1 行（礼物 / 消费 / 余额）
+        失败：1 行（错误码 + 原因），需要排查时看文件日志
         """
         try:
             name = account.get("name", "未知")
@@ -2823,14 +2818,9 @@ class WatchLiveFrame(tk.Frame):
             bili_jct = account.get("bili_jct", "")
             uid = account.get("uid", "") or account.get("DedeUserID", "")
             cookies = {"SESSDATA": sessdata, "bili_jct": bili_jct}
-            # 获取直播间ruid
             room_info = self.get_room_info(room_id, account)
             ruid = room_info.get("uid", "")
-            # 送礼接口（直接用电池送，不是背包送礼）
-            # v6.7.44 关键修复：B站已废弃 /gift/v2/live/send（固定返回 -400），
-            # 新接口为 /xlive/revenue/v1/gift/sendGold。
-            # 实测验证：用同样参数调用新接口返回 code=0 OK，送礼成功。
-            # 参数结构与旧接口完全一致，仅 URL 变更。
+            # B站新送礼接口（旧 /gift/v2/live/send 已废弃，固定返回 -400）
             url = "https://api.live.bilibili.com/xlive/revenue/v1/gift/sendGold"
             data = {
                 "uid": uid,
@@ -2853,83 +2843,40 @@ class WatchLiveFrame(tk.Frame):
                 "Referer": f"https://live.bilibili.com/{room_id}",
                 "Origin": "https://live.bilibili.com",
             }
-            # ===== v6.7.43：完整请求日志（便于实测排查）=====
-            _sd_mask = (sessdata[:6] + "…" + str(len(sessdata)) + "字符") if sessdata else "(空)"
-            _jct_mask = (bili_jct[:6] + "…" + str(len(bili_jct)) + "字符") if bili_jct else "(空)"
-            self.log(f"  [{name}] ┌─ 送礼请求 ──────────────────────")
-            self.log(f"  [{name}] │ URL     : {url}")
-            self.log(f"  [{name}] │ 方法    : POST (application/x-www-form-urlencoded)")
-            self.log(f"  [{name}] │ uid     : {uid}")
-            self.log(f"  [{name}] │ ruid    : {ruid} (=房主UID, 来自room_info)")
-            self.log(f"  [{name}] │ gift_id : {gift_id}   gift_num: {gift_num}")
-            self.log(f"  [{name}] │ biz_id  : {room_id} (=直播间号)")
-            self.log(f"  [{name}] │ price   : 100  coin_type: gold")
-            self.log(f"  [{name}] │ SESSDATA: {_sd_mask}")
-            self.log(f"  [{name}] │ bili_jct: {_jct_mask}")
-            self.log(f"  [{name}] │ 完整参数: {data}")
-            self.log(f"  [{name}] │ 完整请求头: {headers}")
-            self.log(f"  [{name}] └────────────────────────────────")
-
-            _t0 = time.time()
             resp = requests.post(url, data=data, cookies=cookies, headers=headers, timeout=10)
-            _elapsed = (time.time() - _t0) * 1000
 
-            # ===== v6.7.45：响应日志（成功时简洁，失败时详细）=====
             try:
                 result = resp.json()
-            except Exception as _je:
-                self.log(f"  [{name}] │ HTTP={resp.status_code} 耗时={_elapsed:.0f}ms")
-                self.log(f"  [{name}] │ ✗ 响应不是JSON: {_je}")
-                self.log(f"  [{name}] │ 原始内容: {resp.text[:300]}")
-                return False, f"响应解析失败(HTTP {resp.status_code}): {resp.text[:120]}"
+            except Exception:
+                return False, f"响应解析失败(HTTP {resp.status_code})"
 
             code = result.get("code", -1)
             msg = result.get("message", "") or result.get("msg", "")
             _data = result.get("data") or {}
-            self.log(f"  [{name}] │ code={code}  message={msg}  HTTP={resp.status_code}  耗时={_elapsed:.0f}ms")
 
             if code == 0:
-                # 成功：只打印关键消费信息，不刷屏
                 _pay = _data.get("pay_coin", 0)
-                _total = _data.get("total_coin", 0)
                 _glist = _data.get("gift_list") or []
-                _gname = ""
-                _wallet = {}
-                if _glist:
-                    _gname = _glist[0].get("gift_name", "")
-                    _wallet = ((_glist[0].get("extra") or {}).get("wallet") or {})
-                self.log(f"  [{name}] │ ✓ 送礼成功: {_gname or '礼物'} x{gift_num}")
-                self.log(f"  [{name}] │ 本次消费: {_pay} 电池   (礼物原价 {_total})")
-                if _wallet:
-                    _gold = _wallet.get("gold", 0)
-                    _silver = _wallet.get("silver", 0)
-                    self.log(f"  [{name}] │ 剩余余额: 金电池 {_gold} / 银瓜子 {_silver}")
-                self.log(f"  [{name}] └────────────────────────────────")
-                return True, f"送礼成功 ({_pay}电池)"
+                _gname = _glist[0].get("gift_name", "礼物") if _glist else "礼物"
+                _wallet = ((_glist[0].get("extra") or {}).get("wallet") or {}) if _glist else {}
+                _gold = _wallet.get("gold")
+                if _gold is not None:
+                    return True, f"{_gname}x{gift_num} 消费{_pay}电池 余额{_gold}"
+                return True, f"{_gname}x{gift_num} 消费{_pay}电池"
 
-            # 失败：打印完整响应便于排查
-            self.log(f"  [{name}] │ 响应头  : {dict(resp.headers)}")
-            self.log(f"  [{name}] │ 原始响应: {resp.text[:800]}")
-            self.log(f"  [{name}] └────────────────────────────────")
-            # 错误码中文说明（v6.7.42：补齐 -400 等致命错误码）
             error_map = {
-                200007: "该房间不支持投喂该礼物",
-                200010: "该礼物仅限从包裹中送出",
-                200013: "余额不足（电池不够）",
+                200007: "房间不支持该礼物",
+                200010: "该礼物仅限背包送出",
+                200013: "余额不足",
                 200014: "参数错误",
-                200036: "该道具不能在这个房间投喂",
-                75255: "库存已经使用完",
-                -401: "请先登录（cookies失效）",
-                # v6.7.44: 已切换到新接口，-400 含义变为「参数错误」
-                -400: "请求参数错误（送礼接口拒绝，检查参数是否完整）",
-                -111: "csrf 校验失败（bili_jct 无效或缺失）",
-                65530: "请求被拒绝（接口参数不匹配，可能接口已变更）",
+                200036: "该道具不能在此房间投喂",
+                75255: "库存已用完",
+                -401: "未登录(cookies失效)",
+                -400: "请求参数错误",
+                -111: "csrf校验失败",
+                65530: "请求被拒绝(接口变更)",
             }
-            if code == 0:
-                return True, "送礼成功"
-            else:
-                detail = error_map.get(code, msg)
-                return False, f"[{code}] {detail}"
+            return False, f"[{code}] {error_map.get(code, msg)}"
         except Exception as e:
             return False, f"网络异常: {e}"
 
@@ -3004,17 +2951,8 @@ class WatchLiveFrame(tk.Frame):
         self.gift_running = True
         self.gift_start_btn.config(state=tk.DISABLED)
         self.gift_stop_btn.config(state=tk.NORMAL)
-        # v6.7.43: 启动时打印完整环境信息，便于对照排查
-        self.log("=" * 60)
-        self.log("▶ 开始送礼（v6.7.43 详细日志模式）")
-        self.log(f"  直播间ID  : {room_id}")
-        self.log(f"  礼物      : 牛蛙牛蛙  gift_num={gift_num}")
-        self.log(f"  间隔      : {interval} 秒")
-        self.log(f"  次数      : {max_count}")
-        self.log(f"  参与账户  : {[a.get('name') for a in selected_accounts]}")
-        self.log(f"  程序版本  : {getattr(__import__('config'), 'APP_VERSION', '?')}")
-        self.log(f"  送礼接口  : https://api.live.bilibili.com/xlive/revenue/v1/gift/sendGold")
-        self.log("=" * 60)
+        self.log(f"▶ 开始送礼: 房间{room_id} 牛蛙牛蛙x{gift_num} 间隔{interval}s 共{max_count}次")
+        self.log(f"  参与账户: {[a.get('name') for a in selected_accounts]}")
         # 为每个账户启动独立线程
         for acc in selected_accounts:
             name = acc.get("name", "未知")
@@ -3071,50 +3009,6 @@ class WatchLiveFrame(tk.Frame):
         self.gift_start_btn.config(state=tk.NORMAL)
         self.gift_stop_btn.config(state=tk.DISABLED)
         self.log("✓ 所有账户送礼已结束")
-        # v6.7.43: 测试期间自动把送礼相关日志单独导出，方便排查
-        try:
-            self._export_gift_log()
-        except Exception as _e:
-            self.log(f"  ⚠ 导出送礼日志失败: {_e}")
-
-    def _export_gift_log(self):
-        """把今天的送礼相关日志单独导出到一个 txt（v6.7.43 新增）。
-
-        用途：你实测送礼后，直接把这个文件发给我，我就能看到
-        完整请求参数 + 原始响应，无需你再手工复制日志。
-        """
-        import logging_util
-        from config import LOG_DIR
-        try:
-            today = time.strftime("%Y%m%d")
-            src_file = LOG_DIR / f"watch_live_{today}.log"
-            if not src_file.exists():
-                self.log("  [导出] 未找到今日日志文件")
-                return
-            lines = src_file.read_text(encoding="utf-8", errors="replace").splitlines()
-            # 只保留送礼相关的行（含关键词）
-            KEYS = ("送礼", "gift", "Gift", "探测", "┌─", "│", "└─",
-                    "牛蛙", "电池", "余额", "接口")
-            picked = [ln for ln in lines if any(k in ln for k in KEYS)]
-            # 只取今天最后一段（本次运行）
-            if len(picked) > 300:
-                picked = picked[-300:]
-            out_dir = BASE_DIR / "gift_logs"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            out_file = out_dir / f"送礼测试_{time.strftime('%Y%m%d_%H%M%S')}.txt"
-            header = [
-                "=" * 70,
-                "B站工具箱 送礼测试日志",
-                f"导出时间: {time.strftime('%Y-%m-%d %H:%M:%S')}",
-                f"程序版本: {getattr(__import__('config'), 'APP_VERSION', '?')}",
-                "=" * 70,
-                "",
-            ]
-            out_file.write_text(chr(10).join(header + picked), encoding="utf-8")
-            self.log(f"  [导出] ✓ 送礼日志已导出: {out_file}")
-            self.log(f"  [导出]   共 {len(picked)} 行，可直接发给开发者分析")
-        except Exception as e:
-            self.log(f"  [导出] 失败: {e}")
 
     def stop_gift(self):
         """停止送礼"""
