@@ -2788,7 +2788,7 @@ class WatchLiveFrame(tk.Frame):
             }
             # gift_id=0 必然被服务端拒绝，不会产生真实送礼
             resp = requests.post(
-                "https://api.live.bilibili.com/gift/v2/live/send",
+                "https://api.live.bilibili.com/xlive/revenue/v1/gift/sendGold",
                 data={"gift_id": 0, "csrf": account.get("bili_jct", "")},
                 cookies=cookies, headers=headers, timeout=8)
             j = resp.json()
@@ -2796,10 +2796,15 @@ class WatchLiveFrame(tk.Frame):
             msg = str(j.get("msg") or j.get("message") or "")
             self.log(f"  [探测] HTTP={resp.status_code} code={code} msg={msg[:60]}")
             self.log(f"  [探测] 原始响应: {resp.text[:300]}")
-            if code == -400 or "当前版本不支持" in msg:
-                self.log("  [探测] ✗ 送礼接口已废弃（B站返回 -400 版本不支持）")
+            # v6.7.44: 新接口下，-400=参数错误（正常，因为我们只传了 gift_id=0），
+            # -111=csrf失败（异常），404/405=接口不存在（异常）
+            if code in (404, 405):
+                self.log("  [探测] ✗ 送礼接口不存在（404/405）")
                 return False
-            self.log(f"  [探测] ✓ 送礼接口可用（返回码 {code}，说明接口本身正常）")
+            if code == -111:
+                self.log("  [探测] ✗ csrf 校验失败，bili_jct 可能无效")
+                return False
+            self.log(f"  [探测] ✓ 送礼接口可用（返回码 {code}，接口本身正常）")
             return True
         except Exception as e:
             self.log(f"  [探测] 送礼接口探测异常: {e}")
@@ -2822,7 +2827,11 @@ class WatchLiveFrame(tk.Frame):
             room_info = self.get_room_info(room_id, account)
             ruid = room_info.get("uid", "")
             # 送礼接口（直接用电池送，不是背包送礼）
-            url = "https://api.live.bilibili.com/gift/v2/live/send"
+            # v6.7.44 关键修复：B站已废弃 /gift/v2/live/send（固定返回 -400），
+            # 新接口为 /xlive/revenue/v1/gift/sendGold。
+            # 实测验证：用同样参数调用新接口返回 code=0 OK，送礼成功。
+            # 参数结构与旧接口完全一致，仅 URL 变更。
+            url = "https://api.live.bilibili.com/xlive/revenue/v1/gift/sendGold"
             data = {
                 "uid": uid,
                 "gift_id": gift_id,
@@ -2893,9 +2902,9 @@ class WatchLiveFrame(tk.Frame):
                 200036: "该道具不能在这个房间投喂",
                 75255: "库存已经使用完",
                 -401: "请先登录（cookies失效）",
-                # v6.7.42: B站已废弃 /gift/v2/live/send 接口
-                -400: ("❌ B站已下线该送礼接口（v2 已废弃）—— 这不是本程序的 bug，"
-                       "需要 B站重新开放或改用新的送礼通道"),
+                # v6.7.44: 已切换到新接口，-400 含义变为「参数错误」
+                -400: "请求参数错误（送礼接口拒绝，检查参数是否完整）",
+                -111: "csrf 校验失败（bili_jct 无效或缺失）",
                 65530: "请求被拒绝（接口参数不匹配，可能接口已变更）",
             }
             if code == 0:
@@ -2962,7 +2971,7 @@ class WatchLiveFrame(tk.Frame):
                 "送礼接口探测异常",
                 "探测结果显示送礼接口返回 -400（B站提示版本不支持）。\n\n"
                 "可能原因：\n"
-                "  · B站确实下线了 /gift/v2/live/send  或\n"
+                "  · 接口参数不匹配  或\n"
                 "  · 参数/签名不匹配  或\n"
                 "  · 账户/房间权限限制\n\n"
                 "是否仍然继续发送？（建议继续，本次会记录完整请求和响应日志，\n"
@@ -2986,7 +2995,7 @@ class WatchLiveFrame(tk.Frame):
         self.log(f"  次数      : {max_count}")
         self.log(f"  参与账户  : {[a.get('name') for a in selected_accounts]}")
         self.log(f"  程序版本  : {getattr(__import__('config'), 'APP_VERSION', '?')}")
-        self.log(f"  送礼接口  : https://api.live.bilibili.com/gift/v2/live/send")
+        self.log(f"  送礼接口  : https://api.live.bilibili.com/xlive/revenue/v1/gift/sendGold")
         self.log("=" * 60)
         # 为每个账户启动独立线程
         for acc in selected_accounts:
