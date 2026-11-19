@@ -2794,17 +2794,24 @@ class WatchLiveFrame(tk.Frame):
             j = resp.json()
             code = j.get("code")
             msg = str(j.get("msg") or j.get("message") or "")
+            self.log(f"  [探测] HTTP={resp.status_code} code={code} msg={msg[:60]}")
+            self.log(f"  [探测] 原始响应: {resp.text[:300]}")
             if code == -400 or "当前版本不支持" in msg:
-                self.log("  [探测] 送礼接口已废弃（B站返回 -400 版本不支持）")
+                self.log("  [探测] ✗ 送礼接口已废弃（B站返回 -400 版本不支持）")
                 return False
-            self.log(f"  [探测] 送礼接口可用（返回码 {code}，说明接口本身正常）")
+            self.log(f"  [探测] ✓ 送礼接口可用（返回码 {code}，说明接口本身正常）")
             return True
         except Exception as e:
             self.log(f"  [探测] 送礼接口探测异常: {e}")
             return False
 
     def send_gift(self, account, room_id, gift_id, gift_num):
-        """发送礼物（直接用电池购买送出）"""
+        """发送礼物（直接用电池购买送出）
+
+        v6.7.43：加入完整请求/响应日志，便于实测排查。
+        日志包含：完整请求参数、响应状态码、原始响应体、耗时。
+        隐私处理：SESSDATA/bili_jct 只打印前6位+长度，不泄露完整凭证。
+        """
         try:
             name = account.get("name", "未知")
             sessdata = account.get("SESSDATA", "")
@@ -2837,10 +2844,46 @@ class WatchLiveFrame(tk.Frame):
                 "Referer": f"https://live.bilibili.com/{room_id}",
                 "Origin": "https://live.bilibili.com",
             }
+            # ===== v6.7.43：完整请求日志（便于实测排查）=====
+            _sd_mask = (sessdata[:6] + "…" + str(len(sessdata)) + "字符") if sessdata else "(空)"
+            _jct_mask = (bili_jct[:6] + "…" + str(len(bili_jct)) + "字符") if bili_jct else "(空)"
+            self.log(f"  [{name}] ┌─ 送礼请求 ──────────────────────")
+            self.log(f"  [{name}] │ URL     : {url}")
+            self.log(f"  [{name}] │ 方法    : POST (application/x-www-form-urlencoded)")
+            self.log(f"  [{name}] │ uid     : {uid}")
+            self.log(f"  [{name}] │ ruid    : {ruid} (=房主UID, 来自room_info)")
+            self.log(f"  [{name}] │ gift_id : {gift_id}   gift_num: {gift_num}")
+            self.log(f"  [{name}] │ biz_id  : {room_id} (=直播间号)")
+            self.log(f"  [{name}] │ price   : 100  coin_type: gold")
+            self.log(f"  [{name}] │ SESSDATA: {_sd_mask}")
+            self.log(f"  [{name}] │ bili_jct: {_jct_mask}")
+            self.log(f"  [{name}] │ 完整参数: {data}")
+            self.log(f"  [{name}] │ 完整请求头: {headers}")
+            self.log(f"  [{name}] └────────────────────────────────")
+
+            _t0 = time.time()
             resp = requests.post(url, data=data, cookies=cookies, headers=headers, timeout=10)
-            result = resp.json()
+            _elapsed = (time.time() - _t0) * 1000
+
+            # ===== v6.7.43：完整响应日志 =====
+            self.log(f"  [{name}] ┌─ 送礼响应 ──────────────────────")
+            self.log(f"  [{name}] │ HTTP状态: {resp.status_code}   耗时: {_elapsed:.0f}ms")
+            self.log(f"  [{name}] │ 响应头  : {dict(resp.headers)}")
+            self.log(f"  [{name}] │ 原始响应: {resp.text[:800]}")
+
+            try:
+                result = resp.json()
+            except Exception as _je:
+                self.log(f"  [{name}] │ ✗ 响应不是JSON: {_je}")
+                self.log(f"  [{name}] └────────────────────────────────")
+                return False, f"响应解析失败(HTTP {resp.status_code}): {resp.text[:120]}"
+
             code = result.get("code", -1)
             msg = result.get("message", "") or result.get("msg", "")
+            self.log(f"  [{name}] │ code    : {code}")
+            self.log(f"  [{name}] │ message : {msg}")
+            self.log(f"  [{name}] │ data    : {str(result.get("data"))[:400]}")
+            self.log(f"  [{name}] └────────────────────────────────")
             # 错误码中文说明（v6.7.42：补齐 -400 等致命错误码）
             error_map = {
                 200007: "该房间不支持投喂该礼物",
@@ -2908,26 +2951,43 @@ class WatchLiveFrame(tk.Frame):
         # v6.7.42: 送礼前先探测接口是否可用（结果缓存，只查一次）
         # B站 2026-11 已下线 /gift/v2/live/send，实测固定返回 -400。
         # 与其让用户等到提示才发现不可用，不如点击时就明确告知。
+        # v6.7.43: 接口探测改为【软提示】——只警告不拦截，方便实测排查。
+        # 之前 v6.7.42 是硬拦截（探测失败直接 return），导致无法实测。
+        # 现在：探测到接口异常时弹窗告知，但仍允许用户选择继续测试。
         if getattr(self, "_gift_api_ok", None) is None:
             self._gift_api_ok = self._check_gift_api(selected_accounts[0])
         if not self._gift_api_ok:
-            messagebox.showwarning(
-                "送礼功能不可用",
-                "B站已下线当前的送礼接口（/gift/v2/live/send 固定返回 -400）。\n\n"
-                "这不是本程序的问题，也不是账户/余额/礼物的问题——\n"
-                "是 B站服务端不再接受这个接口。\n\n"
-                "在 B站重新开放或程序适配新接口之前，送礼功能无法使用。\n"
-                "看播、抢码、弹幕等功能不受影响。",
-                parent=self.winfo_toplevel())
-            self.log("✗ 送礼接口不可用（B站已下线 v2 接口），已取消本次操作")
-            return
+            self.log("⚠ [探测] 送礼接口返回异常，但本次仍继续发送（测试模式）")
+            _go = messagebox.askyesno(
+                "送礼接口探测异常",
+                "探测结果显示送礼接口返回 -400（B站提示版本不支持）。\n\n"
+                "可能原因：\n"
+                "  · B站确实下线了 /gift/v2/live/send  或\n"
+                "  · 参数/签名不匹配  或\n"
+                "  · 账户/房间权限限制\n\n"
+                "是否仍然继续发送？（建议继续，本次会记录完整请求和响应日志，\n"
+                "方便定位真正原因）",
+                icon="warning", parent=self.winfo_toplevel())
+            if not _go:
+                self.log("⏹ 已取消送礼操作")
+                return
+            self.log("  → 用户选择继续发送，将输出完整请求/响应日志")
 
         self.save_gift_config()
         self.gift_running = True
         self.gift_start_btn.config(state=tk.DISABLED)
         self.gift_stop_btn.config(state=tk.NORMAL)
-        self.log(f"▶ 开始送礼: 直播间{room_id}, 牛蛙牛蛙x{gift_num}, 间隔{interval}秒, 次数{max_count}")
-        self.log(f"  共 {len(selected_accounts)} 个账户参与送礼")
+        # v6.7.43: 启动时打印完整环境信息，便于对照排查
+        self.log("=" * 60)
+        self.log("▶ 开始送礼（v6.7.43 详细日志模式）")
+        self.log(f"  直播间ID  : {room_id}")
+        self.log(f"  礼物      : 牛蛙牛蛙  gift_num={gift_num}")
+        self.log(f"  间隔      : {interval} 秒")
+        self.log(f"  次数      : {max_count}")
+        self.log(f"  参与账户  : {[a.get('name') for a in selected_accounts]}")
+        self.log(f"  程序版本  : {getattr(__import__('config'), 'APP_VERSION', '?')}")
+        self.log(f"  送礼接口  : https://api.live.bilibili.com/gift/v2/live/send")
+        self.log("=" * 60)
         # 为每个账户启动独立线程
         for acc in selected_accounts:
             name = acc.get("name", "未知")
@@ -2979,11 +3039,55 @@ class WatchLiveFrame(tk.Frame):
                 self.after(100, self._on_gift_finished)
 
     def _on_gift_finished(self):
-        """送礼全部结束"""
+        """送礼全部结束（v6.7.43：自动导出本次送礼日志）"""
         self.gift_running = False
         self.gift_start_btn.config(state=tk.NORMAL)
         self.gift_stop_btn.config(state=tk.DISABLED)
         self.log("✓ 所有账户送礼已结束")
+        # v6.7.43: 测试期间自动把送礼相关日志单独导出，方便排查
+        try:
+            self._export_gift_log()
+        except Exception as _e:
+            self.log(f"  ⚠ 导出送礼日志失败: {_e}")
+
+    def _export_gift_log(self):
+        """把今天的送礼相关日志单独导出到一个 txt（v6.7.43 新增）。
+
+        用途：你实测送礼后，直接把这个文件发给我，我就能看到
+        完整请求参数 + 原始响应，无需你再手工复制日志。
+        """
+        import logging_util
+        from config import LOG_DIR
+        try:
+            today = time.strftime("%Y%m%d")
+            src_file = LOG_DIR / f"watch_live_{today}.log"
+            if not src_file.exists():
+                self.log("  [导出] 未找到今日日志文件")
+                return
+            lines = src_file.read_text(encoding="utf-8", errors="replace").splitlines()
+            # 只保留送礼相关的行（含关键词）
+            KEYS = ("送礼", "gift", "Gift", "探测", "┌─", "│", "└─",
+                    "牛蛙", "电池", "余额", "接口")
+            picked = [ln for ln in lines if any(k in ln for k in KEYS)]
+            # 只取今天最后一段（本次运行）
+            if len(picked) > 300:
+                picked = picked[-300:]
+            out_dir = BASE_DIR / "gift_logs"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_file = out_dir / f"送礼测试_{time.strftime('%Y%m%d_%H%M%S')}.txt"
+            header = [
+                "=" * 70,
+                "B站工具箱 送礼测试日志",
+                f"导出时间: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+                f"程序版本: {getattr(__import__('config'), 'APP_VERSION', '?')}",
+                "=" * 70,
+                "",
+            ]
+            out_file.write_text(chr(10).join(header + picked), encoding="utf-8")
+            self.log(f"  [导出] ✓ 送礼日志已导出: {out_file}")
+            self.log(f"  [导出]   共 {len(picked)} 行，可直接发给开发者分析")
+        except Exception as e:
+            self.log(f"  [导出] 失败: {e}")
 
     def stop_gift(self):
         """停止送礼"""
