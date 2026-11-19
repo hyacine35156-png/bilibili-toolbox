@@ -2874,24 +2874,42 @@ class WatchLiveFrame(tk.Frame):
             resp = requests.post(url, data=data, cookies=cookies, headers=headers, timeout=10)
             _elapsed = (time.time() - _t0) * 1000
 
-            # ===== v6.7.43：完整响应日志 =====
-            self.log(f"  [{name}] ┌─ 送礼响应 ──────────────────────")
-            self.log(f"  [{name}] │ HTTP状态: {resp.status_code}   耗时: {_elapsed:.0f}ms")
-            self.log(f"  [{name}] │ 响应头  : {dict(resp.headers)}")
-            self.log(f"  [{name}] │ 原始响应: {resp.text[:800]}")
-
+            # ===== v6.7.45：响应日志（成功时简洁，失败时详细）=====
             try:
                 result = resp.json()
             except Exception as _je:
+                self.log(f"  [{name}] │ HTTP={resp.status_code} 耗时={_elapsed:.0f}ms")
                 self.log(f"  [{name}] │ ✗ 响应不是JSON: {_je}")
-                self.log(f"  [{name}] └────────────────────────────────")
+                self.log(f"  [{name}] │ 原始内容: {resp.text[:300]}")
                 return False, f"响应解析失败(HTTP {resp.status_code}): {resp.text[:120]}"
 
             code = result.get("code", -1)
             msg = result.get("message", "") or result.get("msg", "")
-            self.log(f"  [{name}] │ code    : {code}")
-            self.log(f"  [{name}] │ message : {msg}")
-            self.log(f"  [{name}] │ data    : {str(result.get("data"))[:400]}")
+            _data = result.get("data") or {}
+            self.log(f"  [{name}] │ code={code}  message={msg}  HTTP={resp.status_code}  耗时={_elapsed:.0f}ms")
+
+            if code == 0:
+                # 成功：只打印关键消费信息，不刷屏
+                _pay = _data.get("pay_coin", 0)
+                _total = _data.get("total_coin", 0)
+                _glist = _data.get("gift_list") or []
+                _gname = ""
+                _wallet = {}
+                if _glist:
+                    _gname = _glist[0].get("gift_name", "")
+                    _wallet = ((_glist[0].get("extra") or {}).get("wallet") or {})
+                self.log(f"  [{name}] │ ✓ 送礼成功: {_gname or '礼物'} x{gift_num}")
+                self.log(f"  [{name}] │ 本次消费: {_pay} 电池   (礼物原价 {_total})")
+                if _wallet:
+                    _gold = _wallet.get("gold", 0)
+                    _silver = _wallet.get("silver", 0)
+                    self.log(f"  [{name}] │ 剩余余额: 金电池 {_gold} / 银瓜子 {_silver}")
+                self.log(f"  [{name}] └────────────────────────────────")
+                return True, f"送礼成功 ({_pay}电池)"
+
+            # 失败：打印完整响应便于排查
+            self.log(f"  [{name}] │ 响应头  : {dict(resp.headers)}")
+            self.log(f"  [{name}] │ 原始响应: {resp.text[:800]}")
             self.log(f"  [{name}] └────────────────────────────────")
             # 错误码中文说明（v6.7.42：补齐 -400 等致命错误码）
             error_map = {
