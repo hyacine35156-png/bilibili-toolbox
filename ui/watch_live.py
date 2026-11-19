@@ -648,6 +648,12 @@ class WatchLiveFrame(tk.Frame):
             except Exception:
                 pass
 
+            # ---- 5) 记住上次选中的快捷方案（v6.7.49 新增）----
+            try:
+                self.watch_config["selected_preset"] = self.watch_preset_var.get()
+            except Exception:
+                pass
+
             config_file = BASE_DIR / "watch_config.json"
             atomic_write_json(config_file, self.watch_config)
         except Exception:
@@ -1156,13 +1162,31 @@ class WatchLiveFrame(tk.Frame):
         return [watch_presets.summarize(p) for p in presets]
 
     def refresh_watch_preset_combo(self):
-        """刷新方案下拉框。"""
+        """刷新方案下拉框（v6.7.49：恢复上次选中的方案）。
+
+        原实现刷新后会把选中值清空，导致重启后下拉框显示空白。
+        Tkinter Combobox 的 values 有内容但 textvariable 为空时，
+        显示框就是空白的 —— 这就是用户看到「空白」的原因。
+        """
         try:
             names = self._watch_preset_names()
             self.watch_preset_combo.config(values=names)
             cur = self.watch_preset_var.get()
+            # 当前值无效时，尝试恢复上次保存的方案
             if cur not in names:
-                self.watch_preset_var.set("")
+                saved = ""
+                try:
+                    saved = self.watch_config.get("selected_preset", "")
+                except Exception:
+                    pass
+                if saved and saved in names:
+                    self.watch_preset_var.set(saved)
+                elif names:
+                    # v6.7.49: 没有任何历史选中时，默认选第一个方案，
+                    # 避免下拉框看起来是空的（用户会以为方案丢失了）
+                    self.watch_preset_var.set(names[0])
+                else:
+                    self.watch_preset_var.set("")
         except Exception:
             pass
 
@@ -1224,10 +1248,15 @@ class WatchLiveFrame(tk.Frame):
         }
 
     def _on_watch_preset_selected(self):
-        """选到方案时，在提示里展示摘要。"""
+        """选到方案时，在提示里展示摘要（v6.7.49：同时保存选中值）。"""
         try:
             txt = self.watch_preset_var.get()
             self.watch_preset_hint.config(text=("已选: " + txt) if txt else "")
+        except Exception:
+            pass
+        # v6.7.49: 用户切换方案时立即保存，重启后能记住上次选的方案
+        try:
+            self.save_watch_config()
         except Exception:
             pass
 
@@ -1387,6 +1416,11 @@ class WatchLiveFrame(tk.Frame):
         """按钮：应用选中方案。"""
         preset = self._find_preset_by_summary(self.watch_preset_var.get())
         ok, msg = self._apply_watch_preset(preset)
+        # v6.7.49: 应用后刷新提示文字
+        try:
+            self._on_watch_preset_selected()
+        except Exception:
+            pass
         try:
             self.log(("✓ " if ok else "✗ ") + msg)
         except Exception:
