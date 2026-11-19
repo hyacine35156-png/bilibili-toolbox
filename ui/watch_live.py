@@ -594,8 +594,13 @@ class WatchLiveFrame(tk.Frame):
         return default
 
     def save_watch_config(self):
+        """保存看播界面【全部参数】（v6.7.47 补全）。
+
+        原实现只保存 4 项（直播间/时长/心跳/账户），遗漏了送礼 5 项。
+        现在保存全部 14 项，重启程序后完整恢复。
+        """
         try:
-            # 保存所有直播间栏的选择
+            # ---- 1) 直播间栏选择 ----
             room_selections = []
             for bar, combo, del_btn in self.watch_room_bars:
                 selected = combo.get().strip()
@@ -603,13 +608,46 @@ class WatchLiveFrame(tk.Frame):
                     room_selections.append(selected)
             self.watch_config["room_selections"] = room_selections
             self.watch_config["room_bar_count"] = len(self.watch_room_bars)
-            self.watch_config["daily_minutes"] = self.duration_var.get()
-            self.watch_config["heartbeat_interval"] = self.interval_var.get()
+
+            # ---- 2) 观看设置 ----
+            try:
+                self.watch_config["daily_minutes"] = int(self.duration_var.get())
+            except Exception:
+                pass
+            try:
+                self.watch_config["heartbeat_interval"] = int(self.interval_var.get())
+            except Exception:
+                pass
+
+            # ---- 3) 选中的账户 ----
             selected = []
             for name, var in self.account_vars.items():
                 if var.get():
                     selected.append(name)
             self.watch_config["selected_accounts"] = selected
+
+            # ---- 4) 送礼设置（v6.7.47 补全，之前完全没保存）----
+            try:
+                self.watch_config["gift_selected_account"] = self.gift_account_combo.get()
+            except Exception:
+                pass
+            try:
+                self.watch_config["gift_room_name"] = self.gift_room_combo.get()
+            except Exception:
+                pass
+            try:
+                self.watch_config["gift_num"] = int(self.gift_num_var.get())
+            except Exception:
+                pass
+            try:
+                self.watch_config["gift_interval"] = int(self.gift_interval_var.get())
+            except Exception:
+                pass
+            try:
+                self.watch_config["gift_count"] = int(self.gift_count_var.get())
+            except Exception:
+                pass
+
             config_file = BASE_DIR / "watch_config.json"
             atomic_write_json(config_file, self.watch_config)
         except Exception:
@@ -639,6 +677,34 @@ class WatchLiveFrame(tk.Frame):
             else:
                 for name, var in self.account_vars.items():
                     var.set(name in selected_names)
+
+            # ---- v6.7.47: 恢复送礼 5 项参数 ----
+            try:
+                g_acc = self.watch_config.get("gift_selected_account", "")
+                if g_acc and g_acc in (self.gift_account_combo["values"] or ()):
+                    self.gift_account_combo.set(g_acc)
+            except Exception:
+                pass
+            try:
+                g_room = self.watch_config.get("gift_room_name", "")
+                if g_room:
+                    self._refresh_gift_room_combo_values()
+                    if g_room in (self.gift_room_combo["values"] or ()):
+                        self.gift_room_combo.set(g_room)
+            except Exception:
+                pass
+            try:
+                self.gift_num_var.set(self.watch_config.get("gift_num", 1))
+            except Exception:
+                pass
+            try:
+                self.gift_interval_var.set(self.watch_config.get("gift_interval", 10))
+            except Exception:
+                pass
+            try:
+                self.gift_count_var.set(self.watch_config.get("gift_count", 0))
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -729,6 +795,11 @@ class WatchLiveFrame(tk.Frame):
             # 送礼下拉框绑定
             self.gift_room_combo.bind("<<ComboboxSelected>>", self._on_gift_room_selected)
             self.gift_num_combo.bind("<<ComboboxSelected>>", lambda e: self.save_gift_config())
+            # v6.7.47: 所有送礼参数变化时立即保存（原实现只有部分控件有绑定）
+            self.gift_interval_entry.bind("<FocusOut>", lambda e: self.save_watch_config())
+            self.gift_interval_entry.bind("<Return>", lambda e: self.save_watch_config())
+            self.gift_count_entry.bind("<FocusOut>", lambda e: self.save_watch_config())
+            self.gift_count_entry.bind("<Return>", lambda e: self.save_watch_config())
         except Exception:
             pass
 
