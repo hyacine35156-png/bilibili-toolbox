@@ -1054,6 +1054,10 @@ class WatchLiveFrame(tk.Frame):
         combo = ttk.Combobox(bar, width=20, values=[], state="readonly")
         combo.pack(side=tk.LEFT)
         combo.set("")
+        # v6.7.48 修复：直播间下拉框之前【完全没有绑定保存事件】，
+        # 导致用户选了直播间后不会保存，只有关窗口时 on_close 才存。
+        # 这就是「红框里的参数还是未保存」的真正原因。
+        combo.bind("<<ComboboxSelected>>", lambda e: self.save_watch_config())
         # P2-G: 所有栏都创建删除按钮，避免删除第一栏后新第一栏无按钮
         del_btn = DarkButton(bar, text="✕", command=lambda b=bar: self._remove_watch_room_bar(b), bg_color=COLORS["danger"], text_color="#ffffff", height=32)
         del_btn.pack(side=tk.LEFT, padx=(4, 0))
@@ -1079,6 +1083,8 @@ class WatchLiveFrame(tk.Frame):
                     d.config(state=tk.DISABLED)
                 else:
                     d.config(state=tk.NORMAL)
+        # v6.7.48: 删除栏后立即保存（之前不保存，重启又变回来）
+        self.save_watch_config()
 
     def _get_watch_room_ids(self):
         """获取所有选中的直播间号"""
@@ -1357,6 +1363,12 @@ class WatchLiveFrame(tk.Frame):
             # 送礼参数变化后保存送礼配置
             try:
                 self.save_gift_config()
+            except Exception:
+                pass
+            # v6.7.48 修复：应用方案后【也要保存看播配置】，
+            # 否则重启后直播间/时长等又变回旧值（用户反馈的问题）。
+            try:
+                self.save_watch_config()
             except Exception:
                 pass
 
