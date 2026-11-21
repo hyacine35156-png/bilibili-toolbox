@@ -1139,6 +1139,44 @@ class DanmakuApp:
             activeforeground=COLORS["text_primary"],
             font=("微软雅黑", 11), anchor="w").pack(anchor=tk.W, pady=(1, 1))
 
+        # ---- 全局设置项4：异常抢码模式（v6.7.50 新增）----
+        # 背景：2026-11 实测发现 SESSDATA + buvid3 同时出现会触发
+        #       -351「受到神秘力量干扰」。开启此项后请求不带 buvid3，
+        #       可绕过设备指纹风控。关闭则为 B站默认行为。
+        try:
+            _abn = _appset.rush_abnormal_mode()
+        except Exception:
+            _abn = False
+        self.rush_abnormal_var = tk.BooleanVar(value=bool(_abn))
+        _abn_row = tk.Frame(body4, bg=COLORS["bg_card"])
+        _abn_row.pack(anchor=tk.W, fill=tk.X, pady=(1, 1))
+        tk.Checkbutton(
+            _abn_row,
+            text="异常抢码模式（绕过 -351 设备指纹风控，领奖失败时开启）",
+            variable=self.rush_abnormal_var,
+            command=self.on_toggle_rush_abnormal,
+            bg=COLORS["bg_card"], fg=COLORS["text_primary"],
+            selectcolor=COLORS["bg_input"],
+            activebackground=COLORS["bg_card"],
+            activeforeground=COLORS["text_primary"],
+            font=("微软雅黑", 11), anchor="w").pack(side=tk.LEFT)
+        try:
+            from widgets import ToolTip
+            ToolTip(_abn_row,
+                    "【什么时候开】\n"
+                    "领奖返回 -351「受到神秘力量干扰」时开启。\n\n"
+                    "【原理】\n"
+                    "buvid3 是设备指纹，被 B站标记为可疑设备后，\n"
+                    "与登录态同时出现会被拒绝。开启后请求不带 buvid3。\n\n"
+                    "【实测】\n"
+                    "· 只带 SESSDATA/bili_jct/DedeUserID → 正常\n"
+                    "· 再加 buvid3 → -351 风控（三轮 A/B 100% 复现）\n\n"
+                    "【注意】\n"
+                    "不影响登录、看播、弹幕、抢码功能。",
+                    delay=200)
+        except Exception:
+            pass
+
         # 预留空白区（未来放更多全局设置）
         # v6.7.1: 改为 6px 细线提示，节省纵向空间；后续设置项直接加在此行之后
         _reserve = tk.Frame(body4, bg=COLORS["bg_card"], height=6)
@@ -1508,6 +1546,29 @@ class DanmakuApp:
             except Exception:
                 pass
 
+    def on_toggle_rush_abnormal(self):
+        """全局设置：异常抢码模式开关（v6.7.50 新增）。
+
+        开启 = 请求不带 buvid3/buvid4，绕过 -351 设备指纹风控
+        关闭 = 正常模式，B站默认行为
+        """
+        try:
+            import app_settings as _appset
+            val = bool(self.rush_abnormal_var.get())
+            _appset.set_setting("rush_abnormal_mode", val)
+            if val:
+                self.log("⚙ 已开启【异常抢码模式】")
+                self.log("   请求将不携带 buvid3/buvid4 设备指纹")
+                self.log("   适用于：领奖返回 -351「受到神秘力量干扰」")
+            else:
+                self.log("⚙ 已关闭【异常抢码模式】，恢复正常模式")
+                self.log("   请求按 B站默认行为携带设备指纹")
+            self.log("   立即生效，无需重启")
+        except Exception as e:
+            try:
+                self.log("保存全局设置失败: %s" % e)
+            except Exception:
+                pass
     def on_toggle_rush_show_tools(self):
         """全局设置：新模式是否显示仪表盘/查询中心按钮（v6.7.14 新增）。"""
         try:

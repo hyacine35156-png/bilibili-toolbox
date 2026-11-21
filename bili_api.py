@@ -567,14 +567,46 @@ def receive_reward(task_id, task_info, cookies_dict, csrf, session=None):
 
 # ---------- cookies ----------
 
-def cookies_from_account(acc):
-    """从账户数据生成cookies字典"""
+def cookies_from_account(acc, abnormal_mode=None):
+    """从账户数据生成 cookies 字典。
+
+    v6.7.50：支持【异常抢码模式】。
+
+    背景（2026-11 实测结论）：
+      大量账号领奖返回 {"code":-351,"message":"受到神秘力量干扰，请稍后再试！"}
+      逐字段隔离测试（A/B 三轮 100% 复现）：
+        · 只带 SESSDATA / bili_jct / DedeUserID   → code=0  正常
+        · 再加 buvid3                             → code=-351 风控
+        · 再加 buvid3 + buvid4                    → code=-351 风控
+      结论：buvid3 是被 B站标记的可疑设备指纹，
+            与登录态同时出现时服务端直接拒绝请求。
+
+    abnormal_mode 取值：
+      None  = 读取全局设置 app_settings.rush_abnormal_mode（推荐）
+      True  = 强制异常模式（不带 buvid3）
+      False = 强制正常模式（带 buvid3，B站默认行为）
+    """
+    if abnormal_mode is None:
+        try:
+            import app_settings
+            abnormal_mode = app_settings.rush_abnormal_mode()
+        except Exception:
+            abnormal_mode = False
+
     cookies = {
         "SESSDATA": acc["SESSDATA"],
         "bili_jct": acc["bili_jct"],
     }
     if acc.get("DedeUserID"):
         cookies["DedeUserID"] = acc["DedeUserID"]
+
+    # 异常模式：坚决不带 buvid3/buvid4（它们的缺失不会影响登录态）
+    # 正常模式：如果账户数据里存了 buvid3，则带上（B站默认行为）
+    if not abnormal_mode:
+        for _k in ("buvid3", "buvid4"):
+            if acc.get(_k):
+                cookies[_k] = acc[_k]
+
     return cookies
 
 

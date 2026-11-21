@@ -26,6 +26,12 @@ DEFAULTS = {
     "rush_new_mode_first": False,
     # 新模式是否显示仪表盘/查询中心按钮（v6.7.14）
     "rush_new_mode_show_tools": True,
+    # v6.7.50：异常抢码模式（绕过 -351 风控）
+    #   关闭(False) = 正常模式，请求带 buvid3 设备指纹
+    #   开启(True)  = 异常模式，请求【不带】buvid3
+    # 背景：实测发现 SESSDATA + buvid3 同时出现会触发 -351
+    #       「受到神秘力量干扰」。移除 buvid3 后领奖恢复正常。
+    "rush_abnormal_mode": False,
 }
 
 
@@ -109,3 +115,26 @@ def rush_new_mode_show_tools():
         return bool(get_setting("rush_new_mode_show_tools"))
     except Exception:
         return True
+
+
+def rush_abnormal_mode():
+    """是否启用【异常抢码模式】（v6.7.50 新增）。
+
+    返回值：
+      True  = 异常模式 —— 请求不携带 buvid3/buvid4（绕过 -351 风控）
+      False = 正常模式 —— 请求携带 buvid3/buvid4（B站默认行为）
+
+    背景说明：
+      2026-11 期间大量账号领奖返回：
+        {"code":-351,"message":"受到神秘力量干扰，请稍后再试！"}
+      经逐字段隔离测试确认：
+        · 只带 SESSDATA/bili_jct/DedeUserID  → code=0 正常
+        · 再加 buvid3                        → code=-351 风控
+        · 三轮 A/B 对照实验 100% 复现
+      原因推测：buvid3 是设备指纹，被 B站标记为「自动化工具」，
+                与登录态同时出现时服务端直接拒绝。
+    """
+    try:
+        return bool(get_setting("rush_abnormal_mode"))
+    except Exception:
+        return False
